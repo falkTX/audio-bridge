@@ -326,19 +326,22 @@ bool initAudio(Test& t, const char* const deviceID, unsigned long bufsize, unsig
             return false;
         }
 
-        bufsize *= 2;
+        unsigned periods = 3;
+
+        bufsize *= periods;
         if (snd_pcm_hw_params_set_buffer_size_near(t.ctl, params, &bufsize) != 0)
         {
             DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_near fail");
             return false;
         }
 
-        bufsize /= 2;
-        if (snd_pcm_hw_params_set_period_size_near(t.ctl, params, &bufsize, 0) != 0)
+        bufsize /= periods;
+        if (snd_pcm_hw_params_set_period_size_near(t.ctl, params, &bufsize, nullptr) != 0)
         {
             DEBUGPRINT("snd_pcm_hw_params_set_period_size_near fail");
             return false;
         }
+
         int err;
 
         if ((err = snd_pcm_hw_params(t.ctl, params)) != 0)
@@ -353,10 +356,22 @@ bool initAudio(Test& t, const char* const deviceID, unsigned long bufsize, unsig
             return false;
         }
 
+        snd_pcm_hw_params_get_period_size(params, &bufsize, nullptr);
+        DEBUGPRINT("period size %lu", bufsize);
+
+        snd_pcm_hw_params_get_buffer_size(params, &bufsize);
+        DEBUGPRINT("buffer size %lu", bufsize);
+
+        snd_pcm_hw_params_get_periods(params, &periods, nullptr);
+        DEBUGPRINT("periods %u", periods);
+
         return true;
     }
-
-    return false;
+    else
+    {
+        DEBUGPRINT("snd_pcm_open fail");
+        return false;
+    }
 }
 
 #include <cstring>
@@ -439,7 +454,8 @@ void runAudio(Test& t, unsigned frames)
     }
     int16_t* ptr = rbuf;
 
-    int err;
+    static int first = 0;
+    int err, tries = 0;
 
     while (frames > 0)
     {
@@ -447,7 +463,15 @@ void runAudio(Test& t, unsigned frames)
 
         if (err == -EAGAIN)
         {
-            // DEBUGPRINT("err == -EAGAIN");
+            if (++first < 3)
+            {
+                DEBUGPRINT("err == -EAGAIN [FIRST %d]", first);
+                return;
+            }
+            else
+            {
+                DEBUGPRINT("err == -EAGAIN");
+            }
             continue;
         }
 
@@ -460,6 +484,7 @@ void runAudio(Test& t, unsigned frames)
             }
             break;  /* skip one period */
         }
+
         ptr += err * 2;
         frames -= err;
     }

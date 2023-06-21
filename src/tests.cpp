@@ -9,8 +9,8 @@
 static int proc(unsigned frames, void* arg)
 {
     Test* const t = static_cast<Test*>(arg);
-    t->b1 = (float*)jack_port_get_buffer(t->p1, 0);
-    t->b2 = (float*)jack_port_get_buffer(t->p2, 0);
+    t->b1 = (float*)jack_port_get_buffer(t->p1, frames);
+    t->b2 = (float*)jack_port_get_buffer(t->p2, frames);
     runAudio(*t, frames);
     return 0;
 }
@@ -45,6 +45,8 @@ int main(int argc, const char* argv[])
         t.p2 = jack_port_register(c, "p2", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);
         jack_set_process_callback(c, proc, &t);
         jack_activate(c);
+        jack_connect(c, "mod-monitor:out_1", "audio-test:p1");
+        jack_connect(c, "mod-monitor:out_2", "audio-test:p2");
 
         while (true) sleep(1);
 
