@@ -309,7 +309,33 @@ bool initAudio(Test& t, const char* const deviceID, unsigned long bufsize, unsig
             DEBUGPRINT("snd_pcm_hw_params_set_access fail");
             return false;
         }
-        if (snd_pcm_hw_params_set_format(t.ctl, params, SND_PCM_FORMAT_S16_LE) != 0)
+        if (snd_pcm_hw_params_set_format(t.ctl, params, SND_PCM_FORMAT_S16_LE) == 0)
+        {
+            t.format = SND_PCM_FORMAT_S16_LE;
+            DEBUGPRINT("snd_pcm_hw_params_set_format SND_PCM_FORMAT_S16_LE");
+        }
+//         else if (snd_pcm_hw_params_set_format(t.ctl, params, SND_PCM_FORMAT_U16_LE) == 0)
+//         {
+//             t.format = SND_PCM_FORMAT_U16_LE;
+//         }
+//         else if (snd_pcm_hw_params_set_format(t.ctl, params, SND_PCM_FORMAT_S24_LE) == 0)
+//         {
+//             t.format = SND_PCM_FORMAT_S24_LE;
+//         }
+//         else if (snd_pcm_hw_params_set_format(t.ctl, params, SND_PCM_FORMAT_S32_LE) == 0)
+//         {
+//             t.format = SND_PCM_FORMAT_S32_LE;
+//         }
+//         else if (snd_pcm_hw_params_set_format(t.ctl, params, SND_PCM_FORMAT_FLOAT_LE) == 0)
+//         {
+//             t.format = SND_PCM_FORMAT_FLOAT_LE;
+//         }
+        else if (snd_pcm_hw_params_set_format(t.ctl, params, SND_PCM_FORMAT_S24_3LE) == 0)
+        {
+            t.format = SND_PCM_FORMAT_S24_3LE;
+            DEBUGPRINT("snd_pcm_hw_params_set_format SND_PCM_FORMAT_S24_3LE");
+        }
+        else
         {
             DEBUGPRINT("snd_pcm_hw_params_set_format fail");
             return false;
@@ -412,6 +438,49 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
     return err;
 }
 
+#include <cmath>
+
+static constexpr int32_t float_24(const float s)
+{
+    return s <= -1.0f ? -8388607 :
+           s >= 1.0f ? 8388607 :
+           std::lrintf(s * 8388607.f);
+}
+
+void float2s24le3(int8_t* dst, float* src1, float* src2, unsigned nsamples)
+{
+    int32_t z;
+
+    while (nsamples--)
+    {
+        z = float_24(*src1);
+// #if __BYTE_ORDER == __LITTLE_ENDIAN
+        dst[0] = static_cast<int8_t>(z);
+        dst[1] = static_cast<int8_t>(z>>8);
+        dst[2] = static_cast<int8_t>(z>>16);
+// #elif __BYTE_ORDER == __BIG_ENDIAN
+//         dst[0] = (char)(z);
+//         dst[1] = (char)(z>>8);
+//         dst[2] = (char)(z>>16);
+// #endif
+        dst += 3;
+        ++src1;
+
+        z = float_24(*src2);
+// #if __BYTE_ORDER == __LITTLE_ENDIAN
+        dst[0] = static_cast<int8_t>(z);
+        dst[1] = static_cast<int8_t>(z>>8);
+        dst[2] = static_cast<int8_t>(z>>16);
+// #elif __BYTE_ORDER == __BIG_ENDIAN
+//         dst[0] = (char)(z);
+//         dst[1] = (char)(z>>8);
+//         dst[2] = (char)(z>>16);
+// #endif
+        dst += 3;
+        ++src2;
+    }
+}
+
 void runAudio(Test& t, unsigned frames)
 {
     // std::memset(t.b1, 0, sizeof(float)*frames);
@@ -446,46 +515,90 @@ void runAudio(Test& t, unsigned frames)
     // int avail = snd_pcm_avail_update(handle);
 
     // this assumes SND_PCM_ACCESS_MMAP_INTERLEAVED + SND_PCM_FORMAT_S16_LE
-    int16_t rbuf[frames*2];
-    for (unsigned i=0; i<frames; ++i)
+    if (t.format == SND_PCM_FORMAT_S16_LE)
     {
-        rbuf[i*2+0] = std::min(32767.f, std::max(-32767.f, t.b1[i] * 32767));
-        rbuf[i*2+1] = std::min(32767.f, std::max(-32767.f, t.b2[i] * 32767));
+        int16_t rbuf[frames*2];
+        for (unsigned i=0; i<frames; ++i)
+        {
+            rbuf[i*2+0] = std::min(32767.f, std::max(-32767.f, t.b1[i] * 32767));
+            rbuf[i*2+1] = std::min(32767.f, std::max(-32767.f, t.b2[i] * 32767));
+        }
+        int16_t* ptr = rbuf;
+
+        static int first = 0;
+        int err, tries = 0;
+
+        while (frames > 0)
+        {
+            err = snd_pcm_mmap_writei(t.ctl, ptr, frames);
+
+            if (err == -EAGAIN)
+            {
+                if (++first < 3)
+                {
+                    DEBUGPRINT("err == -EAGAIN [FIRST %d]", first);
+                    return;
+                }
+                else
+                {
+                    DEBUGPRINT("err == -EAGAIN");
+                }
+                continue;
+            }
+
+            if (err < 0)
+            {
+                if (xrun_recovery(t.ctl, err) < 0)
+                {
+                    printf("Write error: %s\n", snd_strerror(err));
+                    exit(EXIT_FAILURE);
+                }
+                break;  /* skip one period */
+            }
+
+            ptr += err * 2;
+            frames -= err;
+        }
     }
-    int16_t* ptr = rbuf;
-
-    static int first = 0;
-    int err, tries = 0;
-
-    while (frames > 0)
+    else if (t.format == SND_PCM_FORMAT_S24_3LE)
     {
-        err = snd_pcm_mmap_writei(t.ctl, ptr, frames);
+        int8_t rbuf[frames*2*3];
+        float2s24le3(rbuf, t.b1, t.b2, frames);
+        int8_t* ptr = rbuf;
 
-        if (err == -EAGAIN)
+        static int first = 0;
+        int err, tries = 0;
+
+        while (frames > 0)
         {
-            if (++first < 3)
-            {
-                DEBUGPRINT("err == -EAGAIN [FIRST %d]", first);
-                return;
-            }
-            else
-            {
-                DEBUGPRINT("err == -EAGAIN");
-            }
-            continue;
-        }
+            err = snd_pcm_mmap_writei(t.ctl, ptr, frames);
 
-        if (err < 0)
-        {
-            if (xrun_recovery(t.ctl, err) < 0)
+            if (err == -EAGAIN)
             {
-                printf("Write error: %s\n", snd_strerror(err));
-                exit(EXIT_FAILURE);
+                if (++first < 3)
+                {
+                    DEBUGPRINT("err == -EAGAIN [s24 FIRST %d]", first);
+                    return;
+                }
+                else
+                {
+                    DEBUGPRINT("err == -EAGAIN");
+                }
+                continue;
             }
-            break;  /* skip one period */
-        }
 
-        ptr += err * 2;
-        frames -= err;
+            if (err < 0)
+            {
+                if (xrun_recovery(t.ctl, err) < 0)
+                {
+                    printf("Write error: %s\n", snd_strerror(err));
+                    exit(EXIT_FAILURE);
+                }
+                break;  /* skip one period */
+            }
+
+            ptr += err * 2 * 3;
+            frames -= err;
+        }
     }
 }
