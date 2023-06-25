@@ -32,7 +32,6 @@ void do_capture(const char* const deviceID)
     if (jack_client_t* const c = jack_client_open("awoosb-capture", JackNoStartServer, nullptr))
     {
         ClientData d;
-
         const uint16_t bufferSize = jack_get_buffer_size(c);
         const uint32_t sampleRate = jack_get_sample_rate(c);
 
@@ -56,7 +55,6 @@ void do_capture(const char* const deviceID)
         while (true) sleep(1);
 
         jack_deactivate(c);
-
         closeDeviceAudio(d.dev);
 
     end:
@@ -69,7 +67,6 @@ void do_playback(const char* const deviceID)
     if (jack_client_t* const c = jack_client_open("awoosb-playback", JackNoStartServer, nullptr))
     {
         ClientData d;
-
         const uint16_t bufferSize = jack_get_buffer_size(c);
         const uint32_t sampleRate = jack_get_sample_rate(c);
 
@@ -95,7 +92,6 @@ void do_playback(const char* const deviceID)
         while (true) sleep(1);
 
         jack_deactivate(c);
-
         closeDeviceAudio(d.dev);
 
     end:

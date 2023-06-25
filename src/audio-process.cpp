@@ -130,34 +130,34 @@ namespace float2int
 {
 
 static inline
-void s16(void* const dst, float* const* const src, const unsigned channels, const unsigned samples)
+void s16(void* const dst, float* const* const src, const uint8_t channels, const uint16_t samples)
 {
     int16_t* const dstptr = static_cast<int16_t*>(dst);
 
-    for (unsigned i=0; i<samples; ++i)
-        for (unsigned c=0; c<channels; ++c)
+    for (uint16_t i=0; i<samples; ++i)
+        for (uint8_t c=0; c<channels; ++c)
             dstptr[i*channels+c] = float16(src[c][i]);
 }
 
 static inline
-void s24(void* const dst, float* const* const src, const unsigned channels, const unsigned samples)
+void s24(void* const dst, float* const* const src, const uint8_t channels, const uint16_t samples)
 {
     int32_t* const dstptr = static_cast<int32_t*>(dst);
 
-    for (unsigned i=0; i<samples; ++i)
-        for (unsigned c=0; c<channels; ++c)
+    for (uint16_t i=0; i<samples; ++i)
+        for (uint8_t c=0; c<channels; ++c)
             dstptr[i*channels+c] = float24(src[c][i]);
 }
 
 static inline
-void s24le3(void* const dst, float* const* const src, const unsigned channels, const unsigned samples)
+void s24le3(void* const dst, float* const* const src, const uint8_t channels, const uint16_t samples)
 {
     int8_t* dstptr = static_cast<int8_t*>(dst);
     int32_t z;
 
-    for (unsigned i=0; i<samples; ++i)
+    for (uint16_t i=0; i<samples; ++i)
     {
-        for (unsigned c=0; c<channels; ++c)
+        for (uint8_t c=0; c<channels; ++c)
         {
             z = float24(src[c][i]);
            #if __BYTE_ORDER == __BIG_ENDIAN
@@ -175,12 +175,12 @@ void s24le3(void* const dst, float* const* const src, const unsigned channels, c
 }
 
 static inline
-void s32(void* const dst, float* const* const src, const unsigned channels, const unsigned samples)
+void s32(void* const dst, float* const* const src, const uint8_t channels, const uint16_t samples)
 {
     int32_t* const dstptr = static_cast<int32_t*>(dst);
 
-    for (unsigned i=0; i<samples; ++i)
-        for (unsigned c=0; c<channels; ++c)
+    for (uint16_t i=0; i<samples; ++i)
+        for (uint8_t c=0; c<channels; ++c)
             dstptr[i*channels+c] = float32(src[c][i]);
 }
 
@@ -192,34 +192,34 @@ namespace int2float
 {
 
 static inline
-void s16(float* const* const dst, void* const src, const unsigned channels, const unsigned samples)
+void s16(float* const* const dst, void* const src, const uint8_t channels, const uint16_t samples)
 {
     int16_t* const srcptr = static_cast<int16_t*>(src);
 
-    for (unsigned i=0; i<samples; ++i)
-        for (unsigned c=0; c<channels; ++c)
+    for (uint16_t i=0; i<samples; ++i)
+        for (uint8_t c=0; c<channels; ++c)
             dst[c][i] = static_cast<float>(srcptr[i*channels+c]) * (1.f / 32767.f);
 }
 
 static inline
-void s24(float* const* const dst, void* const src, const unsigned channels, const unsigned samples)
+void s24(float* const* const dst, void* const src, const uint8_t channels, const uint16_t samples)
 {
     int32_t* const srcptr = static_cast<int32_t*>(src);
 
-    for (unsigned i=0; i<samples; ++i)
-        for (unsigned c=0; c<channels; ++c)
+    for (uint16_t i=0; i<samples; ++i)
+        for (uint8_t c=0; c<channels; ++c)
             dst[c][i] = static_cast<float>(srcptr[i*channels+c]) * (1.f / 8388607.f);
 }
 
 static inline
-void s24le3(float* const* const dst, void* const src, const unsigned channels, const unsigned samples)
+void s24le3(float* const* const dst, void* const src, const uint8_t channels, const uint16_t samples)
 {
     int8_t* srcptr = static_cast<int8_t*>(src);
     int32_t z;
 
-    for (unsigned i=0; i<samples; ++i)
+    for (uint16_t i=0; i<samples; ++i)
     {
-        for (unsigned c=0; c<channels; ++c)
+        for (uint8_t c=0; c<channels; ++c)
         {
             // TODO verify if this is correct
            #if __BYTE_ORDER == __BIG_ENDIAN
@@ -238,12 +238,12 @@ void s24le3(float* const* const dst, void* const src, const unsigned channels, c
 }
 
 static inline
-void s32(float* const* const dst, void* const src, const unsigned channels, const unsigned samples)
+void s32(float* const* const dst, void* const src, const uint8_t channels, const uint16_t samples)
 {
     int32_t* const srcptr = static_cast<int32_t*>(src);
 
-    for (unsigned i=0; i<samples; ++i)
-        for (unsigned c=0; c<channels; ++c)
+    for (uint16_t i=0; i<samples; ++i)
+        for (uint8_t c=0; c<channels; ++c)
             dst[c][i] = static_cast<double>(srcptr[i*channels+c]) * (1.0 / 2147483647.0);
 }
 
@@ -479,7 +479,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         CaptureDeviceAudio* const devptr = new CaptureDeviceAudio;
         std::memcpy(devptr, &dev, sizeof(dev));
 
-        devptr->readPos = 0;
+        devptr->readOffset = 0;
 
         return devptr;
     }
@@ -533,7 +533,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
     const uint8_t channels = dev->channels;
     const uint8_t hints = dev->hints;
     const uint8_t sampleSize = getSampleSizeFromHints(hints);
-    unsigned frames = bufferSize;
+    uint16_t frames = bufferSize;
     uint8_t retries = 0;
 
     // this assumes SND_PCM_ACCESS_MMAP_INTERLEAVED
@@ -541,14 +541,13 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
     {
         CaptureDeviceAudio* const cdev = static_cast<CaptureDeviceAudio*>(dev);
         int8_t* ptr = static_cast<int8_t*>(dev->buffer);
-        unsigned fullFramesRead = 0;
         int err;
 
-        if (const unsigned prevPos = cdev->readPos)
+        if (const uint16_t prevOffset = cdev->readOffset)
         {
-            frames -= prevPos;
-            ptr += prevPos * channels * sampleSize;
-            cdev->readPos = 0;
+            frames -= prevOffset;
+            ptr += prevOffset * channels * sampleSize;
+            cdev->readOffset = 0;
         }
 
         while (frames != 0)
@@ -560,10 +559,10 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             {
                 if ((hints & kDeviceStarting) || ++retries > 10)
                 {
-                    cdev->readPos = bufferSize - frames;
+                    cdev->readOffset = bufferSize - frames;
                     // DEBUGPRINT("err == -EAGAIN [kDeviceStarting]");
 
-                    for (unsigned c=0; c<channels; ++c)
+                    for (uint8_t c=0; c<channels; ++c)
                         std::memset(buffers[c], 0, sizeof(float)*bufferSize);
 
                     return;
@@ -586,7 +585,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
                 break;  /* skip one period */
             }
 
-            if (static_cast<unsigned>(err) == frames)
+            if (static_cast<uint16_t>(err) == frames)
             {
                 // DEBUGPRINT("Complete read %u", frames);
                 dev->hints &= ~kDeviceStarting;
@@ -673,7 +672,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
                 break;  /* skip one period */
             }
 
-            if (static_cast<unsigned>(err) == frames)
+            if (static_cast<uint16_t>(err) == frames)
             {
                 dev->hints &= ~kDeviceStarting;
                 // DEBUGPRINT("Complete write %u", frames);

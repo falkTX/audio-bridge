@@ -26,7 +26,7 @@ struct DeviceAudio {
 };
 
 struct CaptureDeviceAudio : DeviceAudio {
-    uint32_t readPos;
+    uint16_t readOffset;
 };
 
 DeviceAudio* initDeviceAudio(const char* deviceID, bool playback, uint16_t bufferSize, uint32_t sampleRate);
