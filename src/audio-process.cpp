@@ -97,9 +97,6 @@ static const char* SND_PCM_FORMAT_STRING(const snd_pcm_format_t format)
 
 // --------------------------------------------------------------------------------------------------------------------
 
-namespace float2int
-{
-
 // 0x7fff
 static constexpr inline
 int16_t float16(const float s)
@@ -126,6 +123,11 @@ int32_t float32(const double s)
            s >= 1.f ? 2147483647 :
            std::lrint(s * 2147483647.f);
 }
+
+// --------------------------------------------------------------------------------------------------------------------
+
+namespace float2int
+{
 
 static inline
 void s16(void* const dst, float* const* const src, const unsigned channels, const unsigned samples)
@@ -355,28 +357,53 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
 
     for (unsigned periods : kPeriodsToTry)
     {
+        bufferSizeParam = bufferSize;
+        if ((err = snd_pcm_hw_params_set_period_size_min(dev.pcm, params, &bufferSizeParam, nullptr)) != 0)
+        {
+            DEBUGPRINT("snd_pcm_hw_params_set_period_size_min fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
+            continue;
+        }
+        bufferSizeParam = bufferSize;
+        if ((err = snd_pcm_hw_params_set_period_size_max(dev.pcm, params, &bufferSizeParam, nullptr)) != 0)
+        {
+            DEBUGPRINT("snd_pcm_hw_params_set_period_size_max fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
+            continue;
+        }
+        bufferSizeParam = bufferSize;
+        if ((err = snd_pcm_hw_params_set_period_size_near(dev.pcm, params, &bufferSizeParam, nullptr)) != 0)
+        {
+            DEBUGPRINT("snd_pcm_hw_params_set_period_size_near fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
+            continue;
+        }
+
+        bufferSizeParam = bufferSize * periods;
+        if ((err = snd_pcm_hw_params_set_buffer_size_min(dev.pcm, params, &bufferSizeParam)) != 0)
+        {
+            DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_min fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
+            continue;
+        }
+        bufferSizeParam = bufferSize * periods;
+        if ((err = snd_pcm_hw_params_set_buffer_size_max(dev.pcm, params, &bufferSizeParam)) != 0)
+        {
+            DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_max fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
+            continue;
+        }
         bufferSizeParam = bufferSize * periods;
         if ((err = snd_pcm_hw_params_set_buffer_size_near(dev.pcm, params, &bufferSizeParam)) != 0)
         {
-            DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_near fail %s", snd_strerror(err));
+            DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_near fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
             continue;
         }
 
-        bufferSizeParam /= periods;
-        if ((err = snd_pcm_hw_params_set_period_size_near(dev.pcm, params, &bufferSizeParam, nullptr)) != 0)
-        {
-            DEBUGPRINT("snd_pcm_hw_params_set_period_size_near fail %s", snd_strerror(err));
-            continue;
-        }
+        // bufferSizeParam /= periods;
+        // if (bufferSizeParam == bufferSize)
+        // {
+        periodsParam = bufferSizeParam / bufferSize;
+        DEBUGPRINT("buffer size match %u, using %u periods", bufferSize, periodsParam);
+        break;
+        // }
 
-        if (bufferSizeParam == bufferSize)
-        {
-            DEBUGPRINT("buffer size match %u, using %u periods", bufferSize, periods);
-            periodsParam = periods;
-            break;
-        }
-
-        DEBUGPRINT("buffer size mis match %lu vs %u, using %u periods", bufferSizeParam, bufferSize, periods);
+        // DEBUGPRINT("buffer size mismatch %lu vs %u, using %u periods", bufferSizeParam, bufferSize, periods);
     }
 
     if (periodsParam == 0)
@@ -534,7 +561,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
                 if ((hints & kDeviceStarting) || ++retries > 10)
                 {
                     cdev->readPos = bufferSize - frames;
-                    DEBUGPRINT("err == -EAGAIN [kDeviceStarting]");
+                    // DEBUGPRINT("err == -EAGAIN [kDeviceStarting]");
 
                     for (unsigned c=0; c<channels; ++c)
                         std::memset(buffers[c], 0, sizeof(float)*bufferSize);
@@ -543,7 +570,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
                 }
                 else
                 {
-                    DEBUGPRINT("err == -EAGAIN");
+                    // DEBUGPRINT("err == -EAGAIN");
                 }
                 continue;
             }
@@ -619,17 +646,18 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
         while (frames > 0)
         {
             err = snd_pcm_mmap_writei(dev->pcm, ptr, frames);
+            // DEBUGPRINT("write %d of %u", err, frames);
 
             if (err == -EAGAIN)
             {
                 if ((hints & kDeviceStarting) || ++retries > 10)
                 {
-                    DEBUGPRINT("err == -EAGAIN [kDeviceStarting]");
+                    // DEBUGPRINT("err == -EAGAIN [kDeviceStarting]");
                     return;
                 }
                 else
                 {
-                    DEBUGPRINT("err == -EAGAIN");
+                    // DEBUGPRINT("err == -EAGAIN");
                 }
                 continue;
             }

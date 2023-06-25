@@ -25,6 +25,10 @@ static int jack_process(const unsigned frames, void* const arg)
 
 void do_capture(const char* const deviceID)
 {
+   #ifdef __MOD_DEVICES__
+    setenv("JACK_INTERNAL_CLIENT_SYNC", ".", 1);
+   #endif
+
     if (jack_client_t* const c = jack_client_open("awoosb-capture", JackNoStartServer, nullptr))
     {
         ClientData d;
@@ -41,8 +45,13 @@ void do_capture(const char* const deviceID)
         jack_set_process_callback(c, jack_process, &d);
         jack_activate(c);
 
+#ifdef __MOD_DEVICES__
+        jack_connect(c, "awoosb-capture:p1", "mod-host:in1");
+        jack_connect(c, "awoosb-capture:p2", "mod-host:in2");
+#else
         jack_connect(c, "awoosb-capture:p1", "awoosb-playback:p1");
         jack_connect(c, "awoosb-capture:p2", "awoosb-playback:p2");
+#endif
 
         while (true) sleep(1);
 
@@ -73,12 +82,15 @@ void do_playback(const char* const deviceID)
         jack_set_process_callback(c, jack_process, &d);
         jack_activate(c);
 
+#ifdef __MOD_DEVICES__
+        jack_connect(c, "mod-monitor:out_1", "awoosb-playback:p1");
+        jack_connect(c, "mod-monitor:out_2", "awoosb-playback:p2");
+#else
         jack_connect(c, "PulseAudio JACK Sink:front-left", "awoosb-playback:p1");
         jack_connect(c, "PulseAudio JACK Sink:front-right", "awoosb-playback:p2");
         jack_connect(c, "awoosb-capture:p1", "awoosb-playback:p1");
         jack_connect(c, "awoosb-capture:p2", "awoosb-playback:p2");
-        // jack_connect(c, "mod-monitor:out_1", "awoosb-playback:p1");
-        // jack_connect(c, "mod-monitor:out_2", "awoosb-playback:p2");
+#endif
 
         while (true) sleep(1);
 
