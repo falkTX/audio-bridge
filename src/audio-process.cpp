@@ -9,23 +9,19 @@
 
 #define DEBUGPRINT(...) printf(__VA_ARGS__); puts("");
 
+// --------------------------------------------------------------------------------------------------------------------
+
 static constexpr const snd_pcm_format_t kFormatsToTry[] = {
-    SND_PCM_FORMAT_S16_LE,
-    // SND_PCM_FORMAT_U16_LE,
-    // SND_PCM_FORMAT_S24_LE,
+    SND_PCM_FORMAT_FLOAT,
+    SND_PCM_FORMAT_S32,
     SND_PCM_FORMAT_S24_3LE,
-    // SND_PCM_FORMAT_U24_LE,
-    // SND_PCM_FORMAT_U24_3LE,
-    // SND_PCM_FORMAT_S32_LE,
-    // SND_PCM_FORMAT_U32_LE,
-    // SND_PCM_FORMAT_FLOAT_LE,
-    // SND_PCM_FORMAT_S20_LE,
-    // SND_PCM_FORMAT_U20_LE,
-    // SND_PCM_FORMAT_S8,
-    // SND_PCM_FORMAT_U8,
+    SND_PCM_FORMAT_S24,
+    SND_PCM_FORMAT_S16,
 };
 
 static constexpr const unsigned kPeriodsToTry[] = { 3, 2, 4 };
+
+// --------------------------------------------------------------------------------------------------------------------
 
 static const char* SND_PCM_FORMAT_STRING(const snd_pcm_format_t format)
 {
@@ -89,94 +85,97 @@ static const char* SND_PCM_FORMAT_STRING(const snd_pcm_format_t format)
     return "";
 }
 
-// TODO cleanup, see what is needed
-static int xrun_recovery(snd_pcm_t *handle, int err)
-{
-    static int count = 0;
-    // if ((count % 200) == 0)
-    {
-        count = 1;
-        printf("stream recovery\n");
-    }
+// --------------------------------------------------------------------------------------------------------------------
 
-    if (err == -EPIPE)
-    {
-        /* under-run */
-        err = snd_pcm_prepare(handle);
-        if (err < 0)
-            printf("Can't recovery from underrun, prepare failed: %s\n", snd_strerror(err));
-        return 0;
-    }
-    else if (err == -ESTRPIPE)
-    {
-        while ((err = snd_pcm_resume(handle)) == -EAGAIN)
-            sleep(1);   /* wait until the suspend flag is released */
-
-        if (err < 0)
-        {
-            err = snd_pcm_prepare(handle);
-            if (err < 0)
-                printf("Can't recovery from suspend, prepare failed: %s\n", snd_strerror(err));
-        }
-
-        return 0;
-    }
-
-    return err;
-}
-
-static /*constexpr*/ int16_t float16(const float s)
+// 0x7fff
+static inline
+int16_t float16(const float s)
 {
     return std::max<int16_t>(-32767, std::min<int16_t>(32767, static_cast<int16_t>(std::lrintf(s * 32767.f))));
 }
 
-static /*constexpr*/ int32_t float24(const float s)
+// 0x7fffff
+static inline
+int32_t float24(const float s)
 {
-    return std::min<int32_t>(-8388607, std::max<int32_t>(8388607, static_cast<int32_t>(std::lrintf(s * 8388607.f))));
+    return std::max<int32_t>(-8388607, std::min<int32_t>(8388607, static_cast<int32_t>(std::lrintf(s * 8388607.f))));
 }
 
-static void float2s16(void* const dst, float* const* const src, const unsigned channels, const unsigned samples)
+// 0x7fffffff
+static inline
+int32_t float32(const double s)
 {
-    int16_t* const dst2 = static_cast<int16_t*>(dst);
+    return std::max<int32_t>(-2147483647, std::min<int32_t>(2147483647, static_cast<int32_t>(std::lrint(s * 2147483647.0))));
+}
+
+// --------------------------------------------------------------------------------------------------------------------
+
+static inline
+void floatbuffer_s16(void* const dst, float* const* const src, const unsigned channels, const unsigned samples)
+{
+    int16_t* const dstptr = static_cast<int16_t*>(dst);
 
     for (unsigned i=0; i<samples; ++i)
         for (unsigned c=0; c<channels; ++c)
-            dst2[i*channels+c] = float16(src[c][i]);
+            dstptr[i*channels+c] = float16(src[c][i]);
 }
 
-static void float2s24le3(int8_t* dst, float* src1, float* src2, unsigned nsamples)
+static inline
+void floatbuffer_s24(void* const dst, float* const* const src, const unsigned channels, const unsigned samples)
 {
+    int32_t* const dstptr = static_cast<int32_t*>(dst);
+
+    for (unsigned i=0; i<samples; ++i)
+        for (unsigned c=0; c<channels; ++c)
+            dstptr[i*channels+c] = float24(src[c][i]);
+}
+
+static inline
+void floatbuffer_s24le3(void* const dst, float* const* const src, const unsigned channels, const unsigned samples)
+{
+    int8_t* dstptr = static_cast<int8_t*>(dst);
     int32_t z;
 
-    while (nsamples--)
+    for (unsigned i=0; i<samples; ++i)
     {
-        z = float24(*src1);
-// #if __BYTE_ORDER == __LITTLE_ENDIAN
-        dst[0] = static_cast<int8_t>(z);
-        dst[1] = static_cast<int8_t>(z>>8);
-        dst[2] = static_cast<int8_t>(z>>16);
-// #elif __BYTE_ORDER == __BIG_ENDIAN
-//         dst[0] = (char)(z);
-//         dst[1] = (char)(z>>8);
-//         dst[2] = (char)(z>>16);
-// #endif
-        dst += 3;
-        ++src1;
-
-        z = float24(*src2);
-// #if __BYTE_ORDER == __LITTLE_ENDIAN
-        dst[0] = static_cast<int8_t>(z);
-        dst[1] = static_cast<int8_t>(z>>8);
-        dst[2] = static_cast<int8_t>(z>>16);
-// #elif __BYTE_ORDER == __BIG_ENDIAN
-//         dst[0] = (char)(z);
-//         dst[1] = (char)(z>>8);
-//         dst[2] = (char)(z>>16);
-// #endif
-        dst += 3;
-        ++src2;
+        for (unsigned c=0; c<channels; ++c)
+        {
+            z = float24(src[c][i]);
+           #if __BYTE_ORDER == __BIG_ENDIAN
+            dstptr[2] = static_cast<int8_t>(z);
+            dstptr[1] = static_cast<int8_t>(z>>8);
+            dstptr[0] = static_cast<int8_t>(z>>16);
+           #else
+            dstptr[0] = static_cast<int8_t>(z);
+            dstptr[1] = static_cast<int8_t>(z>>8);
+            dstptr[2] = static_cast<int8_t>(z>>16);
+           #endif
+            dstptr += 3;
+        }
     }
 }
+
+static inline
+void floatbuffer_s32(void* const dst, float* const* const src, const unsigned channels, const unsigned samples)
+{
+    int32_t* const dstptr = static_cast<int32_t*>(dst);
+
+    for (unsigned i=0; i<samples; ++i)
+        for (unsigned c=0; c<channels; ++c)
+            dstptr[i*channels+c] = float32(src[c][i]);
+}
+
+static inline
+void floatbuffer_float(void* const dst, float* const* const src, const unsigned channels, const unsigned samples)
+{
+    float* const dstptr = static_cast<float*>(dst);
+
+    for (unsigned i=0; i<samples; ++i)
+        for (unsigned c=0; c<channels; ++c)
+            dstptr[i*channels+c] = src[c][i];
+}
+
+// --------------------------------------------------------------------------------------------------------------------
 
 DeviceAudio* initDeviceAudio(const char* const deviceID, const unsigned bufferSize, const unsigned sampleRate)
 {
@@ -193,6 +192,9 @@ DeviceAudio* initDeviceAudio(const char* const deviceID, const unsigned bufferSi
 
     snd_pcm_hw_params_t* params;
     snd_pcm_hw_params_alloca(&params);
+
+    snd_pcm_sw_params_t *swparams;
+    snd_pcm_sw_params_alloca(&swparams);
 
     unsigned periodsParam = 0;
     unsigned sampleRateParam = sampleRate;
@@ -216,16 +218,8 @@ DeviceAudio* initDeviceAudio(const char* const deviceID, const unsigned bufferSi
         goto error;
     }
 
-#if 0
     for (snd_pcm_format_t format : kFormatsToTry)
     {
-#else
-    for (int i = 0; i < SND_PCM_FORMAT_LAST; ++i)
-    {
-        snd_pcm_format_t format = static_cast<snd_pcm_format_t>(i);
-        if (format == SND_PCM_FORMAT_S16_LE) continue;
-#endif
-
         if ((err = snd_pcm_hw_params_set_format(dev.pcm, params, format)) != 0)
         {
             DEBUGPRINT("snd_pcm_hw_params_set_format fail %u:%s %s", format, SND_PCM_FORMAT_STRING(format), snd_strerror(err));
@@ -305,6 +299,36 @@ DeviceAudio* initDeviceAudio(const char* const deviceID, const unsigned bufferSi
         goto error;
     }
 
+    if ((err = snd_pcm_sw_params_current(dev.pcm, swparams)) != 0)
+    {
+        DEBUGPRINT("snd_pcm_sw_params_current fail %s", snd_strerror(err));
+        goto error;
+    }
+
+    if ((err = snd_pcm_sw_params_set_start_threshold(dev.pcm, swparams, bufferSize)) != 0)
+    {
+        DEBUGPRINT("snd_pcm_sw_params_set_start_threshold fail %s", snd_strerror(err));
+        goto error;
+    }
+
+    if ((err = snd_pcm_sw_params_set_stop_threshold(dev.pcm, swparams, -1)) != 0)
+    {
+        DEBUGPRINT("snd_pcm_sw_params_set_stop_threshold fail %s", snd_strerror(err));
+        goto error;
+    }
+
+    if ((err = snd_pcm_sw_params_set_avail_min(dev.pcm, swparams, bufferSize * periodsParam)) != 0)
+    {
+        DEBUGPRINT("snd_pcm_sw_params_set_avail_min fail %s", snd_strerror(err));
+        goto error;
+    }
+
+    if ((err = snd_pcm_sw_params(dev.pcm, swparams)) != 0)
+    {
+        DEBUGPRINT("snd_pcm_sw_params fail %s", snd_strerror(err));
+        goto error;
+    }
+
     DEBUGPRINT("period size BEFORE %lu", bufferSizeParam);
     snd_pcm_hw_params_get_period_size(params, &bufferSizeParam, nullptr);
     DEBUGPRINT("period size AFTER %lu", bufferSizeParam);
@@ -317,7 +341,8 @@ DeviceAudio* initDeviceAudio(const char* const deviceID, const unsigned bufferSi
     DEBUGPRINT("periods AFTER %u", periodsParam);
 
     {
-        const unsigned slen = dev.format == SND_PCM_FORMAT_S24_3LE ? 3 : 2;
+        // FIXME ask alsa sample size
+        const unsigned slen = dev.format == SND_PCM_FORMAT_S24_3LE ? 3 : 4;
         dev.buffer = std::malloc(slen * dev.bufferSize * dev.channels);
 
         DeviceAudio* const devptr = new DeviceAudio;
@@ -329,6 +354,44 @@ DeviceAudio* initDeviceAudio(const char* const deviceID, const unsigned bufferSi
 error:
     snd_pcm_close(dev.pcm);
     return nullptr;
+}
+
+// --------------------------------------------------------------------------------------------------------------------
+
+// TODO cleanup, see what is needed
+static int xrun_recovery(snd_pcm_t *handle, int err)
+{
+    static int count = 0;
+    // if ((count % 200) == 0)
+    {
+        count = 1;
+        printf("stream recovery: %s\n", snd_strerror(err));
+    }
+
+    if (err == -EPIPE)
+    {
+        /* under-run */
+        err = snd_pcm_prepare(handle);
+        if (err < 0)
+            printf("Can't recovery from underrun, prepare failed: %s\n", snd_strerror(err));
+        return 0;
+    }
+    else if (err == -ESTRPIPE)
+    {
+        while ((err = snd_pcm_resume(handle)) == -EAGAIN)
+            sleep(1);   /* wait until the suspend flag is released */
+
+        if (err < 0)
+        {
+            err = snd_pcm_prepare(handle);
+            if (err < 0)
+                printf("Can't recovery from suspend, prepare failed: %s\n", snd_strerror(err));
+        }
+
+        return 0;
+    }
+
+    return err;
 }
 
 void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
@@ -366,98 +429,87 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
 
     const unsigned channels = dev->channels;
     unsigned frames = dev->bufferSize;
+    unsigned sampleSize;
 
     // this assumes SND_PCM_ACCESS_MMAP_INTERLEAVED
     switch (dev->format)
     {
-    case SND_PCM_FORMAT_S16_LE:
-    {
-        float2s16(dev->buffer, buffers, channels, frames);
-
-        int8_t* ptr = static_cast<int8_t*>(dev->buffer);
-
-        static int first = 0;
-        int err, tries = 0;
-
-        while (frames > 0)
-        {
-            err = snd_pcm_mmap_writei(dev->pcm, ptr, frames);
-
-            if (err == -EAGAIN)
-            {
-                if (++first < 3)
-                {
-                    DEBUGPRINT("err == -EAGAIN [FIRST %d]", first);
-                    return;
-                }
-                else
-                {
-                    DEBUGPRINT("err == -EAGAIN");
-                }
-                continue;
-            }
-
-            if (err < 0)
-            {
-                if (xrun_recovery(dev->pcm, err) < 0)
-                {
-                    printf("Write error: %s\n", snd_strerror(err));
-                    exit(EXIT_FAILURE);
-                }
-                break;  /* skip one period */
-            }
-
-            ptr += err * channels * 2;
-            frames -= err;
-        }
+    case SND_PCM_FORMAT_S16:
+        sampleSize = sizeof(int16_t);
+        floatbuffer_s16(dev->buffer, buffers, channels, frames);
         break;
-    }
+    case SND_PCM_FORMAT_S24:
+        sampleSize = sizeof(int32_t);
+        floatbuffer_s24(dev->buffer, buffers, channels, frames);
+        break;
     case SND_PCM_FORMAT_S24_3LE:
-    {
-        int8_t* ptr = static_cast<int8_t*>(dev->buffer);
-        float2s24le3(ptr, buffers[0], buffers[1], frames);
-
-        static int first = 0;
-        int err, tries = 0;
-
-        while (frames > 0)
-        {
-            err = snd_pcm_mmap_writei(dev->pcm, ptr, frames);
-
-            if (err == -EAGAIN)
-            {
-                if (++first < 3)
-                {
-                    DEBUGPRINT("err == -EAGAIN [s24 FIRST %d]", first);
-                    return;
-                }
-                else
-                {
-                    DEBUGPRINT("err == -EAGAIN");
-                }
-                continue;
-            }
-
-            if (err < 0)
-            {
-                if (xrun_recovery(dev->pcm, err) < 0)
-                {
-                    printf("Write error: %s\n", snd_strerror(err));
-                    exit(EXIT_FAILURE);
-                }
-                break;  /* skip one period */
-            }
-
-            ptr += err * 2 * 3;
-            frames -= err;
-        }
+        sampleSize = 3;
+        floatbuffer_s24le3(dev->buffer, buffers, channels, frames);
+        break;
+    case SND_PCM_FORMAT_S32:
+        sampleSize = sizeof(int32_t);
+        floatbuffer_s32(dev->buffer, buffers, channels, frames);
+        break;
+    case SND_PCM_FORMAT_FLOAT:
+        sampleSize = sizeof(float);
+        floatbuffer_float(dev->buffer, buffers, channels, frames);
+        break;
+    default:
+        DEBUGPRINT("unknown format");
         break;
     }
+
+    int8_t* ptr = static_cast<int8_t*>(dev->buffer);
+
+    static int first = 0;
+    int err, tries = 0;
+
+    while (frames > 0)
+    {
+        err = snd_pcm_mmap_writei(dev->pcm, ptr, frames);
+
+        if (err == -EAGAIN)
+        {
+            if (++first < 3)
+            {
+                DEBUGPRINT("err == -EAGAIN [s24 FIRST %d]", first);
+                return;
+            }
+            else
+            {
+                DEBUGPRINT("err == -EAGAIN");
+            }
+            continue;
+        }
+
+        if (err < 0)
+        {
+            if (xrun_recovery(dev->pcm, err) < 0)
+            {
+                printf("Write error: %s\n", snd_strerror(err));
+                exit(EXIT_FAILURE);
+            }
+            break;  /* skip one period */
+        }
+
+        if (static_cast<unsigned>(err) == frames)
+        {
+            // DEBUGPRINT("Complete write %u", frames);
+            break;
+        }
+
+        ptr += err * channels * sampleSize;
+        frames -= err;
+
+        DEBUGPRINT("Incomplete write %d of %u, %u left", err, dev->bufferSize, frames);
     }
 }
 
 void closeDeviceAudio(DeviceAudio* const dev)
 {
     snd_pcm_close(dev->pcm);
+    std::free(dev->buffer);
     delete dev;
 }
+
+// --------------------------------------------------------------------------------------------------------------------

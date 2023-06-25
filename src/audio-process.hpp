@@ -9,10 +9,11 @@
 
 struct DeviceAudio {
     snd_pcm_t* pcm;
-    unsigned bufferSize;
-    unsigned channels;
-    snd_pcm_format_t format = SND_PCM_FORMAT_UNKNOWN;
     void* buffer;
+    uint16_t bufferSize;
+    uint8_t channels;
+    uint8_t unused;
+    snd_pcm_format_t format = SND_PCM_FORMAT_UNKNOWN;
 };
 
 DeviceAudio* initDeviceAudio(const char* deviceID, unsigned bufferSize, unsigned sampleRate);
