@@ -163,6 +163,12 @@ void jack_finish(void* arg);
 
 int jack_initialize(jack_client_t* const client, const char* const load_init)
 {
+   #ifdef __MOD_DEVICES__
+    if (access("/data/enable-usb-multi-gadget", F_OK) != 0 ||
+        access("/data/enable-usb-audio-gadget", F_OK) != 0)
+        return 1;
+   #endif
+
     if (const char* const ctype = std::strrchr(load_init, ' '))
     {
         const bool playback = std::strcmp(ctype + 1, "playback") == 0;
