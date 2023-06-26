@@ -228,18 +228,18 @@ void s24le3(float* const* const dst, void* const src, const uint8_t channels, co
         for (uint8_t c=0; c<channels; ++c)
         {
            #if __BYTE_ORDER == __BIG_ENDIAN
-            z = (static_cast<int32_t>(srcptr[2]) << 16)
-              + (static_cast<int32_t>(srcptr[1]) << 8)
-              +  static_cast<int32_t>(srcptr[0]);
-
-            if (srcptr[2] & 0x80)
-                z |= 0xff000000;
-           #else
             z = (static_cast<int32_t>(srcptr[0]) << 16)
               + (static_cast<int32_t>(srcptr[1]) << 8)
               +  static_cast<int32_t>(srcptr[2]);
 
             if (srcptr[0] & 0x80)
+                z |= 0xff000000;
+           #else
+            z = (static_cast<int32_t>(srcptr[2]) << 16)
+              + (static_cast<int32_t>(srcptr[1]) << 8)
+              +  static_cast<int32_t>(srcptr[0]);
+
+            if (srcptr[2] & 0x80)
                 z |= 0xff000000;
            #endif
 

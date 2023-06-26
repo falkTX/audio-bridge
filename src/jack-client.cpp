@@ -99,13 +99,18 @@ static ClientData* init_capture(jack_client_t* client = nullptr)
     jack_set_process_callback(client, jack_process, d);
     jack_activate(client);
 
-   #ifdef __MOD_DEVICES__
+  #ifdef __MOD_DEVICES__
+   #ifdef _MOD_DEVICE_DWARF
+    jack_connect(client, "awoosb-capture:p1", "mod-host:in2");
+    jack_connect(client, "awoosb-capture:p2", "mod-host:in1");
+   #else
     jack_connect(client, "awoosb-capture:p1", "mod-host:in1");
     jack_connect(client, "awoosb-capture:p2", "mod-host:in2");
-   #else
+   #endif
+  #else
     jack_connect(client, "awoosb-capture:p1", "awoosb-playback:p1");
     jack_connect(client, "awoosb-capture:p2", "awoosb-playback:p2");
-   #endif
+  #endif
 
     return d;
 }
@@ -127,15 +132,20 @@ static ClientData* init_playback(jack_client_t* client = nullptr)
     jack_set_process_callback(client, jack_process, d);
     jack_activate(client);
 
-   #ifdef __MOD_DEVICES__
+  #ifdef __MOD_DEVICES__
+   #ifdef _MOD_DEVICE_DWARF
+    jack_connect(client, "mod-monitor:out_2", "awoosb-playback:p1");
+    jack_connect(client, "mod-monitor:out_1", "awoosb-playback:p2");
+   #else
     jack_connect(client, "mod-monitor:out_1", "awoosb-playback:p1");
     jack_connect(client, "mod-monitor:out_2", "awoosb-playback:p2");
-   #else
+   #endif
+  #else
     jack_connect(client, "PulseAudio JACK Sink:front-left", "awoosb-playback:p1");
     jack_connect(client, "PulseAudio JACK Sink:front-right", "awoosb-playback:p2");
     jack_connect(client, "awoosb-capture:p1", "awoosb-playback:p1");
     jack_connect(client, "awoosb-capture:p2", "awoosb-playback:p2");
-   #endif
+  #endif
 
     return d;
 }
