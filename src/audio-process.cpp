@@ -433,12 +433,6 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         goto error;
     }
 
-    if ((err = snd_pcm_prepare(dev.pcm)) != 0)
-    {
-        DEBUGPRINT("snd_pcm_prepare fail %s", snd_strerror(err));
-        goto error;
-    }
-
     if ((err = snd_pcm_sw_params_current(dev.pcm, swparams)) != 0)
     {
         DEBUGPRINT("snd_pcm_sw_params_current fail %s", snd_strerror(err));
@@ -466,6 +460,12 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     if ((err = snd_pcm_sw_params(dev.pcm, swparams)) != 0)
     {
         DEBUGPRINT("snd_pcm_sw_params fail %s", snd_strerror(err));
+        goto error;
+    }
+
+    if ((err = snd_pcm_prepare(dev.pcm)) != 0)
+    {
+        DEBUGPRINT("snd_pcm_prepare fail %s", snd_strerror(err));
         goto error;
     }
 

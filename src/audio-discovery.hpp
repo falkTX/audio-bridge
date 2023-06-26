@@ -21,6 +21,10 @@ struct DeviceProperties {
 
 bool enumerateSoundcards(std::vector<DeviceID>& inputs, std::vector<DeviceID>& outputs);
 
-bool getDeviceProperties(const std::string& deviceID, bool checkInput, bool checkOutput, unsigned sampleRate, DeviceProperties& props);
+bool getDeviceProperties(const std::string& deviceID,
+                         bool checkInput,
+                         bool checkOutput,
+                         unsigned sampleRate,
+                         DeviceProperties& props);
 
 void cleanup();
