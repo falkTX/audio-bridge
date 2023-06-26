@@ -12,7 +12,6 @@
 // --------------------------------------------------------------------------------------------------------------------
 
 static constexpr const snd_pcm_format_t kFormatsToTry[] = {
-    SND_PCM_FORMAT_FLOAT,
     SND_PCM_FORMAT_S32,
     SND_PCM_FORMAT_S24_3LE,
     SND_PCM_FORMAT_S24,
@@ -124,6 +123,13 @@ int32_t float32(const double s)
            std::lrint(s * 2147483647.f);
 }
 
+// unused, keep it might be useful later
+static constexpr inline
+int32_t sbit(const int8_t s, const int b)
+{
+    return s >= 0 ? (s << b) : -((-s) << b);
+}
+
 // --------------------------------------------------------------------------------------------------------------------
 
 namespace float2int
@@ -214,24 +220,33 @@ void s24(float* const* const dst, void* const src, const uint8_t channels, const
 static inline
 void s24le3(float* const* const dst, void* const src, const uint8_t channels, const uint16_t samples)
 {
-    int8_t* srcptr = static_cast<int8_t*>(src);
+    uint8_t* srcptr = static_cast<uint8_t*>(src);
     int32_t z;
 
     for (uint16_t i=0; i<samples; ++i)
     {
         for (uint8_t c=0; c<channels; ++c)
         {
-            // TODO verify if this is correct
            #if __BYTE_ORDER == __BIG_ENDIAN
-            z = static_cast<int32_t>(srcptr[2])
-              | static_cast<int32_t>(srcptr[1]) << 8
-              | static_cast<int32_t>(srcptr[0]) << 16;
+            z = (static_cast<int32_t>(srcptr[2]) << 16)
+              + (static_cast<int32_t>(srcptr[1]) << 8)
+              +  static_cast<int32_t>(srcptr[0]);
+
+            if (srcptr[2] & 0x80)
+                z |= 0xff000000;
            #else
-            z = static_cast<int32_t>(srcptr[0])
-              | static_cast<int32_t>(srcptr[1]) << 8
-              | static_cast<int32_t>(srcptr[2]) << 16;
+            z = (static_cast<int32_t>(srcptr[0]) << 16)
+              + (static_cast<int32_t>(srcptr[1]) << 8)
+              +  static_cast<int32_t>(srcptr[2]);
+
+            if (srcptr[0] & 0x80)
+                z |= 0xff000000;
            #endif
-            dst[c][i] = static_cast<float>(z) * (1.f / 8388607.f);
+
+            dst[c][i] = z <= -8388607 ? -1.f
+                      : z >= 8388607 ? 1.f
+                      : static_cast<float>(z) * (1.f / 8388607.f);
+
             srcptr += 3;
         }
     }
