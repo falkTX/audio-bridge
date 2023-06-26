@@ -5,113 +5,231 @@
 #include "audio-process.hpp"
 
 #include <jack/jack.h>
+#include <cstring>
 #include <unistd.h>
 
 struct ClientData {
-    DeviceAudio* dev;
-    jack_port_t* ports[2];
+    DeviceAudio* dev = nullptr;
+    jack_client_t* client = nullptr;
+    jack_port_t* ports[2] = {};
+    bool playback = false;
+    bool running = true;
+
+   #ifdef AWOOSB_INTERNAL_CLIENT
+    char* deviceID = nullptr;
+    pthread_t thread = {};
+
+    void runInternal()
+    {
+        const uint16_t bufferSize = jack_get_buffer_size(client);
+        const uint32_t sampleRate = jack_get_sample_rate(client);
+
+        while (running && dev == nullptr)
+        {
+            dev = initDeviceAudio(deviceID, playback, bufferSize, sampleRate);
+            usleep(250000); // 250ms
+        }
+
+        running = false;
+    }
+
+    static void* threadRunInternal(void* const arg)
+    {
+        ClientData* const d = static_cast<ClientData*>(arg);
+        d->runInternal();
+        return nullptr;
+    }
+   #else
+    void run(const char* const deviceID)
+    {
+        const uint16_t bufferSize = jack_get_buffer_size(client);
+        const uint32_t sampleRate = jack_get_sample_rate(client);
+
+        while (running)
+        {
+            if (dev == nullptr)
+                dev = initDeviceAudio(deviceID, playback, bufferSize, sampleRate);
+
+            sleep(1);
+        }
+    }
+   #endif
 };
 
 static int jack_process(const unsigned frames, void* const arg)
 {
-    ClientData* const c = static_cast<ClientData*>(arg);
+    ClientData* const d = static_cast<ClientData*>(arg);
     float* buffers[2] = {
-        (float*)jack_port_get_buffer(c->ports[0], frames),
-        (float*)jack_port_get_buffer(c->ports[1], frames)
+        (float*)jack_port_get_buffer(d->ports[0], frames),
+        (float*)jack_port_get_buffer(d->ports[1], frames)
     };
-    runDeviceAudio(c->dev, buffers);
+    if (d->dev != nullptr)
+    {
+        runDeviceAudio(d->dev, buffers);
+    }
+    else if (!d->playback)
+    {
+        std::memset(buffers[0], 0, sizeof(float)*frames);
+        std::memset(buffers[1], 0, sizeof(float)*frames);
+    }
     return 0;
 }
 
-void do_capture(const char* const deviceID)
+static void close(ClientData* const d);
+
+static ClientData* init_capture(jack_client_t* client = nullptr)
 {
+    if (client == nullptr)
+    {
+       #ifdef __MOD_DEVICES__
+        setenv("JACK_INTERNAL_CLIENT_SYNC", ".", 1);
+       #endif
+        client = jack_client_open("awoosb-capture", JackNoStartServer, nullptr);
+    }
+
+    if (client == nullptr)
+        return nullptr;
+
+    ClientData* const d = new ClientData;
+    d->client = client;
+    d->playback = false;
+    d->ports[0] = jack_port_register(client, "p1", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput|JackPortIsTerminal, 0);
+    d->ports[1] = jack_port_register(client, "p2", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput|JackPortIsTerminal, 0);
+
+    jack_set_process_callback(client, jack_process, d);
+    jack_activate(client);
+
    #ifdef __MOD_DEVICES__
-    setenv("JACK_INTERNAL_CLIENT_SYNC", ".", 1);
+    jack_connect(client, "awoosb-capture:p1", "mod-host:in1");
+    jack_connect(client, "awoosb-capture:p2", "mod-host:in2");
+   #else
+    jack_connect(client, "awoosb-capture:p1", "awoosb-playback:p1");
+    jack_connect(client, "awoosb-capture:p2", "awoosb-playback:p2");
    #endif
 
-    if (jack_client_t* const c = jack_client_open("awoosb-capture", JackNoStartServer, nullptr))
-    {
-        ClientData d;
-        const uint16_t bufferSize = jack_get_buffer_size(c);
-        const uint32_t sampleRate = jack_get_sample_rate(c);
-
-        if ((d.dev = initDeviceAudio(deviceID, false, bufferSize, sampleRate)) == nullptr)
-            goto end;
-
-        d.ports[0] = jack_port_register(c, "p1", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput|JackPortIsTerminal, 0);
-        d.ports[1] = jack_port_register(c, "p2", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput|JackPortIsTerminal, 0);
-
-        jack_set_process_callback(c, jack_process, &d);
-        jack_activate(c);
-
-#ifdef __MOD_DEVICES__
-        jack_connect(c, "awoosb-capture:p1", "mod-host:in1");
-        jack_connect(c, "awoosb-capture:p2", "mod-host:in2");
-#else
-        jack_connect(c, "awoosb-capture:p1", "awoosb-playback:p1");
-        jack_connect(c, "awoosb-capture:p2", "awoosb-playback:p2");
-#endif
-
-        while (true) sleep(1);
-
-        jack_deactivate(c);
-        closeDeviceAudio(d.dev);
-
-    end:
-        jack_client_close(c);
-    }
+    return d;
 }
 
-void do_playback(const char* const deviceID)
+static ClientData* init_playback(jack_client_t* client = nullptr)
 {
-    if (jack_client_t* const c = jack_client_open("awoosb-playback", JackNoStartServer, nullptr))
-    {
-        ClientData d;
-        const uint16_t bufferSize = jack_get_buffer_size(c);
-        const uint32_t sampleRate = jack_get_sample_rate(c);
+    if (client == nullptr)
+        client = jack_client_open("awoosb-playback", JackNoStartServer, nullptr);
 
-        if ((d.dev = initDeviceAudio(deviceID, true, bufferSize, sampleRate)) == nullptr)
-            goto end;
+    if (client == nullptr)
+        return nullptr;
 
-        d.ports[0] = jack_port_register(c, "p1", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput|JackPortIsTerminal, 0);
-        d.ports[1] = jack_port_register(c, "p2", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput|JackPortIsTerminal, 0);
+    ClientData* const d = new ClientData;
+    d->client = client;
+    d->playback = true;
+    d->ports[0] = jack_port_register(client, "p1", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput|JackPortIsTerminal, 0);
+    d->ports[1] = jack_port_register(client, "p2", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput|JackPortIsTerminal, 0);
 
-        jack_set_process_callback(c, jack_process, &d);
-        jack_activate(c);
+    jack_set_process_callback(client, jack_process, d);
+    jack_activate(client);
 
-#ifdef __MOD_DEVICES__
-        jack_connect(c, "mod-monitor:out_1", "awoosb-playback:p1");
-        jack_connect(c, "mod-monitor:out_2", "awoosb-playback:p2");
-#else
-        jack_connect(c, "PulseAudio JACK Sink:front-left", "awoosb-playback:p1");
-        jack_connect(c, "PulseAudio JACK Sink:front-right", "awoosb-playback:p2");
-        jack_connect(c, "awoosb-capture:p1", "awoosb-playback:p1");
-        jack_connect(c, "awoosb-capture:p2", "awoosb-playback:p2");
-#endif
+   #ifdef __MOD_DEVICES__
+    jack_connect(client, "mod-monitor:out_1", "awoosb-playback:p1");
+    jack_connect(client, "mod-monitor:out_2", "awoosb-playback:p2");
+   #else
+    jack_connect(client, "PulseAudio JACK Sink:front-left", "awoosb-playback:p1");
+    jack_connect(client, "PulseAudio JACK Sink:front-right", "awoosb-playback:p2");
+    jack_connect(client, "awoosb-capture:p1", "awoosb-playback:p1");
+    jack_connect(client, "awoosb-capture:p2", "awoosb-playback:p2");
+   #endif
 
-        while (true) sleep(1);
-
-        jack_deactivate(c);
-        closeDeviceAudio(d.dev);
-
-    end:
-        jack_client_close(c);
-    }
+    return d;
 }
 
+static void close(ClientData* const d)
+{
+    if (d->client != nullptr)
+    {
+        jack_deactivate(d->client);
+        jack_client_close(d->client);
+    }
+
+    closeDeviceAudio(d->dev);
+    delete d;
+}
+
+#ifdef AWOOSB_INTERNAL_CLIENT
+extern "C"
+JACK_LIB_EXPORT
+int jack_initialize(jack_client_t* client, const char* load_init);
+
+extern "C"
+JACK_LIB_EXPORT
+void jack_finish(void* arg);
+
+int jack_initialize(jack_client_t* const client, const char* const load_init)
+{
+    if (const char* const ctype = std::strrchr(load_init, ' '))
+    {
+        const bool playback = std::strcmp(ctype + 1, "playback") == 0;
+
+        if (ClientData* const d = playback ? init_playback(client) : init_capture(client))
+        {
+            const size_t devlen = ctype - load_init;
+            d->deviceID = static_cast<char*>(std::malloc(devlen + 1));
+            std::memcpy(d->deviceID, load_init, devlen);
+            d->deviceID[devlen] = '\0';
+
+            printf("deviceID %s || %d %d\n", d->deviceID, d->playback, playback);
+
+            if (pthread_create(&d->thread, nullptr, ClientData::threadRunInternal, d) == 0)
+                return 0;
+
+            jack_finish(d);
+        }
+    }
+
+    return 1;
+}
+
+void jack_finish(void* const arg)
+{
+    ClientData* const d = static_cast<ClientData*>(arg);
+
+    if (d->running)
+    {
+        d->running = false;
+        pthread_join(d->thread, nullptr);
+    }
+
+    d->client = nullptr;
+    std::free(d->deviceID);
+    close(d);
+}
+#else
 int main(int argc, const char* argv[])
 {
     std::vector<DeviceID> inputs, outputs;
     enumerateSoundcards(inputs, outputs);
 
+    ClientData* d;
+    const char* deviceID;
+
     if (argc > 2)
-        do_capture(argv[1]);
+    {
+        deviceID = argv[1];
+        d = init_capture();
+    }
     else if (argc > 1)
-        do_playback(argv[1]);
+    {
+        deviceID = argv[1];
+        d = init_playback();
+    }
     else
-        do_playback(outputs[outputs.size() - 1].id.c_str());
+    {
+        deviceID = outputs[outputs.size() - 1].id.c_str();
+        d = init_playback();
+    }
+
+    d->run(deviceID);
+    close(d);
 
     cleanup();
 
     return 0;
 }
+#endif

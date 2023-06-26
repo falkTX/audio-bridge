@@ -29,7 +29,7 @@ pkg_check_modules(JACK IMPORTED_TARGET REQUIRED jack)
 #######################################################################################################################
 # Setup LV2 plugin target
 
-add_library(lv2-awoosb MODULE)
+add_library(lv2-awoosb SHARED)
 
 set_target_properties(lv2-awoosb
   PROPERTIES
@@ -71,6 +71,40 @@ target_link_libraries(jack-awoosb
 )
 
 target_sources(jack-awoosb
+  PRIVATE
+    src/audio-discovery.cpp
+    src/audio-process.cpp
+    src/jack-client.cpp
+)
+
+#######################################################################################################################
+# Setup JACK internal client target
+
+add_library(jack-int-awoosb SHARED)
+
+set_target_properties(jack-int-awoosb
+  PROPERTIES
+    OUTPUT_NAME "jack-awoosb"
+    PREFIX ""
+)
+
+target_compile_definitions(jack-int-awoosb
+  PRIVATE
+    AWOOSB_INTERNAL_CLIENT
+)
+
+target_include_directories(jack-int-awoosb
+  PRIVATE
+    src
+)
+
+target_link_libraries(jack-int-awoosb
+  PRIVATE
+    PkgConfig::ALSA
+    PkgConfig::JACK
+)
+
+target_sources(jack-int-awoosb
   PRIVATE
     src/audio-discovery.cpp
     src/audio-process.cpp

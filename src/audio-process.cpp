@@ -268,7 +268,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     // SND_PCM_NONBLOCK
     if ((err = snd_pcm_open(&dev.pcm, deviceID, mode, SND_PCM_NONBLOCK)) < 0)
     {
-        DEBUGPRINT("snd_pcm_open fail: %s\n", snd_strerror(err));
+        DEBUGPRINT("snd_pcm_open fail %d %s\n", playback, snd_strerror(err));
         return nullptr;
     }
 
@@ -465,7 +465,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     snd_pcm_hw_params_get_periods(params, &periodsParam, nullptr);
     DEBUGPRINT("periods AFTER %u", periodsParam);
 
-    dev.buffer = std::malloc(getSampleSizeFromHints(dev.hints) * dev.bufferSize * dev.channels * (playback ? 1 : 2));
+    dev.buffer = std::malloc(getSampleSizeFromHints(dev.hints) * dev.bufferSize * dev.channels);
 
     if (playback)
     {
@@ -689,7 +689,6 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
 
 void closeDeviceAudio(DeviceAudio* const dev)
 {
-    snd_pcm_close(dev->pcm);
     std::free(dev->buffer);
     delete dev;
 }
