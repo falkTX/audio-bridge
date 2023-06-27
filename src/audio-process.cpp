@@ -443,7 +443,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         goto error;
     }
 
-    if ((err = snd_pcm_sw_params_set_start_threshold(dev.pcm, swparams, bufferSize * 2)) != 0)
+    if ((err = snd_pcm_sw_params_set_start_threshold(dev.pcm, swparams, bufferSize * periodsParam)) != 0)
     {
         DEBUGPRINT("snd_pcm_sw_params_set_start_threshold fail %s", snd_strerror(err));
         goto error;
