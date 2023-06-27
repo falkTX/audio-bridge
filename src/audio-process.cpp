@@ -386,52 +386,34 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     for (unsigned periods : kPeriodsToTry)
     {
         bufferSizeParam = bufferSize;
-        if ((err = snd_pcm_hw_params_set_period_size_min(dev.pcm, params, &bufferSizeParam, nullptr)) != 0)
+        if ((err = snd_pcm_hw_params_set_period_size(dev.pcm, params, bufferSizeParam, 0)) != 0)
         {
-            DEBUGPRINT("snd_pcm_hw_params_set_period_size_min fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
+            DEBUGPRINT("snd_pcm_hw_params_set_period_size fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
             continue;
         }
-        bufferSizeParam = bufferSize;
-        if ((err = snd_pcm_hw_params_set_period_size_max(dev.pcm, params, &bufferSizeParam, nullptr)) != 0)
+
+        if ((err = snd_pcm_hw_params_set_periods(dev.pcm, params, periods, 0)) != 0)
         {
-            DEBUGPRINT("snd_pcm_hw_params_set_period_size_max fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
-            continue;
-        }
-        bufferSizeParam = bufferSize;
-        if ((err = snd_pcm_hw_params_set_period_size_near(dev.pcm, params, &bufferSizeParam, nullptr)) != 0)
-        {
-            DEBUGPRINT("snd_pcm_hw_params_set_period_size_near fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
+            DEBUGPRINT("snd_pcm_hw_params_set_periods fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
             continue;
         }
 
         bufferSizeParam = bufferSize * periods;
-        if ((err = snd_pcm_hw_params_set_buffer_size_min(dev.pcm, params, &bufferSizeParam)) != 0)
+        if ((err = snd_pcm_hw_params_set_buffer_size(dev.pcm, params, bufferSizeParam)) != 0)
         {
-            DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_min fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
-            continue;
-        }
-        bufferSizeParam = bufferSize * periods;
-        if ((err = snd_pcm_hw_params_set_buffer_size_max(dev.pcm, params, &bufferSizeParam)) != 0)
-        {
-            DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_max fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
-            continue;
-        }
-        bufferSizeParam = bufferSize * periods;
-        if ((err = snd_pcm_hw_params_set_buffer_size_near(dev.pcm, params, &bufferSizeParam)) != 0)
-        {
-            DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_near fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
+            DEBUGPRINT("snd_pcm_hw_params_set_buffer_size fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
             continue;
         }
 
-        // bufferSizeParam /= periods;
-        // if (bufferSizeParam == bufferSize)
-        // {
-        periodsParam = bufferSizeParam / bufferSize;
+        if (bufferSizeParam / bufferSize != periods)
+        {
+            DEBUGPRINT("buffer size mismatch %lu vs %u, using %u periods", bufferSizeParam, bufferSize, periods);
+            continue;
+        }
+
+        periodsParam = periods;
         DEBUGPRINT("buffer size match %u, using %u periods", bufferSize, periodsParam);
         break;
-        // }
-
-        // DEBUGPRINT("buffer size mismatch %lu vs %u, using %u periods", bufferSizeParam, bufferSize, periods);
     }
 
     if (periodsParam == 0)
@@ -452,7 +434,13 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         goto error;
     }
 
-    if ((err = snd_pcm_sw_params_set_start_threshold(dev.pcm, swparams, bufferSize * periodsParam)) != 0)
+    if ((err = snd_pcm_sw_params_set_tstamp_mode(dev.pcm, swparams, SND_PCM_TSTAMP_NONE)) != 0)
+    {
+        DEBUGPRINT("snd_pcm_sw_params_set_tstamp_mode fail %s", snd_strerror(err));
+        goto error;
+    }
+
+    if ((err = snd_pcm_sw_params_set_start_threshold(dev.pcm, swparams, bufferSize / 2)) != 0)
     {
         DEBUGPRINT("snd_pcm_sw_params_set_start_threshold fail %s", snd_strerror(err));
         goto error;
