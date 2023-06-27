@@ -13,6 +13,7 @@
 #include <lv2/urid/urid.h>
 #include <lv2/worker/worker.h>
 
+#include <cmath>
 #include <cstring>
 
 struct PluginData {
@@ -46,7 +47,25 @@ struct PluginData {
         LV2_URID patch_value;
     } uris = {};
 
-    PluginData()
+    PluginData(const uint32_t sampleRate)
+        : sampleRate(sampleRate)
+    {
+    }
+
+    // TESTING
+    void testing()
+    {
+        std::vector<DeviceID> inputs, outputs;
+        enumerateSoundcards(inputs, outputs);
+
+        bufferSize = 512;
+
+        dev = initDeviceAudio(playback ? outputs[outputs.size() - 1].id.c_str()
+                                       : inputs[inputs.size() - 1].id.c_str(),
+                              playback, bufferSize, sampleRate);
+    }
+
+    ~PluginData()
     {
         if (dev != nullptr)
             closeDeviceAudio(dev);
@@ -99,8 +118,8 @@ struct PluginData {
 
     uint32_t optionsSet(const LV2_Options_Option* const options)
     {
-        bufferSize = 0;
-        sampleRate = 0;
+        // bufferSize = 0;
+        // sampleRate = 0;
         return LV2_OPTIONS_ERR_UNKNOWN;
     }
 
@@ -125,12 +144,6 @@ struct PluginData {
                            const uint32_t size,
                            const void* const data)
     {
-        std::vector<DeviceID> inputs, outputs;
-        enumerateSoundcards(inputs, outputs);
-
-        const char* const deviceID = "";
-        dev = initDeviceAudio(deviceID, playback, bufferSize, sampleRate);
-
         return LV2_WORKER_ERR_UNKNOWN;
     }
 
@@ -140,33 +153,38 @@ struct PluginData {
     }
 };
 
-PluginData* lv2_instantiate(const double rate, const LV2_Feature* const* const features)
+PluginData* lv2_instantiate(const double sampleRate, const LV2_Feature* const* const features)
 {
-    PluginData* const p = new PluginData;
+    if (std::fmod(sampleRate, 1.0) != 0.0)
+        return nullptr;
+
+    PluginData* const p = new PluginData(sampleRate);
     return p;
 }
 
 LV2_Handle lv2_instantiate_capture(const LV2_Descriptor*,
-                                   const double rate,
+                                   const double sampleRate,
                                    const char*,
                                    const LV2_Feature* const* const features)
 {
-    if (PluginData* const p = lv2_instantiate(rate, features))
+    if (PluginData* const p = lv2_instantiate(sampleRate, features))
     {
         p->playback = false;
+        p->testing();
         return p;
     }
     return nullptr;
 }
 
 LV2_Handle lv2_instantiate_playback(const LV2_Descriptor*,
-                                    const double rate,
+                                    const double sampleRate,
                                     const char*,
                                     const LV2_Feature* const* const features)
 {
-    if (PluginData* const p = lv2_instantiate(rate, features))
+    if (PluginData* const p = lv2_instantiate(sampleRate, features))
     {
         p->playback = true;
+        p->testing();
         return p;
     }
     return nullptr;
