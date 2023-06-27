@@ -11,6 +11,19 @@
 
 // --------------------------------------------------------------------------------------------------------------------
 
+typedef struct {
+    float* buf;
+    size_t len;
+} jack_ringbuffer_float_data_t;
+
+void jack_ringbuffer_get_float_write_vector(const jack_ringbuffer_t* const rb, jack_ringbuffer_float_data_t vec[2])
+{
+    jack_ringbuffer_data_t* const vecptr = static_cast<jack_ringbuffer_data_t*>(static_cast<void*>(vec));
+    jack_ringbuffer_get_write_vector(rb, vecptr);
+}
+
+// --------------------------------------------------------------------------------------------------------------------
+
 static constexpr const snd_pcm_format_t kFormatsToTry[] = {
     SND_PCM_FORMAT_S32,
     SND_PCM_FORMAT_S24_3LE,
@@ -480,21 +493,25 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     snd_pcm_hw_params_get_periods(params, &periodsParam, nullptr);
     DEBUGPRINT("periods AFTER %u", periodsParam);
 
-    dev.buffer = std::malloc(getSampleSizeFromHints(dev.hints) * dev.bufferSize * dev.channels);
-
-    if (playback)
     {
-        DeviceAudio* const devptr = new DeviceAudio;
-        std::memcpy(devptr, &dev, sizeof(dev));
+        const size_t bufferlen = getSampleSizeFromHints(dev.hints) * dev.bufferSize * dev.channels;
+        dev.buffer = std::malloc(bufferlen);
 
-        return devptr;
-    }
-    else
-    {
+        if (playback)
+        {
+            DeviceAudio* const devptr = new DeviceAudio;
+            std::memcpy(devptr, &dev, sizeof(dev));
+
+            return devptr;
+        }
+
         CaptureDeviceAudio* const devptr = new CaptureDeviceAudio;
         std::memcpy(devptr, &dev, sizeof(dev));
 
-        devptr->readOffset = 0;
+        devptr->ringbuffer[0] = jack_ringbuffer_create(bufferlen + 1);
+        devptr->ringbuffer[1] = jack_ringbuffer_create(bufferlen + 1);
+        jack_ringbuffer_mlock(devptr->ringbuffer[0]);
+        jack_ringbuffer_mlock(devptr->ringbuffer[1]);
 
         return devptr;
     }
@@ -550,41 +567,31 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
     const uint8_t sampleSize = getSampleSizeFromHints(hints);
     uint16_t frames = bufferSize;
     uint8_t retries = 0;
+    size_t rbwrite;
 
-    // this assumes SND_PCM_ACCESS_MMAP_INTERLEAVED
     if (hints & kDeviceCapture)
     {
         CaptureDeviceAudio* const cdev = static_cast<CaptureDeviceAudio*>(dev);
-        int8_t* ptr = static_cast<int8_t*>(dev->buffer);
         int err;
 
-        if (const uint16_t prevOffset = cdev->readOffset)
-        {
-            frames -= prevOffset;
-            ptr += prevOffset * channels * sampleSize;
-            cdev->readOffset = 0;
-        }
+        jack_ringbuffer_float_data_t vec[channels][2];
+        float* vecbuffers[channels];
 
         while (frames != 0)
         {
-            err = snd_pcm_mmap_readi(dev->pcm, ptr, frames);
+            err = snd_pcm_mmap_readi(dev->pcm, dev->buffer, frames);
             // DEBUGPRINT("read %d of %u", err, frames);
 
             if (err == -EAGAIN)
             {
                 if ((hints & kDeviceStarting) || ++retries > 10)
                 {
-                    cdev->readOffset = bufferSize - frames;
-                    // DEBUGPRINT("err == -EAGAIN [kDeviceStarting]");
-
-                    for (uint8_t c=0; c<channels; ++c)
-                        std::memset(buffers[c], 0, sizeof(float)*bufferSize);
-
+                    DEBUGPRINT("err == -EAGAIN [kDeviceStarting]");
                     return;
                 }
                 else
                 {
-                    // DEBUGPRINT("err == -EAGAIN");
+                    DEBUGPRINT("err == -EAGAIN");
                 }
                 continue;
             }
@@ -592,6 +599,11 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             if (err < 0)
             {
                 dev->hints |= kDeviceStarting;
+                DEBUGPRINT("Error read %s\n", snd_strerror(err));
+
+                for (uint8_t c=0; c<channels; ++c)
+                    jack_ringbuffer_reset(cdev->ringbuffer[c]);
+
                 if (xrun_recovery(dev->pcm, err) < 0)
                 {
                     printf("Read error: %s\n", snd_strerror(err));
@@ -600,37 +612,98 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
                 break;  /* skip one period */
             }
 
-            if (static_cast<uint16_t>(err) == frames)
+            for (uint8_t c=0; c<channels; ++c)
             {
-                // DEBUGPRINT("Complete read %u", frames);
-                dev->hints &= ~kDeviceStarting;
-                frames = 0;
+                jack_ringbuffer_get_float_write_vector(cdev->ringbuffer[c], vec[c]);
+                vecbuffers[c] = vec[c][0].buf;
+            }
+
+            rbwrite = std::min(static_cast<size_t>(frames), vec[0][0].len);
+
+            switch (hints & kDeviceSampleHints)
+            {
+            case kDeviceSample16:
+                int2float::s16(vecbuffers, dev->buffer, channels, rbwrite);
+                break;
+            case kDeviceSample24:
+                int2float::s24(vecbuffers, dev->buffer, channels, rbwrite);
+                break;
+            case kDeviceSample24LE3:
+                int2float::s24le3(vecbuffers, dev->buffer, channels, rbwrite);
+                break;
+            case kDeviceSample32:
+                int2float::s32(vecbuffers, dev->buffer, channels, rbwrite);
                 break;
             }
 
-            ptr += err * channels * sampleSize;
-            frames -= err;
+            if (vec[0][1].len != 0 && frames > rbwrite)
+            {
+                rbwrite = frames - rbwrite;
 
-            DEBUGPRINT("Incomplete read %d of %u, %u left", err, bufferSize, frames);
+                for (uint8_t c=0; c<channels; ++c)
+                    vecbuffers[c] = vec[c][1].buf;
+
+                switch (hints & kDeviceSampleHints)
+                {
+                case kDeviceSample16:
+                    int2float::s16(vecbuffers, dev->buffer, channels, rbwrite);
+                    break;
+                case kDeviceSample24:
+                    int2float::s24(vecbuffers, dev->buffer, channels, rbwrite);
+                    break;
+                case kDeviceSample24LE3:
+                    int2float::s24le3(vecbuffers, dev->buffer, channels, rbwrite);
+                    break;
+                case kDeviceSample32:
+                    int2float::s32(vecbuffers, dev->buffer, channels, rbwrite);
+                    break;
+                }
+            }
+
+            for (uint8_t c=0; c<channels; ++c)
+                jack_ringbuffer_write_advance(cdev->ringbuffer[c], sizeof(float)*frames);
+
+            if (static_cast<uint16_t>(err) == frames)
+            {
+                // DEBUGPRINT("Complete read %u", frames);
+                frames = 0;
+            }
+            else
+            {
+                frames -= err;
+                DEBUGPRINT("Incomplete read %d of %u, %u left", err, bufferSize, frames);
+            }
         }
 
-        switch (hints & kDeviceSampleHints)
+        if (dev->hints & kDeviceStarting)
         {
-        case kDeviceSample16:
-            int2float::s16(buffers, dev->buffer, channels, bufferSize);
-            break;
-        case kDeviceSample24:
-            int2float::s24(buffers, dev->buffer, channels, bufferSize);
-            break;
-        case kDeviceSample24LE3:
-            int2float::s24le3(buffers, dev->buffer, channels, bufferSize);
-            break;
-        case kDeviceSample32:
-            int2float::s32(buffers, dev->buffer, channels, bufferSize);
-            break;
-        default:
-            DEBUGPRINT("unknown format");
-            break;
+            if (jack_ringbuffer_read_space(cdev->ringbuffer[0]) >= bufferSize * 2)
+            {
+                DEBUGPRINT("buffer filled twice, removing starting flag");
+                dev->hints &= ~kDeviceStarting;
+            }
+        }
+        else if (jack_ringbuffer_read_space(cdev->ringbuffer[0]) < bufferSize)
+        {
+            DEBUGPRINT("buffer too low, adding starting flag");
+            dev->hints |= kDeviceStarting;
+        }
+        else
+        {
+            // DEBUGPRINT("capture is ok!");
+        }
+
+        if (dev->hints & kDeviceStarting)
+        {
+            for (uint8_t c=0; c<channels; ++c)
+                std::memset(buffers[c], 0, sizeof(float)*bufferSize);
+        }
+        else
+        {
+            for (uint8_t c=0; c<channels; ++c)
+                jack_ringbuffer_read(cdev->ringbuffer[c],
+                                     static_cast<char*>(static_cast<void*>(buffers[c])),
+                                     sizeof(float)*bufferSize);
         }
     }
     else
@@ -704,6 +777,13 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
 
 void closeDeviceAudio(DeviceAudio* const dev)
 {
+    if (dev->hints & kDeviceCapture)
+    {
+        CaptureDeviceAudio* const capturedev = static_cast<CaptureDeviceAudio*>(dev);
+        jack_ringbuffer_free(capturedev->ringbuffer[0]);
+        jack_ringbuffer_free(capturedev->ringbuffer[1]);
+    }
+
     std::free(dev->buffer);
     delete dev;
 }

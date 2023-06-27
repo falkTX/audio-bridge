@@ -45,6 +45,7 @@ target_link_libraries(lv2-awoosb
   PRIVATE
     PkgConfig::ALSA
     PkgConfig::LV2
+    PkgConfig::JACK
 )
 
 target_sources(lv2-awoosb
@@ -124,6 +125,7 @@ target_include_directories(awoosb-test
 target_link_libraries(awoosb-test
   PRIVATE
     PkgConfig::ALSA
+    PkgConfig::JACK
 )
 
 target_sources(awoosb-test

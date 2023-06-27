@@ -6,6 +6,7 @@
 //#define ALSA_PCM_NEW_HW_PARAMS_API
 //#define ALSA_PCM_NEW_SW_PARAMS_API
 #include <alsa/asoundlib.h>
+#include <jack/ringbuffer.h>
 
 enum DeviceHints {
     kDeviceCapture = 0x1,
@@ -26,7 +27,7 @@ struct DeviceAudio {
 };
 
 struct CaptureDeviceAudio : DeviceAudio {
-    uint16_t readOffset;
+    jack_ringbuffer_t* ringbuffer[2];
 };
 
 DeviceAudio* initDeviceAudio(const char* deviceID, bool playback, uint16_t bufferSize, uint32_t sampleRate);
