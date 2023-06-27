@@ -5,6 +5,7 @@
 #include "audio-process.hpp"
 
 #include <lv2/core/lv2.h>
+#include <lv2/core/lv2_util.h>
 #include <lv2/atom/atom.h>
 #include <lv2/buf-size/buf-size.h>
 #include <lv2/options/options.h>
@@ -24,9 +25,13 @@ struct PluginData {
     bool activated = false;
 
     struct Features {
-        const LV2_URID_Map* uriMap;
+        const LV2_URID_Map* uridMap;
         const LV2_Worker_Schedule* workerSchedule;
-    } features = {};
+
+        Features(const LV2_Feature* const* const features)
+            : uridMap(static_cast<const LV2_URID_Map*>(lv2_features_data(features, LV2_URID__map))),
+              workerSchedule(static_cast<const LV2_Worker_Schedule*>(lv2_features_data(features, LV2_WORKER__schedule))) {}
+    } features;
 
     struct Ports {
         float* audio[2];
@@ -35,30 +40,40 @@ struct PluginData {
     } ports = {};
 
     struct URIs {
-        LV2_URID atom_Object;
-        LV2_URID atom_Float;
+        // LV2_URID atom_Object;
+        // LV2_URID atom_Float;
         LV2_URID atom_Int;
-        LV2_URID atom_Path;
-        LV2_URID atom_URID;
-        LV2_URID bufSize_maxBlockLength;
-        LV2_URID patch_Set;
-        LV2_URID patch_Get;
-        LV2_URID patch_property;
-        LV2_URID patch_value;
-    } uris = {};
+        // LV2_URID atom_URID;
+        LV2_URID bufsize_maxBlockLength;
+        // LV2_URID patch_Set;
+        // LV2_URID patch_Get;
+        // LV2_URID patch_property;
+        // LV2_URID patch_value;
 
-    PluginData(const uint32_t sampleRate)
-        : sampleRate(sampleRate)
+        URIs(const LV2_URID_Map* const uridMap)
+            : atom_Int(uridMap->map(uridMap->handle, LV2_ATOM__Int)),
+              bufsize_maxBlockLength(uridMap->map(uridMap->handle, LV2_BUF_SIZE__maxBlockLength)) {}
+    } uris;
+
+    PluginData(const uint32_t sampleRate, const LV2_Feature* const* const featuresPtr)
+        : sampleRate(sampleRate),
+          features(featuresPtr),
+          uris(features.uridMap)
     {
+        // set initial options
+        optionsSet(static_cast<const LV2_Options_Option*>(lv2_features_data(featuresPtr, LV2_OPTIONS__options)));
     }
 
     // TESTING
     void testing()
     {
+        if (bufferSize == 0)
+            return;
+
+        printf("TESTING %u %u\n", bufferSize, sampleRate);
+
         std::vector<DeviceID> inputs, outputs;
         enumerateSoundcards(inputs, outputs);
-
-        bufferSize = 512;
 
         dev = initDeviceAudio(playback ? outputs[outputs.size() - 1].id.c_str()
                                        : inputs[inputs.size() - 1].id.c_str(),
@@ -118,9 +133,23 @@ struct PluginData {
 
     uint32_t optionsSet(const LV2_Options_Option* const options)
     {
-        // bufferSize = 0;
-        // sampleRate = 0;
-        return LV2_OPTIONS_ERR_UNKNOWN;
+        for (size_t i=0; options[i].key && options[i].type; ++i)
+        {
+            if (options[i].key == uris.bufsize_maxBlockLength && options[i].type == uris.atom_Int)
+            {
+                if (activated)
+                {
+                    // TODO stop audio until pending worker
+                }
+                else
+                {
+                    bufferSize = *(const int32_t*)options[i].value;
+                }
+                break;
+            }
+        }
+
+        return LV2_OPTIONS_SUCCESS;
     }
 
     LV2_State_Status stateSave(const LV2_State_Store_Function store,
@@ -158,7 +187,7 @@ PluginData* lv2_instantiate(const double sampleRate, const LV2_Feature* const* c
     if (std::fmod(sampleRate, 1.0) != 0.0)
         return nullptr;
 
-    PluginData* const p = new PluginData(sampleRate);
+    PluginData* const p = new PluginData(sampleRate, features);
     return p;
 }
 

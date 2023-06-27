@@ -307,7 +307,6 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     snd_pcm_sw_params_alloca(&swparams);
 
     unsigned periodsParam = 0;
-    unsigned sampleRateParam = sampleRate;
     unsigned long bufferSizeParam;
 
     if ((err = snd_pcm_hw_params_any(dev.pcm, params)) < 0)
@@ -371,43 +370,47 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         goto error;
     }
 
-    if ((err = snd_pcm_hw_params_set_rate_near(dev.pcm, params, &sampleRateParam, 0)) != 0)
+    if ((err = snd_pcm_hw_params_set_rate(dev.pcm, params, sampleRate, 0)) != 0)
     {
-        DEBUGPRINT("snd_pcm_hw_params_set_rate_near fail %s", snd_strerror(err));
+        DEBUGPRINT("snd_pcm_hw_params_set_rate fail %s", snd_strerror(err));
         goto error;
     }
 
-    if (sampleRateParam != sampleRate)
-    {
-        DEBUGPRINT("sample rate mismatch %u vs %u", sampleRateParam, sampleRate);
-        goto error;
-    }
+    // if ((err = snd_pcm_hw_params_set_rate(dev.pcm, params, sampleRate, 1)) != 0)
+    // {
+    //     DEBUGPRINT("snd_pcm_hw_params_set_rate fail %s", snd_strerror(err));
+    //     goto error;
+    // }
 
     for (unsigned periods : kPeriodsToTry)
     {
-        bufferSizeParam = bufferSize;
-        if ((err = snd_pcm_hw_params_set_period_size(dev.pcm, params, bufferSizeParam, 0)) != 0)
+        if ((err = snd_pcm_hw_params_set_period_size(dev.pcm, params, bufferSize, 0)) != 0)
         {
-            DEBUGPRINT("snd_pcm_hw_params_set_period_size fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
+            DEBUGPRINT("snd_pcm_hw_params_set_period_size fail %u %u %s", periods, bufferSize, snd_strerror(err));
             continue;
         }
+
+        // if ((err = snd_pcm_hw_params_set_period_size(dev.pcm, params, bufferSize, 1)) != 0)
+        // {
+        //     DEBUGPRINT("snd_pcm_hw_params_set_period_size fail %u %u %s", periods, bufferSize, snd_strerror(err));
+        //     continue;
+        // }
 
         if ((err = snd_pcm_hw_params_set_periods(dev.pcm, params, periods, 0)) != 0)
         {
-            DEBUGPRINT("snd_pcm_hw_params_set_periods fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
+            DEBUGPRINT("snd_pcm_hw_params_set_periods fail %u %u %s", periods, bufferSize, snd_strerror(err));
             continue;
         }
 
-        bufferSizeParam = bufferSize * periods;
-        if ((err = snd_pcm_hw_params_set_buffer_size(dev.pcm, params, bufferSizeParam)) != 0)
-        {
-            DEBUGPRINT("snd_pcm_hw_params_set_buffer_size fail %u %u %lu %s", periods, bufferSize, bufferSizeParam, snd_strerror(err));
-            continue;
-        }
+        // if ((err = snd_pcm_hw_params_set_periods(dev.pcm, params, periods, 1)) != 0)
+        // {
+        //     DEBUGPRINT("snd_pcm_hw_params_set_periods fail %u %u %s", periods, bufferSize, snd_strerror(err));
+        //     continue;
+        // }
 
-        if (bufferSizeParam / bufferSize != periods)
+        if ((err = snd_pcm_hw_params_set_buffer_size(dev.pcm, params, bufferSize * periods)) != 0)
         {
-            DEBUGPRINT("buffer size mismatch %lu vs %u, using %u periods", bufferSizeParam, bufferSize, periods);
+            DEBUGPRINT("snd_pcm_hw_params_set_buffer_size fail %u %u %s", periods, bufferSize, snd_strerror(err));
             continue;
         }
 
@@ -440,7 +443,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         goto error;
     }
 
-    if ((err = snd_pcm_sw_params_set_start_threshold(dev.pcm, swparams, bufferSize / 2)) != 0)
+    if ((err = snd_pcm_sw_params_set_start_threshold(dev.pcm, swparams, bufferSize * 2)) != 0)
     {
         DEBUGPRINT("snd_pcm_sw_params_set_start_threshold fail %s", snd_strerror(err));
         goto error;
@@ -470,9 +473,8 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         goto error;
     }
 
-    DEBUGPRINT("period size BEFORE %lu", bufferSizeParam);
     snd_pcm_hw_params_get_period_size(params, &bufferSizeParam, nullptr);
-    DEBUGPRINT("period size AFTER %lu", bufferSizeParam);
+    DEBUGPRINT("period size %lu", bufferSizeParam);
 
     snd_pcm_hw_params_get_buffer_size(params, &bufferSizeParam);
     DEBUGPRINT("buffer size %lu", bufferSizeParam);
@@ -572,16 +574,23 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
 
             if (err == -EAGAIN)
             {
-                if ((hints & kDeviceStarting) || ++retries > 10)
+                if (++retries < 10)
+                    continue;
+
+                if ((hints & kDeviceStarting))
                 {
-                    DEBUGPRINT("err == -EAGAIN [kDeviceStarting]");
-                    return;
+                    DEBUGPRINT("read err == -EAGAIN [kDeviceStarting] %u retries", retries);
                 }
                 else
                 {
-                    DEBUGPRINT("err == -EAGAIN");
+                    DEBUGPRINT("read err == -EAGAIN %u retries", retries);
+                    dev->hints |= kDeviceStarting;
                 }
-                continue;
+
+                for (uint8_t c=0; c<channels; ++c)
+                    jack_ringbuffer_reset(cdev->ringbuffer[c]);
+
+                return;
             }
 
             if (err < 0)
@@ -653,13 +662,15 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
 
             if (static_cast<uint16_t>(err) == frames)
             {
-                // DEBUGPRINT("Complete read %u", frames);
+                if (retries) {
+                    DEBUGPRINT("Complete read %u, %u retries", frames, retries);
+                }
                 frames = 0;
             }
             else
             {
                 frames -= err;
-                DEBUGPRINT("Incomplete read %d of %u, %u left", err, bufferSize, frames);
+                DEBUGPRINT("Incomplete read %d of %u, %u left, %u retries", err, bufferSize, frames, retries);
             }
         }
 
@@ -725,16 +736,20 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
 
             if (err == -EAGAIN)
             {
-                if ((hints & kDeviceStarting) || ++retries > 10)
+                if (++retries < 10)
+                    continue;
+
+                if ((hints & kDeviceStarting))
                 {
-                    // DEBUGPRINT("err == -EAGAIN [kDeviceStarting]");
-                    return;
+                    DEBUGPRINT("write err == -EAGAIN [kDeviceStarting] %u retries", retries);
                 }
                 else
                 {
-                    // DEBUGPRINT("err == -EAGAIN");
+                    DEBUGPRINT("write err == -EAGAIN %u retries", retries);
+                    dev->hints |= kDeviceStarting;
                 }
-                continue;
+
+                return;
             }
 
             if (err < 0)
@@ -751,14 +766,16 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             if (static_cast<uint16_t>(err) == frames)
             {
                 dev->hints &= ~kDeviceStarting;
-                // DEBUGPRINT("Complete write %u", frames);
+                if (retries) {
+                    DEBUGPRINT("Complete write %u, %u retries", frames, retries);
+                }
                 break;
             }
 
             ptr += err * channels * sampleSize;
             frames -= err;
 
-            DEBUGPRINT("Incomplete write %d of %u, %u left", err, dev->bufferSize, frames);
+            DEBUGPRINT("Incomplete write %d of %u, %u left, %u retries", err, dev->bufferSize, frames, retries);
         }
     }
 }
