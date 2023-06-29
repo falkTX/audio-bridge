@@ -549,6 +549,8 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
     return err;
 }
 
+static uint32_t s_frames = 0;
+
 void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
 {
     const uint16_t bufferSize = dev->bufferSize;
@@ -559,6 +561,9 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
     uint8_t retries = 0;
     size_t rbwrite;
 
+    const uint32_t frame = s_frames;
+    s_frames += bufferSize;
+
     if (hints & kDeviceCapture)
     {
         CaptureDeviceAudio* const cdev = static_cast<CaptureDeviceAudio*>(dev);
@@ -567,6 +572,50 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
         jack_ringbuffer_float_data_t vec[channels][2];
         float* vecbuffers[channels];
 
+        snd_pcm_sframes_t avail = snd_pcm_avail(dev->pcm);
+
+        if (avail < 0) {
+            DEBUGPRINT("%08u | avail < 0 %d", frame, avail);
+        }
+
+        if (avail > bufferSize * 2) {
+            DEBUGPRINT("%08u | avail > bufferSize*2 %d", frame, avail);
+
+            while (avail - bufferSize * 2 > 0) {
+                const snd_pcm_uframes_t size = avail - bufferSize * 2 > bufferSize ? bufferSize : avail - bufferSize * 2;
+                err = snd_pcm_mmap_readi(dev->pcm, dev->buffer, size);
+                DEBUGPRINT("%08u | avail > bufferSize*2 %d || err %d", frame, avail, err);
+                if (err < 0)
+                    break;
+                avail -= err;
+            }
+
+            avail = snd_pcm_avail(dev->pcm);
+        }
+
+        if (avail < bufferSize)
+        {
+            DEBUGPRINT("%08u | avail < bufferSize %d", frame, avail);
+            snd_pcm_rewind(dev->pcm, bufferSize - avail);
+
+            if ((hints & kDeviceStarting) == 0)
+            {
+                if (jack_ringbuffer_read_space(cdev->ringbuffer[0]) < bufferSize * sizeof(float))
+                {
+                    DEBUGPRINT("%08u | capture going too fast, failed to compensate! removing starting flag", frame);
+
+                    dev->hints &= ~kDeviceStarting;
+                }
+                else
+                {
+                    DEBUGPRINT("%08u | capture going too fast but we are still ok!", frame);
+
+                    for (uint8_t c=0; c<channels; ++c)
+                        jack_ringbuffer_write_advance(cdev->ringbuffer[c], sizeof(float)*bufferSize);
+                }
+            }
+        }
+
         while (frames != 0)
         {
             err = snd_pcm_mmap_readi(dev->pcm, dev->buffer, frames);
@@ -574,16 +623,16 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
 
             if (err == -EAGAIN)
             {
-                if (++retries < 10)
-                    continue;
+                // if (++retries < 10)
+                    // continue;
 
                 if ((hints & kDeviceStarting))
                 {
-                    DEBUGPRINT("read err == -EAGAIN [kDeviceStarting] %u retries", retries);
+                    DEBUGPRINT("%08u | read err == -EAGAIN [kDeviceStarting] %u retries %d avail", frame, retries, avail);
                 }
                 else
                 {
-                    DEBUGPRINT("read err == -EAGAIN %u retries", retries);
+                    DEBUGPRINT("%08u | read err == -EAGAIN %u retries %d avail", frame, retries, avail);
                     dev->hints |= kDeviceStarting;
                 }
 
@@ -596,14 +645,14 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             if (err < 0)
             {
                 dev->hints |= kDeviceStarting;
-                DEBUGPRINT("Error read %s\n", snd_strerror(err));
+                DEBUGPRINT("%08u | Error read %s\n", frame, snd_strerror(err));
 
                 for (uint8_t c=0; c<channels; ++c)
                     jack_ringbuffer_reset(cdev->ringbuffer[c]);
 
                 if (xrun_recovery(dev->pcm, err) < 0)
                 {
-                    printf("Read error: %s\n", snd_strerror(err));
+                    printf("%08u | Read error: %s\n", frame, snd_strerror(err));
                     exit(EXIT_FAILURE);
                 }
                 break;  /* skip one period */
@@ -663,28 +712,28 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             if (static_cast<uint16_t>(err) == frames)
             {
                 if (retries) {
-                    DEBUGPRINT("Complete read %u, %u retries", frames, retries);
+                    DEBUGPRINT("%08u | Complete read %u, %u retries %d avail", frame, frames, retries, avail);
                 }
                 frames = 0;
             }
             else
             {
                 frames -= err;
-                DEBUGPRINT("Incomplete read %d of %u, %u left, %u retries", err, bufferSize, frames, retries);
+                DEBUGPRINT("%08u | Incomplete read %d of %u, %u left, %u retries %d avail", frame, err, bufferSize, frames, retries, avail);
             }
         }
 
         if (dev->hints & kDeviceStarting)
         {
-            if (jack_ringbuffer_read_space(cdev->ringbuffer[0]) >= bufferSize * 2)
+            if (jack_ringbuffer_read_space(cdev->ringbuffer[0]) >= bufferSize * sizeof(float) * 2)
             {
-                DEBUGPRINT("buffer filled twice, removing starting flag");
+                DEBUGPRINT("%08u | buffer filled twice, removing starting flag", frame);
                 dev->hints &= ~kDeviceStarting;
             }
         }
-        else if (jack_ringbuffer_read_space(cdev->ringbuffer[0]) < bufferSize)
+        else if (jack_ringbuffer_read_space(cdev->ringbuffer[0]) < bufferSize * sizeof(float))
         {
-            DEBUGPRINT("buffer too low, adding starting flag");
+            DEBUGPRINT("%08u | buffer too low, adding starting flag", frame);
             dev->hints |= kDeviceStarting;
         }
         else
