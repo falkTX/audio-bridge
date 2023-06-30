@@ -839,6 +839,7 @@ void closeDeviceAudio(DeviceAudio* const dev)
     }
 
     std::free(dev->buffer);
+    snd_pcm_close(dev->pcm);
     delete dev;
 }
 

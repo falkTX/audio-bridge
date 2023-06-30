@@ -68,6 +68,12 @@ struct PluginData {
         optionsSet(static_cast<const LV2_Options_Option*>(lv2_features_data(featuresPtr, LV2_OPTIONS__options)));
     }
 
+    ~PluginData()
+    {
+        if (dev != nullptr)
+            closeDeviceAudio(dev);
+    }
+
     // TESTING
     void testing()
     {
@@ -82,12 +88,6 @@ struct PluginData {
         dev = initDeviceAudio(playback ? outputs[outputs.size() - 1].id.c_str()
                                        : inputs[inputs.size() - 1].id.c_str(),
                               playback, bufferSize, sampleRate);
-    }
-
-    ~PluginData()
-    {
-        if (dev != nullptr)
-            closeDeviceAudio(dev);
     }
 
     void activate()
