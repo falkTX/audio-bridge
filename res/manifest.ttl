@@ -1,12 +1,12 @@
 @prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
-<urn:todo:capture>
+<https://falktx.com/plugins/audio-bridge#capture>
     a lv2:Plugin ;
     lv2:binary <audio-bridge.so> ;
     rdfs:seeAlso <audio-bridge.ttl> .
 
-<urn:todo:playback>
+<https://falktx.com/plugins/audio-bridge#playback>
     a lv2:Plugin ;
     lv2:binary <audio-bridge.so> ;
     rdfs:seeAlso <audio-bridge.ttl> .

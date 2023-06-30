@@ -40,19 +40,23 @@ struct PluginData {
     } ports = {};
 
     struct URIs {
-        // LV2_URID atom_Object;
-        // LV2_URID atom_Float;
         LV2_URID atom_Int;
+        LV2_URID atom_Object;
+        LV2_URID atom_Sequence;
         // LV2_URID atom_URID;
         LV2_URID bufsize_maxBlockLength;
-        // LV2_URID patch_Set;
-        // LV2_URID patch_Get;
+        LV2_URID patch_Get;
+        LV2_URID patch_Set;
         // LV2_URID patch_property;
         // LV2_URID patch_value;
 
         URIs(const LV2_URID_Map* const uridMap)
             : atom_Int(uridMap->map(uridMap->handle, LV2_ATOM__Int)),
-              bufsize_maxBlockLength(uridMap->map(uridMap->handle, LV2_BUF_SIZE__maxBlockLength)) {}
+              atom_Object(uridMap->map(uridMap->handle, LV2_ATOM__Object)),
+              atom_Sequence(uridMap->map(uridMap->handle, LV2_ATOM__Sequence)),
+              bufsize_maxBlockLength(uridMap->map(uridMap->handle, LV2_BUF_SIZE__maxBlockLength)),
+              patch_Get(uridMap->map(uridMap->handle, LV2_PATCH__Get)),
+              patch_Set(uridMap->map(uridMap->handle, LV2_PATCH__Set)) {}
     } uris;
 
     PluginData(const uint32_t sampleRate, const LV2_Feature* const* const featuresPtr)
@@ -115,6 +119,52 @@ struct PluginData {
 
     void run(const uint32_t frames)
     {
+        // prepare notify/output port
+        if (LV2_Atom_Sequence* const notify = ports.notify)
+        {
+            // const uint32_t capacity = notify->atom.size;
+
+            notify->atom.size = sizeof(LV2_Atom_Sequence_Body);
+            notify->atom.type = uris.atom_Sequence;
+            notify->body.unit = 0;
+            notify->body.pad  = 0;
+        }
+
+        // handle control/input events
+        if (const LV2_Atom_Sequence* const control = ports.control)
+        {
+            struct Atom_Event {
+                int64_t frame;
+                union {
+                    LV2_Atom_Object object;
+                    uint32_t size;
+                };
+            };
+            union Atom_Iter {
+                const void* voidptr;
+                const uint8_t* u8ptr;
+                const Atom_Event* event;
+            } iter;
+            iter.voidptr = &control->body + 1;
+
+            for (const Atom_Iter end = { iter.u8ptr + ports.control->atom.size - sizeof(LV2_Atom_Sequence_Body) };
+                 iter.u8ptr < end.u8ptr;
+                 iter.u8ptr += sizeof(LV2_Atom_Event) + ((iter.event->size + 7u) & ~7u))
+            {
+                const Atom_Event* const event = iter.event;
+
+                if (event->object.atom.type != uris.atom_Object)
+                    continue;
+
+                if (event->object.body.otype == uris.patch_Get)
+                {
+                }
+                else if (event->object.body.otype == uris.patch_Set)
+                {
+                }
+            }
+        }
+
         if (dev != nullptr)
         {
             runDeviceAudio(dev, ports.audio);
@@ -311,7 +361,7 @@ const void* lv2_extension_data(const char* const uri)
 const LV2_Descriptor* lv2_descriptor(const uint32_t index)
 {
     static const LV2_Descriptor descriptor_capture = {
-        "urn:todo:capture",
+        "https://falktx.com/plugins/audio-bridge#capture",
         lv2_instantiate_capture,
         lv2_connect_port,
         lv2_activate,
@@ -321,7 +371,7 @@ const LV2_Descriptor* lv2_descriptor(const uint32_t index)
         lv2_extension_data
     };
     static const LV2_Descriptor descriptor_playback = {
-        "urn:todo:playback",
+        "https://falktx.com/plugins/audio-bridge#playback",
         lv2_instantiate_playback,
         lv2_connect_port,
         lv2_activate,

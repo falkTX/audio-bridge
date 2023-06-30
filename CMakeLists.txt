@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 cmake_minimum_required(VERSION 3.15)
-project(lv2-awoosb)
+project(audio-bridge)
 
 set(CMAKE_POLICY_DEFAULT_CMP0025 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0063 NEW)
@@ -29,26 +29,26 @@ pkg_check_modules(JACK IMPORTED_TARGET REQUIRED jack)
 #######################################################################################################################
 # Setup LV2 plugin target
 
-add_library(lv2-awoosb SHARED)
+add_library(audio-bridge SHARED)
 
-set_target_properties(lv2-awoosb
+set_target_properties(audio-bridge
   PROPERTIES
     PREFIX ""
 )
 
-target_include_directories(lv2-awoosb
+target_include_directories(audio-bridge
   PRIVATE
     src
 )
 
-target_link_libraries(lv2-awoosb
+target_link_libraries(audio-bridge
   PRIVATE
     PkgConfig::ALSA
     PkgConfig::LV2
     PkgConfig::JACK
 )
 
-target_sources(lv2-awoosb
+target_sources(audio-bridge
   PRIVATE
     src/audio-discovery.cpp
     src/audio-process.cpp
@@ -58,20 +58,20 @@ target_sources(lv2-awoosb
 #######################################################################################################################
 # Setup JACK standalone target
 
-add_executable(jack-awoosb)
+add_executable(jack-audio-bridge)
 
-target_include_directories(jack-awoosb
+target_include_directories(jack-audio-bridge
   PRIVATE
     src
 )
 
-target_link_libraries(jack-awoosb
+target_link_libraries(jack-audio-bridge
   PRIVATE
     PkgConfig::ALSA
     PkgConfig::JACK
 )
 
-target_sources(jack-awoosb
+target_sources(jack-audio-bridge
   PRIVATE
     src/audio-discovery.cpp
     src/audio-process.cpp
@@ -81,31 +81,31 @@ target_sources(jack-awoosb
 #######################################################################################################################
 # Setup JACK internal client target
 
-add_library(jack-int-awoosb SHARED)
+add_library(jack-int-audio-bridge SHARED)
 
-set_target_properties(jack-int-awoosb
+set_target_properties(jack-int-audio-bridge
   PROPERTIES
-    OUTPUT_NAME "jack-awoosb"
+    OUTPUT_NAME "jack-audio-bridge"
     PREFIX ""
 )
 
-target_compile_definitions(jack-int-awoosb
+target_compile_definitions(jack-int-audio-bridge
   PRIVATE
     AWOOSB_INTERNAL_CLIENT
 )
 
-target_include_directories(jack-int-awoosb
+target_include_directories(jack-int-audio-bridge
   PRIVATE
     src
 )
 
-target_link_libraries(jack-int-awoosb
+target_link_libraries(jack-int-audio-bridge
   PRIVATE
     PkgConfig::ALSA
     PkgConfig::JACK
 )
 
-target_sources(jack-int-awoosb
+target_sources(jack-int-audio-bridge
   PRIVATE
     src/audio-discovery.cpp
     src/audio-process.cpp
@@ -115,20 +115,20 @@ target_sources(jack-int-awoosb
 #######################################################################################################################
 # Setup tests
 
-add_executable(awoosb-test)
+add_executable(audio-bridge-test)
 
-target_include_directories(awoosb-test
+target_include_directories(audio-bridge-test
   PRIVATE
     src
 )
 
-target_link_libraries(awoosb-test
+target_link_libraries(audio-bridge-test
   PRIVATE
     PkgConfig::ALSA
     PkgConfig::JACK
 )
 
-target_sources(awoosb-test
+target_sources(audio-bridge-test
   PRIVATE
     src/audio-discovery.cpp
     src/audio-process.cpp

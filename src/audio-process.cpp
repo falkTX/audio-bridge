@@ -567,7 +567,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
     if (hints & kDeviceCapture)
     {
         CaptureDeviceAudio* const cdev = static_cast<CaptureDeviceAudio*>(dev);
-        int err;
+        snd_pcm_sframes_t err;
 
         jack_ringbuffer_float_data_t vec[channels][2];
         float* vecbuffers[channels];
@@ -575,16 +575,16 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
         snd_pcm_sframes_t avail = snd_pcm_avail(dev->pcm);
 
         if (avail < 0) {
-            DEBUGPRINT("%08u | avail < 0 %d", frame, avail);
+            DEBUGPRINT("%08u | avail < 0 %ld", frame, avail);
         }
 
         if (avail > bufferSize * 2) {
-            DEBUGPRINT("%08u | avail > bufferSize*2 %d", frame, avail);
+            DEBUGPRINT("%08u | avail > bufferSize*2 %ld", frame, avail);
 
             while (avail - bufferSize * 2 > 0) {
                 const snd_pcm_uframes_t size = avail - bufferSize * 2 > bufferSize ? bufferSize : avail - bufferSize * 2;
                 err = snd_pcm_mmap_readi(dev->pcm, dev->buffer, size);
-                DEBUGPRINT("%08u | avail > bufferSize*2 %d || err %d", frame, avail, err);
+                DEBUGPRINT("%08u | avail > bufferSize*2 %ld || err %ld", frame, avail, err);
                 if (err < 0)
                     break;
                 avail -= err;
@@ -595,7 +595,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
 
         if (avail < bufferSize)
         {
-            DEBUGPRINT("%08u | avail < bufferSize %d", frame, avail);
+            DEBUGPRINT("%08u | avail < bufferSize %ld", frame, avail);
             snd_pcm_rewind(dev->pcm, bufferSize - avail);
 
             if ((hints & kDeviceStarting) == 0)
@@ -628,11 +628,11 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
 
                 if ((hints & kDeviceStarting))
                 {
-                    DEBUGPRINT("%08u | read err == -EAGAIN [kDeviceStarting] %u retries %d avail", frame, retries, avail);
+                    DEBUGPRINT("%08u | read err == -EAGAIN [kDeviceStarting] %u retries %ld avail", frame, retries, avail);
                 }
                 else
                 {
-                    DEBUGPRINT("%08u | read err == -EAGAIN %u retries %d avail", frame, retries, avail);
+                    DEBUGPRINT("%08u | read err == -EAGAIN %u retries %ld avail", frame, retries, avail);
                     dev->hints |= kDeviceStarting;
                 }
 
@@ -712,14 +712,14 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             if (static_cast<uint16_t>(err) == frames)
             {
                 if (retries) {
-                    DEBUGPRINT("%08u | Complete read %u, %u retries %d avail", frame, frames, retries, avail);
+                    DEBUGPRINT("%08u | Complete read %u, %u retries %ld avail", frame, frames, retries, avail);
                 }
                 frames = 0;
             }
             else
             {
                 frames -= err;
-                DEBUGPRINT("%08u | Incomplete read %d of %u, %u left, %u retries %d avail", frame, err, bufferSize, frames, retries, avail);
+                DEBUGPRINT("%08u | Incomplete read %ld of %u, %u left, %u retries %ld avail", frame, err, bufferSize, frames, retries, avail);
             }
         }
 

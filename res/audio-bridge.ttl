@@ -10,12 +10,13 @@
 @prefix state:   <http://lv2plug.in/ns/ext/state#> .
 @prefix worker:  <http://lv2plug.in/ns/ext/worker#> .
 
-<urn:todo:capture>
-    a lv2:UtilityPlugin, lv2:Plugin ;
+<https://falktx.com/plugins/audio-bridge>
+    a doap:Project, lv2:Plugin ;
 
     lv2:optionalFeature state:threadSafeRestore ;
 
     lv2:requiredFeature bufsize:boundedBlockLength ,
+                        bufsize:fixedBlockLength ,
                         opts:options ,
                         <http://lv2plug.in/ns/ext/urid#map> ;
 
@@ -23,9 +24,32 @@
                       state:interface ,
                       worker:interface ;
 
-    opts:supportedOption bufsize:nominalBlockLength ,
-                         bufsize:maxBlockLength ,
+    opts:supportedOption bufsize:maxBlockLength ,
                          params:sampleRate ;
+
+    patch:writable <https://falktx.com/plugins/audio-bridge#device> ;
+
+    doap:developer [
+        foaf:name "falkTX" ;
+        foaf:homepage <https://falktx.com> ;
+        foaf:email <mailto:falktx@falktx.com> ;
+    ] ;
+    doap:maintainer [
+        foaf:name "falkTX" ;
+        foaf:homepage <https://github.com/falkTX/audio-bridge> ;
+    ] ;
+    doap:license <http://opensource.org/licenses/AGPL-3.0> ;
+
+    lv2:microVersion 0 ;
+    lv2:minorVersion 0 .
+
+<https://falktx.com/plugins/audio-bridge#device>
+    a lv2:Parameter ;
+    rdfs:label "Device" ;
+    rdfs:range atom:String .
+
+<https://falktx.com/plugins/audio-bridge#capture>
+    a lv2:UtilityPlugin, lv2:Plugin ;
 
     lv2:port [
         a lv2:OutputPort, lv2:AudioPort ;
@@ -37,30 +61,30 @@
         lv2:index 1 ;
         lv2:symbol "out2" ;
         lv2:name "Audio Output 2" ;
+    ] , [
+        a lv2:InputPort, atom:AtomPort;
+        lv2:index 2;
+        atom:bufferType atom:Sequence;
+        atom:supports patch:Message;
+        lv2:designation lv2:control;
+        lv2:symbol "control";
+        lv2:name "Control";
+    ], [
+        a lv2:OutputPort, atom:AtomPort;
+        lv2:index 3;
+        atom:bufferType atom:Sequence;
+        atom:supports patch:Message;
+        lv2:designation lv2:control;
+        lv2:symbol "notify";
+        lv2:name "Notify";
     ] ;
 
-    doap:developer [ foaf:name "falkTX" ] ;
-    doap:license <http://opensource.org/licenses/AGPL-3.0> ;
     doap:name "Audio Capture" ;
+    lv2:symbol "capture" ;
+    lv2:prototype <https://falktx.com/plugins/audio-bridge> .
 
-    lv2:microVersion 0 ;
-    lv2:minorVersion 0 ;
-    lv2:symbol "capture" .
-
-<urn:todo:playback>
+<https://falktx.com/plugins/audio-bridge#playback>
     a lv2:UtilityPlugin, lv2:Plugin ;
-
-    lv2:requiredFeature bufsize:boundedBlockLength ,
-                        opts:options ,
-                        <http://lv2plug.in/ns/ext/urid#map> ;
-
-    lv2:extensionData opts:interface ,
-                      state:interface ,
-                      worker:interface ;
-
-    opts:supportedOption bufsize:nominalBlockLength ,
-                         bufsize:maxBlockLength ,
-                         params:sampleRate ;
 
     lv2:port [
         a lv2:InputPort, lv2:AudioPort ;
@@ -72,12 +96,24 @@
         lv2:index 1 ;
         lv2:symbol "in2" ;
         lv2:name "Audio Input 2" ;
+    ] , [
+        a lv2:InputPort, atom:AtomPort;
+        lv2:index 2;
+        atom:bufferType atom:Sequence;
+        atom:supports patch:Message;
+        lv2:designation lv2:control;
+        lv2:symbol "control";
+        lv2:name "Control";
+    ], [
+        a lv2:OutputPort, atom:AtomPort;
+        lv2:index 3;
+        atom:bufferType atom:Sequence;
+        atom:supports patch:Message;
+        lv2:designation lv2:control;
+        lv2:symbol "notify";
+        lv2:name "Notify";
     ] ;
 
-    doap:developer [ foaf:name "falkTX" ] ;
-    doap:license <http://opensource.org/licenses/AGPL-3.0> ;
     doap:name "Audio Playback" ;
-
-    lv2:microVersion 0 ;
-    lv2:minorVersion 0 ;
-    lv2:symbol "playback" .
+    lv2:symbol "playback" ;
+    lv2:prototype <https://falktx.com/plugins/audio-bridge> .
