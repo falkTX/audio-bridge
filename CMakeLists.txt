@@ -36,6 +36,12 @@ set_target_properties(audio-bridge
     PREFIX ""
 )
 
+target_compile_definitions(audio-bridge
+  PRIVATE
+    _REENTRANT
+    _POSIX_PTHREAD_SEMANTICS
+)
+
 target_include_directories(audio-bridge
   PRIVATE
     src
@@ -53,12 +59,20 @@ target_sources(audio-bridge
     src/audio-discovery.cpp
     src/audio-process.cpp
     src/lv2-plugin.cpp
+    src/resampler-table.cc
+    src/vresampler.cc
 )
 
 #######################################################################################################################
 # Setup JACK standalone target
 
 add_executable(jack-audio-bridge)
+
+target_compile_definitions(jack-audio-bridge
+  PRIVATE
+    _REENTRANT
+    _POSIX_PTHREAD_SEMANTICS
+)
 
 target_include_directories(jack-audio-bridge
   PRIVATE
@@ -76,12 +90,20 @@ target_sources(jack-audio-bridge
     src/audio-discovery.cpp
     src/audio-process.cpp
     src/jack-client.cpp
+    src/resampler-table.cc
+    src/vresampler.cc
 )
 
 #######################################################################################################################
 # Setup JACK internal client target
 
 add_library(jack-int-audio-bridge SHARED)
+
+target_compile_definitions(jack-int-audio-bridge
+  PRIVATE
+    _REENTRANT
+    _POSIX_PTHREAD_SEMANTICS
+)
 
 set_target_properties(jack-int-audio-bridge
   PROPERTIES
@@ -110,6 +132,8 @@ target_sources(jack-int-audio-bridge
     src/audio-discovery.cpp
     src/audio-process.cpp
     src/jack-client.cpp
+    src/resampler-table.cc
+    src/vresampler.cc
 )
 
 #######################################################################################################################
@@ -131,7 +155,6 @@ target_link_libraries(audio-bridge-test
 target_sources(audio-bridge-test
   PRIVATE
     src/audio-discovery.cpp
-    src/audio-process.cpp
     src/tests.cpp
 )
 

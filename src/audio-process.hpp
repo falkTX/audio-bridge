@@ -8,6 +8,8 @@
 #include <alsa/asoundlib.h>
 #include <jack/ringbuffer.h>
 
+#include "zita-resampler/vresampler.h"
+
 enum DeviceHints {
     kDeviceCapture = 0x1,
     kDeviceStarting = 0x2,
@@ -20,14 +22,12 @@ enum DeviceHints {
 
 struct DeviceAudio {
     snd_pcm_t* pcm;
-    void* buffer;
     uint16_t bufferSize;
     uint8_t channels;
     uint8_t hints;
-};
-
-struct CaptureDeviceAudio : DeviceAudio {
-    jack_ringbuffer_t* ringbuffer[2];
+    VResampler* resampler[2];
+    int8_t* buffer;
+    float* buffer2[2];
 };
 
 DeviceAudio* initDeviceAudio(const char* deviceID, bool playback, uint16_t bufferSize, uint32_t sampleRate);

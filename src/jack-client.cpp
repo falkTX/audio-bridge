@@ -93,20 +93,20 @@ static ClientData* init_capture(jack_client_t* client = nullptr)
     ClientData* const d = new ClientData;
     d->client = client;
     d->playback = false;
-    d->ports[0] = jack_port_register(client, "p1", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput|JackPortIsTerminal, 0);
-    d->ports[1] = jack_port_register(client, "p2", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput|JackPortIsTerminal, 0);
+    d->ports[0] = jack_port_register(client, "USB_Audio_Capture_1", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput|JackPortIsTerminal|JackPortIsPhysical, 0);
+    d->ports[1] = jack_port_register(client, "USB_Audio_Capture_2", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput|JackPortIsTerminal|JackPortIsPhysical, 0);
 
     jack_set_process_callback(client, jack_process, d);
     jack_activate(client);
 
   #ifdef __MOD_DEVICES__
-   #ifdef _MOD_DEVICE_DWARF
-    jack_connect(client, "awoosb-capture:p1", "mod-host:in2");
-    jack_connect(client, "awoosb-capture:p2", "mod-host:in1");
-   #else
-    jack_connect(client, "awoosb-capture:p1", "mod-host:in1");
-    jack_connect(client, "awoosb-capture:p2", "mod-host:in2");
-   #endif
+   // #ifdef _MOD_DEVICE_DWARF
+   //  jack_connect(client, "awoosb-capture:USB_Audio_Capture_1", "mod-host:in2");
+   //  jack_connect(client, "awoosb-capture:USB_Audio_Capture_2", "mod-host:in1");
+   // #else
+   //  jack_connect(client, "awoosb-capture:USB_Audio_Capture_1", "mod-host:in1");
+   //  jack_connect(client, "awoosb-capture:USB_Audio_Capture_2", "mod-host:in2");
+   // #endif
   #else
     jack_connect(client, "awoosb-capture:p1", "awoosb-playback:p1");
     jack_connect(client, "awoosb-capture:p2", "awoosb-playback:p2");
@@ -133,13 +133,13 @@ static ClientData* init_playback(jack_client_t* client = nullptr)
     jack_activate(client);
 
   #ifdef __MOD_DEVICES__
-   #ifdef _MOD_DEVICE_DWARF
-    jack_connect(client, "mod-monitor:out_2", "awoosb-playback:p1");
-    jack_connect(client, "mod-monitor:out_1", "awoosb-playback:p2");
-   #else
-    jack_connect(client, "mod-monitor:out_1", "awoosb-playback:p1");
-    jack_connect(client, "mod-monitor:out_2", "awoosb-playback:p2");
-   #endif
+   // #ifdef _MOD_DEVICE_DWARF
+   //  jack_connect(client, "mod-monitor:out_2", "mod-usbgadget_p:p1");
+   //  jack_connect(client, "mod-monitor:out_1", "mod-usbgadget_p:p2");
+   // #else
+    jack_connect(client, "mod-monitor:out_1", "mod-usbgadget_p:p1");
+    jack_connect(client, "mod-monitor:out_2", "mod-usbgadget_p:p2");
+   // #endif
   #else
     jack_connect(client, "PulseAudio JACK Sink:front-left", "awoosb-playback:p1");
     jack_connect(client, "PulseAudio JACK Sink:front-right", "awoosb-playback:p2");
