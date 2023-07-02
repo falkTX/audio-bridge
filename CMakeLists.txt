@@ -113,7 +113,7 @@ set_target_properties(jack-int-audio-bridge
 
 target_compile_definitions(jack-int-audio-bridge
   PRIVATE
-    AWOOSB_INTERNAL_CLIENT
+    AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
 )
 
 target_include_directories(jack-int-audio-bridge

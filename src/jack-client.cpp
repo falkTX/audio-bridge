@@ -15,7 +15,7 @@ struct ClientData {
     bool playback = false;
     bool running = true;
 
-   #ifdef AWOOSB_INTERNAL_CLIENT
+   #ifdef AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
     char* deviceID = nullptr;
     pthread_t thread = {};
 
@@ -162,7 +162,7 @@ static void close(ClientData* const d)
     delete d;
 }
 
-#ifdef AWOOSB_INTERNAL_CLIENT
+#ifdef AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
 extern "C"
 JACK_LIB_EXPORT
 int jack_initialize(jack_client_t* client, const char* load_init);
