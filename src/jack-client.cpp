@@ -101,11 +101,11 @@ static ClientData* init_capture(jack_client_t* client = nullptr)
 
   #ifdef __MOD_DEVICES__
    // #ifdef _MOD_DEVICE_DWARF
-   //  jack_connect(client, "awoosb-capture:USB_Audio_Capture_1", "mod-host:in2");
-   //  jack_connect(client, "awoosb-capture:USB_Audio_Capture_2", "mod-host:in1");
+   //  jack_connect(client, "mod-usbgadget_c:USB_Audio_Capture_1", "mod-host:in2");
+   //  jack_connect(client, "mod-usbgadget_c:USB_Audio_Capture_2", "mod-host:in1");
    // #else
-   //  jack_connect(client, "awoosb-capture:USB_Audio_Capture_1", "mod-host:in1");
-   //  jack_connect(client, "awoosb-capture:USB_Audio_Capture_2", "mod-host:in2");
+   //  jack_connect(client, "mod-usbgadget_c:USB_Audio_Capture_1", "mod-host:in1");
+   //  jack_connect(client, "mod-usbgadget_c:USB_Audio_Capture_2", "mod-host:in2");
    // #endif
   #else
     jack_connect(client, "awoosb-capture:p1", "awoosb-playback:p1");

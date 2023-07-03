@@ -12,7 +12,8 @@
 
 enum DeviceHints {
     kDeviceCapture = 0x1,
-    kDeviceStarting = 0x2,
+    kDeviceInitializing = 0x2,
+    kDeviceStarting = 0x4,
     kDeviceSample16 = 0x10,
     kDeviceSample24 = 0x20,
     kDeviceSample24LE3 = 0x40,
@@ -22,6 +23,7 @@ enum DeviceHints {
 
 struct DeviceAudio {
     snd_pcm_t* pcm;
+    uint32_t frame;
     uint16_t bufferSize;
     uint8_t channels;
     uint8_t hints;
