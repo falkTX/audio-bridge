@@ -633,7 +633,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             static uint16_t slowingDown = 0;
             static uint16_t speedingUp = 0;
             static uint16_t speedingUpRealFast = 0;
-            static constexpr const uint16_t kSpeedTarget = 48000 / 128 * 2;
+            static constexpr const uint16_t kSpeedTarget = 48000 / 128 * 4;
 
             if (avail >= bufferSize * 3.5) {
 
@@ -1012,7 +1012,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
         if (!(hints & kDeviceStarting)) {
             static uint16_t slowingDown = 0;
             static uint16_t speedingUp = 0;
-            static constexpr const uint16_t kSpeedTarget = 48000 / 128 * 2;
+            static constexpr const uint16_t kSpeedTarget = 48000 / 128 * 4;
 
             if (avail >= bufferSize * 2.5) {
                 if (slowingDown == 0)
