@@ -759,6 +759,8 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
         }
         #endif
 
+        int lasterr = 0;
+
         for (;;)
         {
             err = snd_pcm_mmap_readi(dev->pcm, dev->buffer, bufferSize + extraBufferSize);
@@ -778,7 +780,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
 
                 {
                     DEBUGPRINT("%08u | capture | read err == -EAGAIN %u retries %ld avail", frame, retries, avail);
-                    // dev->hints |= kDeviceStarting;
+                    dev->hints |= kDeviceStarting;
                 }
 
                #if 0
@@ -815,22 +817,45 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             if (static_cast<uint16_t>(err) >= bufferSize + extraBufferSize)
             {
                 // if (err != avail) {
-                    // DEBUGPRINT("%08u | Complete read >= frames %u, err %ld, %ld avail", frame, frames, err, avail);
                 // }
                 // frames = 0;
                 if (dev->hints & kDeviceInitializing)
+                {
+                    DEBUGPRINT("%08u | Complete read >= %u, err %ld, %ld avail, removing kDeviceInitializing", frame, bufferSize + extraBufferSize, err, avail);
                     dev->hints &= ~kDeviceInitializing;
-                else
+                }
+                else if (dev->hints & kDeviceStarting)
+                {
+                    DEBUGPRINT("%08u | Complete read >= %u, err %ld, %ld avail, removing kDeviceStarting", frame, bufferSize + extraBufferSize, err, avail);
                     dev->hints &= ~kDeviceStarting;
+                }
             }
             else
             {
-                // FIXME
-                // frames -= err;
-                // DEBUGPRINT("%08u | Incomplete read %ld, %u left, %ld avail", frame, err, bufferSize, avail);
-                snd_pcm_rewind(dev->pcm, err);
-                // if (frames != 0) {
-                // }
+                // DEBUGPRINT("%08u | capture | Incomplete read %ld, %ld avail", frame, err, avail);
+
+                // TODO no rewind full frames, offset buffer instead
+
+                if ((dev->hints & kDeviceInitializing) && lasterr != err)
+                {
+                    DEBUGPRINT("%08u | capture | Incomplete read %ld, %ld avail, removing kDeviceInitializing", frame, err, avail);
+
+                    dev->hints &= ~kDeviceInitializing;
+                    snd_pcm_rewind(dev->pcm, bufferSize * 2.5 - err);
+                }
+                else if (lasterr == err && ++retries >= 100)
+                {
+                    DEBUGPRINT("%08u | capture | Incomplete read %ld, %ld avail, adding kDeviceInitializing", frame, err, avail);
+                    s_frames_alsa += err;
+                    dev->hints |= kDeviceInitializing|kDeviceStarting;
+                    break;
+                }
+                else
+                {
+                    snd_pcm_rewind(dev->pcm, err);
+                }
+
+                lasterr = err;
                 continue;
             }
 
