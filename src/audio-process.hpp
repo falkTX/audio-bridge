@@ -27,8 +27,8 @@ struct DeviceAudio {
     uint16_t bufferSize;
     uint8_t channels;
     uint8_t hints;
-    VResampler* resampler[2];
     int8_t* buffer;
+    VResampler* resampler[2];
     float* buffer2[2];
 };
 
