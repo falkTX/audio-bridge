@@ -656,8 +656,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             {
                 if (bal.speedingUpRealFast == 0)
                 {
-                    DEBUGPRINT("%08u | capture | avail >= kMaxTargetRF %ld | %ld", frame, avail, avail - bufferSize);
-                    DEBUGPRINT("%08u | capture | speeding up real fast...", frame);
+                    DEBUGPRINT("%08u | capture | avail >= kMaxTargetRF %ld | %ld | speeding up real fast...", frame, avail, avail - bufferSize);
                     bal.speedingUpRealFast = bal.speedingUp = 1;
                     bal.slowingDown = bal.slowingDownRealFast = 0;
                     for (uint8_t c=0; c<channels; ++c)
@@ -672,8 +671,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             {
                 if (bal.speedingUp == 0 || (bal.speedingUpRealFast != 0 && ++bal.speedingUpRealFast == kSpeedTarget))
                 {
-                    DEBUGPRINT("%08u | capture | avail > kMaxTargetN %ld | %ld", frame, avail, avail - bufferSize);
-                    DEBUGPRINT("%08u | capture | speeding up...", frame);
+                    DEBUGPRINT("%08u | capture | avail > kMaxTargetN %ld | %ld | speeding up...", frame, avail, avail - bufferSize);
                     bal.speedingUp = 1;
                     bal.speedingUpRealFast = 0;
                     bal.slowingDown = bal.slowingDownRealFast = 0;
@@ -700,8 +698,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             {
                 if (bal.slowingDownRealFast == 0)
                 {
-                    DEBUGPRINT("%08u | avail <= kMinTargetRF %ld | %ld", frame, avail, avail - bufferSize);
-                    DEBUGPRINT("%08u | slowing down real fast...", frame);
+                    DEBUGPRINT("%08u | avail <= kMinTargetRF %ld | %ld | slowing down real fast...", frame, avail, avail - bufferSize);
                     bal.slowingDownRealFast = bal.slowingDown = 1;
                     bal.speedingUp = bal.speedingUpRealFast = 0;
                     for (uint8_t c=0; c<channels; ++c)
@@ -717,8 +714,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             {
                 if (bal.slowingDown == 0)
                 {
-                    DEBUGPRINT("%08u | capture | avail < kMinTargetN %ld | %ld", frame, avail, avail - bufferSize);
-                    DEBUGPRINT("%08u | capture | slowing down...", frame);
+                    DEBUGPRINT("%08u | capture | avail < kMinTargetN %ld | %ld | slowing down...", frame, avail, avail - bufferSize);
                     bal.slowingDown = 1;
                     bal.slowingDownRealFast = 0;
                     bal.speedingUp = bal.speedingUpRealFast = 0;
@@ -734,7 +730,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             {
                 if ((bal.slowingDown != 0 && ++bal.slowingDown == kSpeedTarget) || (bal.speedingUp != 0 && ++bal.speedingUp == kSpeedTarget))
                 {
-                    DEBUGPRINT("%08u | capture | stop speed compensation...", frame);
+                    DEBUGPRINT("%08u | capture | stopped speed compensation", frame);
                     bal.slowingDown = bal.slowingDownRealFast = bal.speedingUp = bal.speedingUpRealFast = 0;
                     for (uint8_t c=0; c<channels; ++c)
                         dev->resampler[c]->set_rratio(1.0);
@@ -1038,8 +1034,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             {
                 if (bal.slowingDownRealFast == 0)
                 {
-                    DEBUGPRINT("%08u | playback | avail >= kMaxTargetRF %ld | %ld", frame, avail, avail - bufferSize);
-                    DEBUGPRINT("%08u | playback | slowing down real fast...", frame);
+                    DEBUGPRINT("%08u | playback | avail >= kMaxTargetRF %ld | %ld | slowing down real fast...", frame, avail, avail - bufferSize);
                     bal.slowingDown = bal.slowingDownRealFast = 1;
                     bal.speedingUp = bal.speedingUpRealFast = 0;
                     for (uint8_t c=0; c<channels; ++c)
@@ -1054,8 +1049,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             {
                 if (bal.slowingDown == 0)
                 {
-                    DEBUGPRINT("%08u | playback | avail > kMaxTargetN %ld | %ld", frame, avail, avail - bufferSize);
-                    DEBUGPRINT("%08u | playback | slowing down...", frame);
+                    DEBUGPRINT("%08u | playback | avail > kMaxTargetN %ld | %ld | slowing down...", frame, avail, avail - bufferSize);
                     bal.slowingDown = 1;
                     bal.slowingDownRealFast = 0;
                     bal.speedingUp = bal.speedingUpRealFast = 0;
@@ -1072,8 +1066,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             {
                 if (bal.speedingUpRealFast == 0)
                 {
-                    DEBUGPRINT("%08u | playback | avail <= kMinTargetRF %ld | %ld", frame, avail, avail - bufferSize);
-                    DEBUGPRINT("%08u | playback | speeding up real fast...", frame);
+                    DEBUGPRINT("%08u | playback | avail <= kMinTargetRF %ld | %ld | speeding up real fast...", frame, avail, avail - bufferSize);
                     bal.speedingUp = bal.speedingUpRealFast = 1;
                     bal.slowingDown = bal.slowingDownRealFast = 0;
                     for (uint8_t c=0; c<channels; ++c)
@@ -1088,8 +1081,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             {
                 if (bal.speedingUp == 0)
                 {
-                    DEBUGPRINT("%08u | playback | avail < kMinTargetN %ld | %ld", frame, avail, avail - bufferSize);
-                    DEBUGPRINT("%08u | playback | speeding up...", frame);
+                    DEBUGPRINT("%08u | playback | avail < kMinTargetN %ld | %ld | speeding up...", frame, avail, avail - bufferSize);
                     bal.speedingUp = 1;
                     bal.speedingUpRealFast = 0;
                     bal.slowingDown = bal.slowingDownRealFast = 0;
@@ -1106,7 +1098,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             {
                 if ((bal.slowingDown != 0 && ++bal.slowingDown == kSpeedTarget) || (bal.speedingUp != 0 && ++bal.speedingUp == kSpeedTarget))
                 {
-                    DEBUGPRINT("%08u | playback | stop speed compensation...", frame);
+                    DEBUGPRINT("%08u | playback | stopped speed compensation", frame);
                     bal.slowingDown = bal.slowingDownRealFast = bal.speedingUp = bal.speedingUpRealFast = 0;
                     for (uint8_t c=0; c<channels; ++c)
                         dev->resampler[c]->set_rratio(1.0);
