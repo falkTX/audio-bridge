@@ -22,6 +22,12 @@ enum DeviceHints {
 };
 
 struct DeviceAudio {
+    struct Balance {
+        uint16_t slowingDown = 0;
+        uint16_t slowingDownRealFast = 0;
+        uint16_t speedingUp = 0;
+        uint16_t speedingUpRealFast = 0;
+    } balance;
     snd_pcm_t* pcm;
     uint32_t frame;
     uint16_t bufferSize;
