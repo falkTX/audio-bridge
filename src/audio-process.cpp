@@ -284,13 +284,14 @@ void s32(float* const* const dst, void* const src, const uint16_t offset, const 
 
 DeviceAudio* initDeviceAudio(const char* const deviceID,
                              const bool playback,
+                             const uint8_t channels,
                              const uint16_t bufferSize,
                              const uint32_t sampleRate)
 {
     int err;
     DeviceAudio dev = {};
     dev.bufferSize = bufferSize;
-    dev.channels = 2;
+    dev.channels = channels;
     dev.hints = kDeviceInitializing|kDeviceStarting|(playback ? 0 : kDeviceCapture);
 
     const snd_pcm_stream_t mode = playback ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE;
@@ -367,7 +368,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         goto error;
     }
 
-    if ((err = snd_pcm_hw_params_set_channels(dev.pcm, params, dev.channels)) != 0)
+    if ((err = snd_pcm_hw_params_set_channels(dev.pcm, params, channels)) != 0)
     {
         DEBUGPRINT("snd_pcm_hw_params_set_channels fail %s", snd_strerror(err));
         goto error;
@@ -490,7 +491,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         goto error;
     }
 
-    // if ((err = snd_spcm_init(dev.pcm, sampleRate, dev.channels,
+    // if ((err = snd_spcm_init(dev.pcm, sampleRate, channels,
     //     SND_PCM_FORMAT_S32, SND_PCM_SUBFORMAT_STD, SND_SPCM_LATENCY_REALTIME, SND_PCM_ACCESS_MMAP_INTERLEAVED,
     //     SND_SPCM_XRUN_IGNORE)) != 0)
     // {
@@ -508,11 +509,11 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     DEBUGPRINT("num periods %u", periodsParam);
 
     {
-        const size_t rawbufferlen = getSampleSizeFromHints(dev.hints) * dev.bufferSize * dev.channels * 2;
+        const size_t rawbufferlen = getSampleSizeFromHints(dev.hints) * dev.bufferSize * channels * 2;
         dev.buffers.raw = new int8_t[rawbufferlen];
-        dev.buffers.f32 = new float*[dev.channels];
+        dev.buffers.f32 = new float*[channels];
 
-        for (uint8_t c=0; c<dev.channels; ++c)
+        for (uint8_t c=0; c<channels; ++c)
             dev.buffers.f32[c] = new float[dev.bufferSize * 2];
 
         dev.resampler = new VResampler;
@@ -520,12 +521,12 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
        #if defined(__MOD_DEVICES__) && defined(_MOD_DEVICE_DWARF) && defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT)
         if (!playback)
         {
-            dev.resampler->setup(0.99997392, dev.channels, 8);
+            dev.resampler->setup(0.99997392, channels, 8);
         }
         else
        #endif
         {
-            dev.resampler->setup(1.0, dev.channels, 8);
+            dev.resampler->setup(1.0, channels, 8);
         }
 
         DeviceAudio* const devptr = new DeviceAudio;
@@ -577,7 +578,7 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
     return err;
 }
 
-void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
+void runDeviceAudio(DeviceAudio* const dev, float* buffers[])
 {
     const uint16_t bufferSize = dev->bufferSize;
     const uint8_t channels = dev->channels;

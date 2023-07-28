@@ -43,7 +43,6 @@ struct DeviceAudio {
     VResampler* resampler;
 };
 
-DeviceAudio* initDeviceAudio(const char* deviceID, bool playback, uint16_t bufferSize, uint32_t sampleRate);
-void getDeviceAudio(DeviceAudio* dev, float* buffers[]);
+DeviceAudio* initDeviceAudio(const char* deviceID, bool playback, uint8_t channels, uint16_t bufferSize, uint32_t sampleRate);
 void runDeviceAudio(DeviceAudio* dev, float* buffers[]);
 void closeDeviceAudio(DeviceAudio* dev);

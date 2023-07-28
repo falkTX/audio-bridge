@@ -8,10 +8,20 @@
 #include <cstring>
 #include <unistd.h>
 
+#if defined(__MOD_DEVICES__) && defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT)
+# define MOD_AUDIO_USB_BRIDGE
+#endif
+
 struct ClientData {
     DeviceAudio* dev = nullptr;
     jack_client_t* client = nullptr;
-    jack_port_t* ports[2] = {};
+    float** buffers = {};
+    jack_port_t** ports = {};
+   #ifdef MOD_AUDIO_USB_BRIDGE
+    uint8_t channels = 4;
+   #else
+    uint8_t channels = 2;
+   #endif
     bool playback = false;
     bool running = true;
 
@@ -26,7 +36,7 @@ struct ClientData {
 
         while (running && dev == nullptr)
         {
-            dev = initDeviceAudio(deviceID, playback, bufferSize, sampleRate);
+            dev = initDeviceAudio(deviceID, playback, channels, bufferSize, sampleRate);
             usleep(250000); // 250ms
         }
 
@@ -48,7 +58,7 @@ struct ClientData {
         while (running)
         {
             if (dev == nullptr)
-                dev = initDeviceAudio(deviceID, playback, bufferSize, sampleRate);
+                dev = initDeviceAudio(deviceID, playback, channels, bufferSize, sampleRate);
 
             sleep(1);
         }
@@ -59,23 +69,21 @@ struct ClientData {
 static int jack_process(const unsigned frames, void* const arg)
 {
     ClientData* const d = static_cast<ClientData*>(arg);
-    float* buffers[2] = {
-        (float*)jack_port_get_buffer(d->ports[0], frames),
-        (float*)jack_port_get_buffer(d->ports[1], frames)
-    };
+
+    for (uint8_t c = 0; c < d->channels; ++c)
+        d->buffers[c] = static_cast<float*>(jack_port_get_buffer(d->ports[c], frames));
+
     if (d->dev != nullptr)
     {
-        runDeviceAudio(d->dev, buffers);
+        runDeviceAudio(d->dev, d->buffers);
     }
     else if (!d->playback)
     {
-        std::memset(buffers[0], 0, sizeof(float)*frames);
-        std::memset(buffers[1], 0, sizeof(float)*frames);
+        for (uint8_t c = 0; c < d->channels; ++c)
+            std::memset(d->buffers[c], 0, sizeof(float)*frames);
     }
     return 0;
 }
-
-static void close(ClientData* const d);
 
 static ClientData* init_capture(jack_client_t* client = nullptr)
 {
@@ -84,7 +92,7 @@ static ClientData* init_capture(jack_client_t* client = nullptr)
        #ifdef __MOD_DEVICES__
         setenv("JACK_INTERNAL_CLIENT_SYNC", ".", 1);
        #endif
-        client = jack_client_open("awoosb-capture", JackNoStartServer, nullptr);
+        client = jack_client_open("audio-bridge-capture", JackNoStartServer, nullptr);
     }
 
     if (client == nullptr)
@@ -93,23 +101,33 @@ static ClientData* init_capture(jack_client_t* client = nullptr)
     ClientData* const d = new ClientData;
     d->client = client;
     d->playback = false;
-    d->ports[0] = jack_port_register(client, "USB_Audio_Capture_1", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput|JackPortIsTerminal|JackPortIsPhysical, 0);
-    d->ports[1] = jack_port_register(client, "USB_Audio_Capture_2", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput|JackPortIsTerminal|JackPortIsPhysical, 0);
+
+    d->buffers = new float* [d->channels];
+    d->ports = new jack_port_t* [d->channels];
+
+    for (uint8_t c = 0; c < d->channels; ++c)
+    {
+        char name[8] = {};
+        std::snprintf(name, sizeof(name)-1, "p%d", c + 1);
+        d->ports[c] = jack_port_register(client, name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput|JackPortIsTerminal, 0);
+    }
 
     jack_set_process_callback(client, jack_process, d);
     jack_activate(client);
 
-  #ifdef __MOD_DEVICES__
-   // #ifdef _MOD_DEVICE_DWARF
-   //  jack_connect(client, "mod-usbgadget_c:USB_Audio_Capture_1", "mod-host:in2");
-   //  jack_connect(client, "mod-usbgadget_c:USB_Audio_Capture_2", "mod-host:in1");
-   // #else
-   //  jack_connect(client, "mod-usbgadget_c:USB_Audio_Capture_1", "mod-host:in1");
-   //  jack_connect(client, "mod-usbgadget_c:USB_Audio_Capture_2", "mod-host:in2");
-   // #endif
+  #ifdef MOD_AUDIO_USB_BRIDGE
+   #ifdef _MOD_DEVICE_DWARF
+    jack_connect(client, "mod-usbgadget_c:p1", "system:playback_2");
+    jack_connect(client, "mod-usbgadget_c:p2", "system:playback_1");
+   #else
+    jack_connect(client, "mod-usbgadget_c:p1", "system:playback_1");
+    jack_connect(client, "mod-usbgadget_c:p2", "system:playback_2");
+   #endif
+    jack_connect(client, "mod-usbgadget_c:p3", "mod-host:in1");
+    jack_connect(client, "mod-usbgadget_c:p4", "mod-host:in2");
   #else
-    jack_connect(client, "awoosb-capture:p1", "awoosb-playback:p1");
-    jack_connect(client, "awoosb-capture:p2", "awoosb-playback:p2");
+    jack_connect(client, "audio-bridge-capture:p1", "audio-bridge-playback:p1");
+    jack_connect(client, "audio-bridge-capture:p2", "audio-bridge-playback:p2");
   #endif
 
     return d;
@@ -118,7 +136,7 @@ static ClientData* init_capture(jack_client_t* client = nullptr)
 static ClientData* init_playback(jack_client_t* client = nullptr)
 {
     if (client == nullptr)
-        client = jack_client_open("awoosb-playback", JackNoStartServer, nullptr);
+        client = jack_client_open("audio-bridge-playback", JackNoStartServer, nullptr);
 
     if (client == nullptr)
         return nullptr;
@@ -126,25 +144,37 @@ static ClientData* init_playback(jack_client_t* client = nullptr)
     ClientData* const d = new ClientData;
     d->client = client;
     d->playback = true;
-    d->ports[0] = jack_port_register(client, "p1", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput|JackPortIsTerminal, 0);
-    d->ports[1] = jack_port_register(client, "p2", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput|JackPortIsTerminal, 0);
+
+    d->buffers = new float* [d->channels];
+    d->ports = new jack_port_t* [d->channels];
+
+    for (uint8_t c = 0; c < d->channels; ++c)
+    {
+        char name[8] = {};
+        std::snprintf(name, sizeof(name)-1, "p%d", c + 1);
+        d->ports[c] = jack_port_register(client, name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput|JackPortIsTerminal, 0);
+    }
 
     jack_set_process_callback(client, jack_process, d);
     jack_activate(client);
 
-  #ifdef __MOD_DEVICES__
-   // #ifdef _MOD_DEVICE_DWARF
-   //  jack_connect(client, "mod-monitor:out_2", "mod-usbgadget_p:p1");
-   //  jack_connect(client, "mod-monitor:out_1", "mod-usbgadget_p:p2");
-   // #else
-    jack_connect(client, "mod-monitor:out_1", "mod-usbgadget_p:p1");
-    jack_connect(client, "mod-monitor:out_2", "mod-usbgadget_p:p2");
-   // #endif
+  #ifdef MOD_AUDIO_USB_BRIDGE
+   #ifdef _MOD_DEVICE_DWARF
+    jack_connect(client, "mod-host:out2", "mod-usbgadget_p:p1");
+    jack_connect(client, "mod-host:out1", "mod-usbgadget_p:p2");
+    jack_connect(client, "mod-monitor:out_2", "mod-usbgadget_p:p3");
+    jack_connect(client, "mod-monitor:out_1", "mod-usbgadget_p:p4");
+   #else
+    jack_connect(client, "mod-host:out1", "mod-usbgadget_p:p1");
+    jack_connect(client, "mod-host:out2", "mod-usbgadget_p:p2");
+    jack_connect(client, "mod-monitor:out_1", "mod-usbgadget_p:p3");
+    jack_connect(client, "mod-monitor:out_2", "mod-usbgadget_p:p4");
+   #endif
   #else
-    jack_connect(client, "PulseAudio JACK Sink:front-left", "awoosb-playback:p1");
-    jack_connect(client, "PulseAudio JACK Sink:front-right", "awoosb-playback:p2");
-    jack_connect(client, "awoosb-capture:p1", "awoosb-playback:p1");
-    jack_connect(client, "awoosb-capture:p2", "awoosb-playback:p2");
+    jack_connect(client, "PulseAudio JACK Sink:front-left", "audio-bridge-playback:p1");
+    jack_connect(client, "PulseAudio JACK Sink:front-right", "audio-bridge-playback:p2");
+    jack_connect(client, "audio-bridge-capture:p1", "audio-bridge-playback:p1");
+    jack_connect(client, "audio-bridge-capture:p2", "audio-bridge-playback:p2");
   #endif
 
     return d;
@@ -159,6 +189,9 @@ static void close(ClientData* const d)
     }
 
     closeDeviceAudio(d->dev);
+
+    delete[] d->buffers;
+    delete[] d->ports;
     delete d;
 }
 

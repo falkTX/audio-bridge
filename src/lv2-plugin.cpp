@@ -80,6 +80,8 @@ struct PluginData {
         if (bufferSize == 0)
             return;
 
+        const uint8_t channels = 2;
+
         printf("TESTING %u %u\n", bufferSize, sampleRate);
 
         std::vector<DeviceID> inputs, outputs;
@@ -87,7 +89,7 @@ struct PluginData {
 
         dev = initDeviceAudio(playback ? outputs[outputs.size() - 1].id.c_str()
                                        : inputs[inputs.size() - 1].id.c_str(),
-                              playback, bufferSize, sampleRate);
+                              playback, channels, bufferSize, sampleRate);
     }
 
     void activate()
