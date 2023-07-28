@@ -31,6 +31,7 @@ struct DeviceAudio {
 
     snd_pcm_t* pcm;
     uint32_t frame;
+    uint32_t sampleRate;
     uint16_t bufferSize;
     uint8_t channels;
     uint8_t hints;

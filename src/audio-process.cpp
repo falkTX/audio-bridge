@@ -290,6 +290,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
 {
     int err;
     DeviceAudio dev = {};
+    dev.sampleRate = sampleRate;
     dev.bufferSize = bufferSize;
     dev.channels = channels;
     dev.hints = kDeviceInitializing|kDeviceStarting|(playback ? 0 : kDeviceCapture);
@@ -580,6 +581,7 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
 
 void runDeviceAudio(DeviceAudio* const dev, float* buffers[])
 {
+    const uint32_t sampleRate = dev->sampleRate;
     const uint16_t bufferSize = dev->bufferSize;
     const uint8_t channels = dev->channels;
     const uint8_t hints = dev->hints;
@@ -637,7 +639,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[])
         {
             DeviceAudio::Balance& bal(dev->balance);
 
-            const uint16_t kSpeedTarget = 48000 / bufferSize * 15;
+            const uint16_t kSpeedTarget = sampleRate / bufferSize * 15;
             const uint16_t kMaxTargetRF = bufferSize * 2.85;
             const uint16_t kMaxTargetN = bufferSize * 2.5;
             const uint16_t kMinTargetRF = bufferSize * 1.15;
@@ -919,7 +921,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[])
         {
             DeviceAudio::Balance& bal(dev->balance);
 
-            const uint16_t kSpeedTarget = 48000 / bufferSize * 15;
+            const uint16_t kSpeedTarget = sampleRate / bufferSize * 15;
             const uint16_t kMaxTargetRF = bufferSize * 2.85;
             const uint16_t kMaxTargetN = bufferSize * 2.5;
             const uint16_t kMinTargetRF = bufferSize * 1.15;
