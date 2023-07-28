@@ -519,7 +519,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
 
         dev.resampler = new VResampler;
 
-       #if defined(__MOD_DEVICES__) && defined(_MOD_DEVICE_DWARF) && defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT)
+       #if 0 // defined(__MOD_DEVICES__) && defined(_MOD_DEVICE_DWARF) && defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT)
         if (!playback)
         {
             dev.resampler->setup(0.99997392, channels, 8);
