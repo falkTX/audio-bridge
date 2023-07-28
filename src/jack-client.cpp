@@ -258,7 +258,7 @@ int main(int argc, const char* argv[])
     ClientData* d;
     const char* deviceID;
 
-    if (argc > 2)
+    if (argc > 2 && std::strcmp(argv[2], "capture") == 0)
     {
         deviceID = argv[1];
         d = init_capture();
