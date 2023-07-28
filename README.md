@@ -31,7 +31,7 @@ A 1st optional argument can be given for choosing the soundcard, a 2nd one as "c
 Quickly building and running can be done like so:
 
 ```
-cmake -S . -B build && cmake --build build && ./build/jack-audio-bridge hw:ALSA_HW_NAME
+cmake -S . -B build && cmake --build build && ./build/jack-audio-bridge hw:ALSA_HW_NAME playback
 ```
 
 There is no way to specify amount of channels, so things are hardcoded to stereo at the moment.
