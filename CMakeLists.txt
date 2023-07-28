@@ -27,29 +27,40 @@ pkg_check_modules(LV2 IMPORTED_TARGET REQUIRED lv2)
 pkg_check_modules(JACK IMPORTED_TARGET REQUIRED jack)
 
 #######################################################################################################################
+# Utilities
+
+function(set_common_target_properties TARGET)
+  target_compile_definitions(${TARGET}
+    PRIVATE
+      _REENTRANT
+      _POSIX_PTHREAD_SEMANTICS
+  )
+
+  target_include_directories(${TARGET}
+    PRIVATE
+      src
+  )
+
+  target_link_libraries(${TARGET}
+    PRIVATE
+      PkgConfig::ALSA
+  )
+endfunction()
+
+#######################################################################################################################
 # Setup LV2 plugin target
 
 add_library(audio-bridge SHARED)
+
+set_common_target_properties(audio-bridge)
 
 set_target_properties(audio-bridge
   PROPERTIES
     PREFIX ""
 )
 
-target_compile_definitions(audio-bridge
-  PRIVATE
-    _REENTRANT
-    _POSIX_PTHREAD_SEMANTICS
-)
-
-target_include_directories(audio-bridge
-  PRIVATE
-    src
-)
-
 target_link_libraries(audio-bridge
   PRIVATE
-    PkgConfig::ALSA
     PkgConfig::LV2
     PkgConfig::JACK
 )
@@ -68,20 +79,10 @@ target_sources(audio-bridge
 
 add_executable(jack-audio-bridge)
 
-target_compile_definitions(jack-audio-bridge
-  PRIVATE
-    _REENTRANT
-    _POSIX_PTHREAD_SEMANTICS
-)
-
-target_include_directories(jack-audio-bridge
-  PRIVATE
-    src
-)
+set_common_target_properties(jack-audio-bridge)
 
 target_link_libraries(jack-audio-bridge
   PRIVATE
-    PkgConfig::ALSA
     PkgConfig::JACK
 )
 
@@ -99,11 +100,7 @@ target_sources(jack-audio-bridge
 
 add_library(jack-int-audio-bridge SHARED)
 
-target_compile_definitions(jack-int-audio-bridge
-  PRIVATE
-    _REENTRANT
-    _POSIX_PTHREAD_SEMANTICS
-)
+set_common_target_properties(jack-int-audio-bridge)
 
 set_target_properties(jack-int-audio-bridge
   PROPERTIES
@@ -116,14 +113,8 @@ target_compile_definitions(jack-int-audio-bridge
     AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
 )
 
-target_include_directories(jack-int-audio-bridge
-  PRIVATE
-    src
-)
-
 target_link_libraries(jack-int-audio-bridge
   PRIVATE
-    PkgConfig::ALSA
     PkgConfig::JACK
 )
 
@@ -141,16 +132,7 @@ target_sources(jack-int-audio-bridge
 
 add_executable(audio-bridge-test)
 
-target_include_directories(audio-bridge-test
-  PRIVATE
-    src
-)
-
-target_link_libraries(audio-bridge-test
-  PRIVATE
-    PkgConfig::ALSA
-    PkgConfig::JACK
-)
+set_common_target_properties(audio-bridge-test)
 
 target_sources(audio-bridge-test
   PRIVATE
