@@ -28,17 +28,22 @@ struct DeviceAudio {
         uint16_t speedingUp = 0;
         uint16_t speedingUpRealFast = 0;
     } balance;
+
     snd_pcm_t* pcm;
     uint32_t frame;
     uint16_t bufferSize;
     uint8_t channels;
     uint8_t hints;
-    int8_t* buffer;
-    VResampler* resampler[2];
-    float* buffer2[2];
+
+    struct {
+        int8_t* raw;
+        float** f32;
+    } buffers;
+
+    VResampler* resampler;
 };
 
 DeviceAudio* initDeviceAudio(const char* deviceID, bool playback, uint16_t bufferSize, uint32_t sampleRate);
-void getDeviceAudio(DeviceAudio* dev, float* buffers[2]);
-void runDeviceAudio(DeviceAudio* dev, float* buffers[2]);
+void getDeviceAudio(DeviceAudio* dev, float* buffers[]);
+void runDeviceAudio(DeviceAudio* dev, float* buffers[]);
 void closeDeviceAudio(DeviceAudio* dev);

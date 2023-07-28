@@ -1,6 +1,7 @@
 // ----------------------------------------------------------------------------
 //
 //  Copyright (C) 2006-2022 Fons Adriaensen <fons@linuxaudio.org>
+//  Copyright (C) 2023 falkTX <falktx@falktx.com>
 //    
 //  This program is free software; you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License as published by
@@ -24,9 +25,12 @@
 #include <math.h>
 
 #undef ENABLE_VEC4
-#if defined(ENABLE_SSE2)
-#  define ENABLE_VEC4
-#  include <pmmintrin.h>
+#if defined(__SSE2_MATH__)
+# define ENABLE_VEC4
+# include <xmmintrin.h>
+#elif defined(__ARM_NEON) || defined(__ARM_NEON__)
+# define ENABLE_VEC4
+# include <arm_neon.h>
 #endif
 
 #include "zita-resampler/vresampler.h"
@@ -68,44 +72,44 @@ int VResampler::setup (double       ratio,
 
     if (!nchan || (hlen < 8) || (hlen > 96) || (64 * ratio < 1) || (ratio > 256))
     {
-	clear ();
-        return 1; 
+        clear ();
+        return 1;
     }
 
     dp = NPHASE / ratio;
     hl = hlen;
     mi = 32;
-    if (ratio < 1.0) 
+    if (ratio < 1.0)
     {
         frel *= ratio;
         hl = (unsigned int)(ceil (hl / ratio));
         mi = (unsigned int)(ceil (mi / ratio));
     }
-#ifdef ENABLE_VEC4
-	    hl = (hl + 3) & ~3;
-#endif
+   #ifdef ENABLE_VEC4
+    hl = (hl + 3) & ~3;
+   #endif
     T = Resampler_table::create (frel, hl, NPHASE);
     clear ();
     if (T)
     {
-	_table = T;
+        _table = T;
         n = nchan * (2 * hl + mi);
-#ifdef ENABLE_VEC4
-	posix_memalign ((void **)(&_buff), 16, n * sizeof (float));
-	posix_memalign ((void **)(&_c1), 16, hl * sizeof (float));
-	posix_memalign ((void **)(&_c2), 16, hl * sizeof (float));
-#else	
-	_buff  = new float [n];
-	_c1 = new float [hl];
-	_c2 = new float [hl];
-#endif	
-	_nchan = nchan;
- 	_ratio = ratio;
-	_inmax = mi;
-	_pstep = dp;
-	_qstep = dp;
-	_wstep = 1;
-	return reset ();
+       #ifdef ENABLE_VEC4
+        posix_memalign ((void **)(&_buff), 16, n * sizeof (float));
+        posix_memalign ((void **)(&_c1), 16, hl * sizeof (float));
+        posix_memalign ((void **)(&_c2), 16, hl * sizeof (float));
+       #else
+        _buff  = new float [n];
+        _c1 = new float [hl];
+        _c2 = new float [hl];
+       #endif
+        _nchan = nchan;
+        _ratio = ratio;
+        _inmax = mi;
+        _pstep = dp;
+        _qstep = dp;
+        _wstep = 1;
+        return reset ();
     }
     else return 1;
 }
@@ -114,15 +118,15 @@ int VResampler::setup (double       ratio,
 void VResampler::clear (void)
 {
     Resampler_table::destroy (_table);
-#ifdef ENABLE_VEC4
+   #ifdef ENABLE_VEC4
     free (_buff);
     free (_c1);
     free (_c2);
-#else
+   #else
     delete[] _buff;
     delete[] _c1;
     delete[] _c2;
-#endif    
+   #endif
     _buff  = 0;
     _c1 = 0;
     _c2 = 0;
@@ -184,12 +188,12 @@ int VResampler::reset (void)
     _index = 0;
     _nread = 0;
     _nzero = 0;
-    _phase = 0; 
+    _phase = 0;
     if (_table)
-    {	
+    {
         _nread = 2 * _table->_hl;
-	return 0;
-    }	
+        return 0;
+    }
     return 1;
 }
 
@@ -197,8 +201,8 @@ int VResampler::reset (void)
 int VResampler::process (void)
 {
     int            nr, np, hl, nz, di, i, n;
-    unsigned int   in, j;
-    double         ph, dp, dd; 
+    unsigned int   in, j, inp_i, outp_i;
+    double         ph, dp, dd;
     float          a, b, *p1, *p2, *q1, *q2;
 
     if (!_table) return 1;
@@ -214,127 +218,152 @@ int VResampler::process (void)
     p1 = _buff + in;
     p2 = p1 + 2 * hl - nr;
     di = 2 * hl + _inmax;
+    inp_i = outp_i = 0;
 
     while (out_count)
     {
         while (nr && inp_count)
         {
-            if (inp_data)
-            {
-                for (j = 0; j < _nchan; j++) p2 [j * di] = inp_data [j];
-                inp_data += _nchan;
-                nz = 0;
-            }
-            else
-            {
-                for (j = 0; j < _nchan; j++) p2 [j * di] = 0;
-                if (nz < 2 * hl) nz++;
-            }
-            p2++;
-            nr--;
-            inp_count--;
+            for (j = 0; j < _nchan; j++) p2 [j * di] = inp_data[j][inp_i];
+            nz = 0;
+            ++p2;
+            --nr;
+            --inp_count;
+            ++inp_i;
         }
         if (nr) break;
 
-	if (out_data)
-	{
-	    if (nz < 2 * hl)
-	    {
-		n = (unsigned int) ph;
-		b = (float)(ph - n);
-		a = 1.0f - b;
-		q1 = _table->_ctab + hl * n;
-		q2 = _table->_ctab + hl * (np - n);
+        if (nz < 2 * hl)
+        {
+            n = (unsigned int) ph;
+            b = (float)(ph - n);
+            a = 1.0f - b;
+            q1 = _table->_ctab + hl * n;
+            q2 = _table->_ctab + hl * (np - n);
 
-#if defined(ENABLE_SSE2)
-                __m128 C1, C2, Q1, Q2, S;
-   	        C1 = _mm_load1_ps (&a);
-		C2 = _mm_load1_ps (&b);
-		for (i = 0; i < hl; i += 4)
-		{
- 		    Q1 = _mm_load_ps (q1 + i);
-		    Q2 = _mm_load_ps (q1 + i + hl);
-		    S = _mm_add_ps (_mm_mul_ps (Q1, C1), _mm_mul_ps (Q2, C2));
-		    _mm_store_ps (_c1 + i, S);
-		    Q1 = _mm_load_ps (q2 + i);
-		    Q2 = _mm_load_ps (q2 + i - hl);
-		    S = _mm_add_ps (_mm_mul_ps (Q1, C1), _mm_mul_ps (Q2, C2));
-		    _mm_store_ps (_c2 + i, S);
-		}
-                for (j = 0; j < _nchan; j++)
+           #if defined(__SSE2_MATH__)
+            __m128 C1, C2, Q1, Q2, S;
+            C1 = _mm_load1_ps (&a);
+            C2 = _mm_load1_ps (&b);
+            for (i = 0; i < hl; i += 4)
+            {
+                Q1 = _mm_load_ps (q1 + i);
+                Q2 = _mm_load_ps (q1 + i + hl);
+                S = _mm_add_ps (_mm_mul_ps (Q1, C1), _mm_mul_ps (Q2, C2));
+                _mm_store_ps (_c1 + i, S);
+                Q1 = _mm_load_ps (q2 + i);
+                Q2 = _mm_load_ps (q2 + i - hl);
+                S = _mm_add_ps (_mm_mul_ps (Q1, C1), _mm_mul_ps (Q2, C2));
+                _mm_store_ps (_c2 + i, S);
+            }
+            for (j = 0; j < _nchan; j++)
+            {
+                q1 = p1 + j * di;
+                q2 = p2 + j * di;
+                S = _mm_setzero_ps ();
+                for (i = 0; i < hl; i += 4)
                 {
-                    q1 = p1 + j * di;
-                    q2 = p2 + j * di;
-                    S = _mm_setzero_ps ();
-                    for (i = 0; i < hl; i += 4)
-                    {
-                        C1 = _mm_load_ps (_c1 + i);
-                        Q1 = _mm_loadu_ps (q1);
-                        q2 -= 4;
-                        S = _mm_add_ps (S, _mm_mul_ps (C1, Q1));
-                        C2 = _mm_loadr_ps (_c2 + i);
-                        Q2 = _mm_loadu_ps (q2);
-                        q1 += 4;
-                        S = _mm_add_ps (S, _mm_mul_ps (C2, Q2));
-                    }
-		    *out_data++ = S [0] + S [1] + S [2] + S [3];
+                    C1 = _mm_load_ps (_c1 + i);
+                    Q1 = _mm_loadu_ps (q1);
+                    q2 -= 4;
+                    S = _mm_add_ps (S, _mm_mul_ps (C1, Q1));
+                    C2 = _mm_loadr_ps (_c2 + i);
+                    Q2 = _mm_loadu_ps (q2);
+                    q1 += 4;
+                    S = _mm_add_ps (S, _mm_mul_ps (C2, Q2));
                 }
+                out_data[j][outp_i] = S [0] + S [1] + S [2] + S [3];
+            }
+           #elif defined(__ARM_NEON) || defined(__ARM_NEON__)
+            float32x4_t C1, C2, Q1, Q2, S, R;
+            C1 = vld1q_dup_f32 (&a);
+            C2 = vld1q_dup_f32 (&b);
+            for (i = 0; i < hl; i += 4)
+            {
+                Q1 = vld1q_f32 (q1 + i);
+                Q2 = vld1q_f32 (q1 + i + hl);
+                S = vaddq_f32 (vmulq_f32 (Q1, C1), vmulq_f32 (Q2, C2));
+                vst1q_f32 (_c1 + i, S);
+                Q1 = vld1q_f32 (q2 + i);
+                Q2 = vld1q_f32 (q2 + i - hl);
+                S = vaddq_f32 (vmulq_f32 (Q1, C1), vmulq_f32 (Q2, C2));
+                vst1q_f32 (_c2 + i, S);
+            }
+            for (j = 0; j < _nchan; j++)
+            {
+                q1 = p1 + j * di;
+                q2 = p2 + j * di;
+                S = vdupq_n_f32 (0);
+                for (i = 0; i < hl; i += 4)
+                {
+                    C1 = vld1q_f32(_c1 + i);
+                    Q1 = vld1q_f32 (q1);
+                    q2 -= 4;
+                    S = vaddq_f32 (S, vmulq_f32 (C1, Q1));
+                    R = vrev64q_f32 (vld1q_f32 (_c2 + i));
+                    C2 = vextq_f32 (R, R, 2);
+                    Q2 = vld1q_f32 (q2);
+                    q1 += 4;
+                    S = vaddq_f32 (S, vmulq_f32 (C2, Q2));
+                }
+                out_data[j][outp_i] = S [0] + S [1] + S [2] + S [3];
+            }
+           #else
+            float s;
+            for (i = 0; i < hl; i++)
+            {
+                _c1 [i] = a * q1 [i] + b * q1 [i + hl];
+                _c2 [i] = a * q2 [i] + b * q2 [i - hl];
+            }
+            for (j = 0; j < _nchan; j++)
+            {
+                q1 = p1 + j * di;
+                q2 = p2 + j * di;
+                s = 1e-30f;
+                for (i = 0; i < hl; i++)
+                {
+                    q2--;
+                    s += *q1 * _c1 [i] + *q2 * _c2 [i];
+                    q1++;
+                }
+                out_data[j][outp_i] = s - 1e-30f;
+            }
+           #endif
+        }
+        else
+        {
+            for (j = 0; j < _nchan; j++) out_data[j][outp_i] = 0;
+        }
 
-#else
-		float s;
-		for (i = 0; i < hl; i++)
-		{
-		    _c1 [i] = a * q1 [i] + b * q1 [i + hl];
-		    _c2 [i] = a * q2 [i] + b * q2 [i - hl];
-		}
-		for (j = 0; j < _nchan; j++)
-		{
-		    q1 = p1 + j * di;
-		    q2 = p2 + j * di;
-		    s = 1e-30f;
-		    for (i = 0; i < hl; i++)
-		    {
-			q2--;
-			s += *q1 * _c1 [i] + *q2 * _c2 [i];
-			q1++;
-		    }
-		    *out_data++ = s - 1e-30f;
-		}
-#endif		
-	    }
-	    else
-	    {
-		for (j = 0; j < _nchan; j++) *out_data++ = 0;
-	    }
-	}
-	out_count--;
+        --out_count;
+        ++outp_i;
 
-	dd =  _qstep - dp;
-	if (fabs (dd) < 1e-20) dp = _qstep;
-	else dp += _wstep * dd;
-	ph += dp;
+        dd =  _qstep - dp;
+        if (fabs (dd) < 1e-20) dp = _qstep;
+        else dp += _wstep * dd;
+        ph += dp;
         if (ph >= np)
         {
-  	    nr = (unsigned int) floor (ph / np);
-	    ph -= nr * np;;
-	    in += nr;
-	    p1 += nr;
+            nr = (unsigned int) floor (ph / np);
+            ph -= nr * np;;
+            in += nr;
+            p1 += nr;
 
             if (in >= _inmax)
             {
-		n = 2 * hl - nr;
-		p2 = _buff;
-		for (j = 0; j < _nchan; j++)
-		{
+                n = 2 * hl - nr;
+                p2 = _buff;
+                for (j = 0; j < _nchan; j++)
+                {
                     memmove (p2 + j * di, p1 + j * di, n * sizeof (float));
-		}
+                }
                 in = 0;
                 p1 = _buff;
                 p2 = p1 + n;
             }
         }
     }
-    
+
     _index = in;
     _nread = nr;
     _phase = ph;

@@ -1,6 +1,7 @@
 // ----------------------------------------------------------------------------
 //
 //  Copyright (C) 2006-2020 Fons Adriaensen <fons@linuxaudio.org>
+//  Copyright (C) 2023 falkTX <falktx@falktx.com>
 //    
 //  This program is free software; you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License as published by
@@ -26,9 +27,10 @@
 
 
 #undef ENABLE_VEC4
-#if defined(ENABLE_SSE2)
-#  define ENABLE_VEC4
+#if defined(__SSE2_MATH__) || defined(__ARM_NEON) || defined(__ARM_NEON__)
+# define ENABLE_VEC4
 #endif
+
 
 static double sinc (double x)
 {
@@ -61,35 +63,35 @@ Resampler_table::Resampler_table (double fr, unsigned int hl, unsigned int np) :
 {
     unsigned int  i, j, n;
     double        t;
-    float         *p;
+    float        *p;
 
     n = hl * (np + 1);
-#ifdef ENABLE_VEC4
+   #ifdef ENABLE_VEC4
     posix_memalign ((void **) &_ctab, 16, n * sizeof (float));
-#else    
+   #else
     _ctab = new float [n];
-#endif
+   #endif
     p = _ctab;
     for (j = 0; j <= np; j++)
     {
-	t = (double) j / (double) np;
-	for (i = 0; i < hl; i++)
-	{
-	    p [hl - i - 1] = (float)(fr * sinc (t * fr) * wind (t / hl));
-	    t += 1;
-	}
-	p += hl;
+        t = (double) j / (double) np;
+        for (i = 0; i < hl; i++)
+        {
+            p [hl - i - 1] = (float)(fr * sinc (t * fr) * wind (t / hl));
+            t += 1;
+        }
+        p += hl;
     }
 }
 
 
 Resampler_table::~Resampler_table (void)
 {
-#ifdef ENABLE_VEC4
+   #ifdef ENABLE_VEC4
     free (_ctab);
-#else    
+   #else
     delete[] _ctab;
-#endif
+   #endif
 }
 
 
@@ -101,13 +103,13 @@ Resampler_table *Resampler_table::create (double fr, unsigned int hl, unsigned i
     P = _list;
     while (P)
     {
-	if ((fr >= P->_fr * 0.999) && (fr <= P->_fr * 1.001) && (hl == P->_hl) && (np == P->_np))
-	{
-	    P->_refc++;
+        if ((fr >= P->_fr * 0.999) && (fr <= P->_fr * 1.001) && (hl == P->_hl) && (np == P->_np))
+        {
+            P->_refc++;
             _mutex.unlock ();
             return P;
-	}
-	P = P->_next;
+        }
+        P = P->_next;
     }
     P = new Resampler_table (fr, hl, np);
     P->_refc = 1;
@@ -125,24 +127,24 @@ void Resampler_table::destroy (Resampler_table *T)
     _mutex.lock ();
     if (T)
     {
-	T->_refc--;
-	if (T->_refc == 0)
-	{
-	    P = _list;
-	    Q = 0;
-	    while (P)
-	    {
-		if (P == T)
-		{
-		    if (Q) Q->_next = T->_next;
-		    else      _list = T->_next;
-		    break;
-		}
-		Q = P;
-		P = P->_next;
-	    }
-	    delete T;
-	}
+        T->_refc--;
+        if (T->_refc == 0)
+        {
+            P = _list;
+            Q = 0;
+            while (P)
+            {
+                if (P == T)
+                {
+                    if (Q) Q->_next = T->_next;
+                    else      _list = T->_next;
+                    break;
+                }
+                Q = P;
+                P = P->_next;
+            }
+            delete T;
+        }
     }
     _mutex.unlock ();
 }
@@ -155,7 +157,7 @@ void Resampler_table::print_list (void)
     printf ("Resampler table\n----\n");
     for (P = _list; P; P = P->_next)
     {
-	printf ("refc = %3d   fr = %10.6lf  hl = %4d  np = %4d\n", P->_refc, P->_fr, P->_hl, P->_np);
+        printf ("refc = %3d   fr = %10.6lf  hl = %4d  np = %4d\n", P->_refc, P->_fr, P->_hl, P->_np);
     }
     printf ("----\n\n");
 }

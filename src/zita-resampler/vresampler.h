@@ -1,6 +1,7 @@
 // ----------------------------------------------------------------------------
 //
 //  Copyright (C) 2006-2020 Fons Adriaensen <fons@linuxaudio.org>
+//  Copyright (C) 2023 falkTX <falktx@falktx.com>
 //    
 //  This program is free software; you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License as published by
@@ -54,10 +55,8 @@ public:
 
     unsigned int         inp_count;
     unsigned int         out_count;
-    float               *inp_data;
-    float               *out_data;
-    void                *inp_list;
-    void                *out_list;
+    const float *const  *inp_data;
+    float*              *out_data;
 
 private:
 

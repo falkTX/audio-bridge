@@ -508,40 +508,28 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     DEBUGPRINT("num periods %u", periodsParam);
 
     {
-        const size_t bufferlen = getSampleSizeFromHints(dev.hints) * dev.bufferSize * dev.channels * 2;
-        dev.buffer = new int8_t[bufferlen];
+        const size_t rawbufferlen = getSampleSizeFromHints(dev.hints) * dev.bufferSize * dev.channels * 2;
+        dev.buffers.raw = new int8_t[rawbufferlen];
+        dev.buffers.f32 = new float*[dev.channels];
 
-        dev.buffer2[0] = new float[dev.bufferSize * 2];
-        dev.buffer2[1] = new float[dev.bufferSize * 2];
+        for (uint8_t c=0; c<dev.channels; ++c)
+            dev.buffers.f32[c] = new float[dev.bufferSize * 2];
 
-        dev.resampler[0] = new VResampler;
-        dev.resampler[1] = new VResampler;
+        dev.resampler = new VResampler;
 
        #if defined(__MOD_DEVICES__) && defined(_MOD_DEVICE_DWARF) && defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT)
         if (!playback)
         {
-            dev.resampler[0]->setup(0.99997392, 1, 8);
-            dev.resampler[1]->setup(0.99997392, 1, 8);
+            dev.resampler->setup(0.99997392, dev.channels, 8);
         }
         else
        #endif
         {
-            dev.resampler[0]->setup(1.0, 1, 8);
-            dev.resampler[1]->setup(1.0, 1, 8);
+            dev.resampler->setup(1.0, dev.channels, 8);
         }
 
         DeviceAudio* const devptr = new DeviceAudio;
         std::memcpy(devptr, &dev, sizeof(dev));
-
-        return devptr;
-
-       #if 0
-        devptr->ringbuffer[0] = jack_ringbuffer_create(bufferlen + 1);
-        devptr->ringbuffer[1] = jack_ringbuffer_create(bufferlen + 1);
-        jack_ringbuffer_mlock(devptr->ringbuffer[0]);
-        jack_ringbuffer_mlock(devptr->ringbuffer[1]);
-       #else
-       #endif
 
         return devptr;
     }
@@ -595,6 +583,8 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
     const uint8_t channels = dev->channels;
     const uint8_t hints = dev->hints;
     const uint8_t sampleSize = getSampleSizeFromHints(hints);
+    VResampler* const resampler = dev->resampler;
+
     uint16_t retries = 0;
     size_t rbwrite;
 
@@ -659,8 +649,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
                     DEBUGPRINT("%08u | capture | avail >= kMaxTargetRF %ld | %ld | speeding up real fast...", frame, avail, avail - bufferSize);
                     bal.speedingUpRealFast = bal.speedingUp = 1;
                     bal.slowingDown = bal.slowingDownRealFast = 0;
-                    for (uint8_t c=0; c<channels; ++c)
-                        dev->resampler[c]->set_rratio(0.9995);
+                    dev->resampler->set_rratio(0.9995);
                 }
                 else if (++bal.speedingUpRealFast == 0 || ++bal.speedingUp == 0)
                 {
@@ -675,8 +664,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
                     bal.speedingUp = 1;
                     bal.speedingUpRealFast = 0;
                     bal.slowingDown = bal.slowingDownRealFast = 0;
-                    for (uint8_t c=0; c<channels; ++c)
-                        dev->resampler[c]->set_rratio(0.999995);
+                    dev->resampler->set_rratio(0.999995);
                 }
                 else if (++bal.speedingUp == 0)
                 {
@@ -701,8 +689,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
                     DEBUGPRINT("%08u | avail <= kMinTargetRF %ld | %ld | slowing down real fast...", frame, avail, avail - bufferSize);
                     bal.slowingDownRealFast = bal.slowingDown = 1;
                     bal.speedingUp = bal.speedingUpRealFast = 0;
-                    for (uint8_t c=0; c<channels; ++c)
-                        dev->resampler[c]->set_rratio(1.0005);
+                    resampler->set_rratio(1.0005);
                 }
                 else if (++bal.slowingDownRealFast == 0 || ++bal.slowingDown == 0)
                 {
@@ -718,8 +705,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
                     bal.slowingDown = 1;
                     bal.slowingDownRealFast = 0;
                     bal.speedingUp = bal.speedingUpRealFast = 0;
-                    for (uint8_t c=0; c<channels; ++c)
-                        dev->resampler[c]->set_rratio(1.000005);
+                    resampler->set_rratio(1.000005);
                 }
                 else if (++bal.slowingDown == 0)
                 {
@@ -732,8 +718,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
                 {
                     DEBUGPRINT("%08u | capture | stopped speed compensation", frame);
                     bal.slowingDown = bal.slowingDownRealFast = bal.speedingUp = bal.speedingUpRealFast = 0;
-                    for (uint8_t c=0; c<channels; ++c)
-                        dev->resampler[c]->set_rratio(1.0);
+                    resampler->set_rratio(1.0);
                 }
             }
         }
@@ -773,7 +758,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
 
         for (;;)
         {
-            err = snd_pcm_mmap_readi(dev->pcm, dev->buffer, bufferSize + extraBufferSize);
+            err = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSize + extraBufferSize);
             // DEBUGPRINT("%08u | read %ld of %u", frame, err, bufferSize + extraBufferSize);
 
             if (err == -EAGAIN)
@@ -872,142 +857,51 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
             switch (hints & kDeviceSampleHints)
             {
             case kDeviceSample16:
-                int2float::s16(dev->buffer2, dev->buffer, offset, channels, err);
+                int2float::s16(dev->buffers.f32, dev->buffers.raw, offset, channels, err);
                 break;
             case kDeviceSample24:
-                int2float::s24(dev->buffer2, dev->buffer, offset, channels, err);
+                int2float::s24(dev->buffers.f32, dev->buffers.raw, offset, channels, err);
                 break;
             case kDeviceSample24LE3:
-                int2float::s24le3(dev->buffer2, dev->buffer, offset, channels, err);
+                int2float::s24le3(dev->buffers.f32, dev->buffers.raw, offset, channels, err);
                 break;
             case kDeviceSample32:
-                int2float::s32(dev->buffer2, dev->buffer, offset, channels, err);
+                int2float::s32(dev->buffers.f32, dev->buffers.raw, offset, channels, err);
                 break;
             }
 
-            for (uint8_t c=0; c<channels; ++c)
+            resampler->inp_count = err;
+            resampler->out_count = bufferSize;
+            resampler->inp_data = dev->buffers.f32;
+            resampler->out_data = buffers;
+            resampler->process();
+
+            if (resampler->inp_count == 0)
             {
-                VResampler* const resampler(dev->resampler[c]);
-
-                resampler->inp_count = err;
-                resampler->out_count = bufferSize;
-                resampler->inp_data = dev->buffer2[c];
-                resampler->out_data = buffers[c];
-                resampler->process();
-
-                if (resampler->inp_count == 0)
-                {
-                    // printf("%08u | E1 resampler->out_count == %u | resampler->inp_count == %u | err %ld | avail %ld\n",
-                            // frame, resampler->out_count, resampler->inp_count, err, avail);
-                    // err = bufferSize;
-                }
-                else if (resampler->inp_count != 0)
-                {
-                    // printf("%08u | E2 resampler->out_count == %u | resampler->inp_count == %u | err %ld | avail %ld\n",
-                            // frame, resampler->out_count, resampler->inp_count, err, avail);
-                    // err = bufferSize;
-                }
-                else if (resampler->out_count != 0)
-                {
-                    printf("%08u | capture | E3 resampler->out_count == %u | resampler->inp_count == %u | err %ld | avail %ld\n",
-                            frame, resampler->out_count, resampler->inp_count, err, avail);
-                    exit(EXIT_FAILURE);
-                }
+                // printf("%08u | E1 resampler->out_count == %u | resampler->inp_count == %u | err %ld | avail %ld\n",
+                        // frame, resampler->out_count, resampler->inp_count, err, avail);
+                // err = bufferSize;
+            }
+            else if (resampler->inp_count != 0)
+            {
+                // printf("%08u | E2 resampler->out_count == %u | resampler->inp_count == %u | err %ld | avail %ld\n",
+                        // frame, resampler->out_count, resampler->inp_count, err, avail);
+                // err = bufferSize;
+            }
+            else if (resampler->out_count != 0)
+            {
+                printf("%08u | capture | E3 resampler->out_count == %u | resampler->inp_count == %u | err %ld | avail %ld\n",
+                        frame, resampler->out_count, resampler->inp_count, err, avail);
+                exit(EXIT_FAILURE);
             }
 
-            if (const unsigned inp_count = dev->resampler[0]->inp_count)
+            if (const unsigned inp_count = resampler->inp_count)
             {
                 snd_pcm_rewind(dev->pcm, inp_count);
             }
 
             break;
-
-           #if 0
-            for (uint8_t c=0; c<channels; ++c)
-            {
-                jack_ringbuffer_get_float_write_vector(dev->ringbuffer[c], vec[c]);
-                vecbuffers[c] = vec[c][0].buf;
-            }
-
-            rbwrite = std::min(static_cast<size_t>(frames), vec[0][0].len);
-
-            switch (hints & kDeviceSampleHints)
-            {
-            case kDeviceSample16:
-                int2float::s16(vecbuffers, dev->buffer, channels, rbwrite);
-                break;
-            case kDeviceSample24:
-                int2float::s24(vecbuffers, dev->buffer, channels, rbwrite);
-                break;
-            case kDeviceSample24LE3:
-                int2float::s24le3(vecbuffers, dev->buffer, channels, rbwrite);
-                break;
-            case kDeviceSample32:
-                int2float::s32(vecbuffers, dev->buffer, channels, rbwrite);
-                break;
-            }
-
-            if (vec[0][1].len != 0 && frames > rbwrite)
-            {
-                rbwrite = frames - rbwrite;
-
-                for (uint8_t c=0; c<channels; ++c)
-                    vecbuffers[c] = vec[c][1].buf;
-
-                switch (hints & kDeviceSampleHints)
-                {
-                case kDeviceSample16:
-                    int2float::s16(vecbuffers, dev->buffer, channels, rbwrite);
-                    break;
-                case kDeviceSample24:
-                    int2float::s24(vecbuffers, dev->buffer, channels, rbwrite);
-                    break;
-                case kDeviceSample24LE3:
-                    int2float::s24le3(vecbuffers, dev->buffer, channels, rbwrite);
-                    break;
-                case kDeviceSample32:
-                    int2float::s32(vecbuffers, dev->buffer, channels, rbwrite);
-                    break;
-                }
-            }
-
-            for (uint8_t c=0; c<channels; ++c)
-                jack_ringbuffer_write_advance(dev->ringbuffer[c], sizeof(float)*frames);
-           #endif
         }
-
-       #if 0
-        if (dev->hints & kDeviceStarting)
-        {
-            if (jack_ringbuffer_read_space(dev->ringbuffer[0]) >= bufferSize * sizeof(float) * 2)
-            {
-                DEBUGPRINT("%08u | buffer filled twice, removing starting flag", frame);
-                dev->hints &= ~kDeviceStarting;
-            }
-        }
-        else if (jack_ringbuffer_read_space(dev->ringbuffer[0]) < bufferSize * sizeof(float))
-        {
-            DEBUGPRINT("%08u | buffer too low, adding starting flag", frame);
-            dev->hints |= kDeviceStarting;
-        }
-        else
-        {
-            // DEBUGPRINT("capture is ok!");
-        }
-
-        if (dev->hints & kDeviceStarting)
-        {
-            for (uint8_t c=0; c<channels; ++c)
-                std::memset(buffers[c], 0, sizeof(float)*bufferSize);
-        }
-        else
-        {
-            for (uint8_t c=0; c<channels; ++c)
-                jack_ringbuffer_read(dev->ringbuffer[c],
-                                     static_cast<char*>(static_cast<void*>(buffers[c])),
-                                     sizeof(float)*bufferSize);
-        }
-       #endif
     }
     // end of capture
     else
@@ -1037,8 +931,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
                     DEBUGPRINT("%08u | playback | avail >= kMaxTargetRF %ld | %ld | slowing down real fast...", frame, avail, avail - bufferSize);
                     bal.slowingDown = bal.slowingDownRealFast = 1;
                     bal.speedingUp = bal.speedingUpRealFast = 0;
-                    for (uint8_t c=0; c<channels; ++c)
-                        dev->resampler[c]->set_rratio(1.0005);
+                    resampler->set_rratio(1.0005);
                 }
                 else if (++bal.slowingDown == 0 || ++bal.slowingDownRealFast == 0)
                 {
@@ -1053,8 +946,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
                     bal.slowingDown = 1;
                     bal.slowingDownRealFast = 0;
                     bal.speedingUp = bal.speedingUpRealFast = 0;
-                    for (uint8_t c=0; c<channels; ++c)
-                        dev->resampler[c]->set_rratio(1.000005);
+                    resampler->set_rratio(1.000005);
                 }
                 else if (++bal.slowingDown == 0)
                 {
@@ -1069,8 +961,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
                     DEBUGPRINT("%08u | playback | avail <= kMinTargetRF %ld | %ld | speeding up real fast...", frame, avail, avail - bufferSize);
                     bal.speedingUp = bal.speedingUpRealFast = 1;
                     bal.slowingDown = bal.slowingDownRealFast = 0;
-                    for (uint8_t c=0; c<channels; ++c)
-                        dev->resampler[c]->set_rratio(0.999995);
+                    resampler->set_rratio(0.9995);
                 }
                 else if (++bal.speedingUp == 0)
                 {
@@ -1085,8 +976,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
                     bal.speedingUp = 1;
                     bal.speedingUpRealFast = 0;
                     bal.slowingDown = bal.slowingDownRealFast = 0;
-                    for (uint8_t c=0; c<channels; ++c)
-                        dev->resampler[c]->set_rratio(0.9995);
+                    resampler->set_rratio(0.999995);
                 }
                 else if (++bal.speedingUp == 0)
                 {
@@ -1100,63 +990,57 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
                 {
                     DEBUGPRINT("%08u | playback | stopped speed compensation", frame);
                     bal.slowingDown = bal.slowingDownRealFast = bal.speedingUp = bal.speedingUpRealFast = 0;
-                    for (uint8_t c=0; c<channels; ++c)
-                        dev->resampler[c]->set_rratio(1.0);
+                    resampler->set_rratio(1.0);
                 }
             }
         }
 
-        for (uint8_t c=0; c<channels; ++c)
+        resampler->inp_count = bufferSize;
+        resampler->out_count = bufferSize * 2;
+        resampler->inp_data = buffers;
+        resampler->out_data = dev->buffers.f32;
+        resampler->process();
+
+        if (resampler->inp_count != 0)
         {
-            VResampler* const resampler(dev->resampler[c]);
-
-            resampler->inp_count = bufferSize;
-            resampler->out_count = bufferSize * 2;
-            resampler->inp_data = buffers[c];
-            resampler->out_data = dev->buffer2[c];
-            resampler->process();
-
-            if (resampler->inp_count != 0)
-            {
-                printf("%08u | playback | E1 resampler->out_count == %u | resampler->inp_count == %u | avail %ld\n",
-                        frame, resampler->out_count, resampler->inp_count, avail);
-                exit(EXIT_FAILURE);
-            }
-            else if (resampler->out_count == 0)
-            {
-                printf("%08u | playback | E2 resampler->out_count == %u | resampler->inp_count == %u | avail %ld\n",
-                        frame, resampler->out_count, resampler->inp_count, avail);
-                exit(EXIT_FAILURE);
-            }
-            else if (resampler->out_count != 128)
-            {
-                // printf("%08u | E2 resampler->out_count == %u | resampler->inp_count == %u | avail %ld\n",
-                        // frame, resampler->out_count, resampler->inp_count, avail);
-            }
+            printf("%08u | playback | E1 resampler->out_count == %u | resampler->inp_count == %u | avail %ld\n",
+                    frame, resampler->out_count, resampler->inp_count, avail);
+            exit(EXIT_FAILURE);
+        }
+        else if (resampler->out_count == 0)
+        {
+            printf("%08u | playback | E2 resampler->out_count == %u | resampler->inp_count == %u | avail %ld\n",
+                    frame, resampler->out_count, resampler->inp_count, avail);
+            exit(EXIT_FAILURE);
+        }
+        else if (resampler->out_count != 128)
+        {
+            // printf("%08u | E2 resampler->out_count == %u | resampler->inp_count == %u | avail %ld\n",
+                    // frame, resampler->out_count, resampler->inp_count, avail);
         }
 
-        uint16_t frames = bufferSize * 2 - dev->resampler[0]->out_count;
+        uint16_t frames = bufferSize * 2 - resampler->out_count;
 
         switch (hints & kDeviceSampleHints)
         {
         case kDeviceSample16:
-            float2int::s16(dev->buffer, dev->buffer2, channels, frames);
+            float2int::s16(dev->buffers.raw, dev->buffers.f32, channels, frames);
             break;
         case kDeviceSample24:
-            float2int::s24(dev->buffer, dev->buffer2, channels, frames);
+            float2int::s24(dev->buffers.raw, dev->buffers.f32, channels, frames);
             break;
         case kDeviceSample24LE3:
-            float2int::s24le3(dev->buffer, dev->buffer2, channels, frames);
+            float2int::s24le3(dev->buffers.raw, dev->buffers.f32, channels, frames);
             break;
         case kDeviceSample32:
-            float2int::s32(dev->buffer, dev->buffer2, channels, frames);
+            float2int::s32(dev->buffers.raw, dev->buffers.f32, channels, frames);
             break;
         default:
             DEBUGPRINT("unknown format");
             break;
         }
 
-        int8_t* ptr = static_cast<int8_t*>(dev->buffer);
+        int8_t* ptr = dev->buffers.raw;
         int err;
 
         while (frames != 0)
@@ -1219,9 +1103,10 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[2])
 
 void closeDeviceAudio(DeviceAudio* const dev)
 {
-    delete[] dev->buffer2[0];
-    delete[] dev->buffer2[1];
-    delete[] dev->buffer;
+    for (uint8_t c=0; c<dev->channels; ++c)
+        delete[] dev->buffers.f32[c];
+    delete[] dev->buffers.f32;
+    delete[] dev->buffers.raw;
     snd_pcm_close(dev->pcm);
     delete dev;
 }
