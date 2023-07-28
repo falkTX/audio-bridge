@@ -3,7 +3,7 @@
 This project allows to bridge audio from a running [JACK](https://jackaudio.org/) instance into ALSA and vice-versa.  
 It is similar to other projects such as `alsa_in/out` and `zita-a2j/j2a`, but those lacked the exact combination of factors needed to get some hardware running without big pauses or resyncs so this project was made.
 
-It provides a regular JACK command-line tool for handling bridging, an internal JACK client and an LV2 plugin.  
+It provides a regular JACK command-line tool, an internal JACK client and an LV2 plugin.  
 Due to it targetting ALSA it will only run on Linux or systems where ALSA emulation is in place.
 
 ## Progress
@@ -27,6 +27,12 @@ A few things already work, while others are still in progress.
 
 For now the tool simply will try to connect to the last available soundcard in playback mode.  
 A 1st optional argument can be given for choosing the soundcard, a 2nd one as "capture" for switching to capture mode.
+
+Quickly building and running can be done like so:
+
+```
+cmake -S . -B build && cmake --build build && ./build/jack-audio-bridge hw:ALSA_HW_NAME
+```
 
 There is no way to specify amount of channels, so things are hardcoded to stereo at the moment.
 
