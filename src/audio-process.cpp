@@ -579,7 +579,7 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
     return err;
 }
 
-void runDeviceAudio(DeviceAudio* const dev, float* buffers[])
+static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[])
 {
     const uint32_t sampleRate = dev->sampleRate;
     const uint16_t bufferSize = dev->bufferSize;
@@ -596,512 +596,530 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[])
 
     snd_pcm_sframes_t avail = snd_pcm_avail(dev->pcm);
 
-    if (hints & kDeviceCapture)
+    snd_pcm_sframes_t err;
+
+   #ifdef MEASURE
+    static snd_pcm_sframes_t s_frames_alsa = 0;
+
+    if ((hints & kDeviceStarting) && avail == 0)
     {
-        snd_pcm_sframes_t err;
+        DEBUGPRINT("%08u | avail == 0", frame);
+        snd_pcm_rewind(dev->pcm, bufferSize * 2);
+        // s_frames_alsa -= bufferSize * 2;
+    }
 
-       #ifdef MEASURE
-        static snd_pcm_sframes_t s_frames_alsa = 0;
+    for (;;)
+    {
+        err = snd_pcm_mmap_readi(dev->pcm, dev->buffer, frames);
+        if (err < 0)
+            break;
+        s_frames_alsa += err;
+    }
 
-        if ((hints & kDeviceStarting) && avail == 0)
+    const double ratio = (double)frame / (double)s_frames_alsa;
+    DEBUGPRINT("%08u | %08ld | ratios %.16f", frame, s_frames_alsa, ratio);
+    return;
+   #endif
+
+   #if 0
+    jack_ringbuffer_float_data_t vec[channels][2];
+    float* vecbuffers[channels];
+   #endif
+
+    if (frame == 0)
+    {
+        DEBUGPRINT("%08u | capture | frame == 0 | %ld", frame, avail);
+        snd_pcm_rewind(dev->pcm, bufferSize);
+        avail = snd_pcm_avail(dev->pcm);
+    }
+
+    if (!(hints & kDeviceStarting))
+    {
+        DeviceAudio::Balance& bal(dev->balance);
+
+        const uint16_t kSpeedTarget = sampleRate / bufferSize * 15;
+        const uint16_t kMaxTargetRF = bufferSize * 2.85;
+        const uint16_t kMaxTargetN = bufferSize * 2.5;
+        const uint16_t kMinTargetRF = bufferSize * 1.15;
+        const uint16_t kMinTargetN = bufferSize * 1.5;
+
+        if (avail >= kMaxTargetRF)
         {
-            DEBUGPRINT("%08u | avail == 0", frame);
-            snd_pcm_rewind(dev->pcm, bufferSize * 2);
-            // s_frames_alsa -= bufferSize * 2;
-        }
-
-        for (;;)
-        {
-            err = snd_pcm_mmap_readi(dev->pcm, dev->buffer, frames);
-            if (err < 0)
-                break;
-            s_frames_alsa += err;
-        }
-
-        const double ratio = (double)frame / (double)s_frames_alsa;
-        DEBUGPRINT("%08u | %08ld | ratios %.16f", frame, s_frames_alsa, ratio);
-        return;
-       #endif
-
-       #if 0
-        jack_ringbuffer_float_data_t vec[channels][2];
-        float* vecbuffers[channels];
-       #endif
-
-        if (frame == 0)
-        {
-            DEBUGPRINT("%08u | capture | frame == 0 | %ld", frame, avail);
-            snd_pcm_rewind(dev->pcm, bufferSize);
-            avail = snd_pcm_avail(dev->pcm);
-        }
-
-        if (!(hints & kDeviceStarting))
-        {
-            DeviceAudio::Balance& bal(dev->balance);
-
-            const uint16_t kSpeedTarget = sampleRate / bufferSize * 15;
-            const uint16_t kMaxTargetRF = bufferSize * 2.85;
-            const uint16_t kMaxTargetN = bufferSize * 2.5;
-            const uint16_t kMinTargetRF = bufferSize * 1.15;
-            const uint16_t kMinTargetN = bufferSize * 1.5;
-
-            if (avail >= kMaxTargetRF)
+            if (bal.speedingUpRealFast == 0)
             {
-                if (bal.speedingUpRealFast == 0)
-                {
-                    DEBUGPRINT("%08u | capture | avail >= kMaxTargetRF %ld | %ld | speeding up real fast...", frame, avail, avail - bufferSize);
-                    bal.speedingUpRealFast = bal.speedingUp = 1;
-                    bal.slowingDown = bal.slowingDownRealFast = 0;
-                    dev->resampler->set_rratio(0.9995);
-                }
-                else if (++bal.speedingUpRealFast == 0 || ++bal.speedingUp == 0)
-                {
-                    bal.speedingUp = bal.speedingUpRealFast = 1;
-                }
+                DEBUGPRINT("%08u | capture | avail >= kMaxTargetRF %ld | %ld | speeding up real fast...", frame, avail, avail - bufferSize);
+                bal.speedingUpRealFast = bal.speedingUp = 1;
+                bal.slowingDown = bal.slowingDownRealFast = 0;
+                dev->resampler->set_rratio(0.9995);
             }
-            else if (avail > kMaxTargetN)
+            else if (++bal.speedingUpRealFast == 0 || ++bal.speedingUp == 0)
             {
-                if (bal.speedingUp == 0 || (bal.speedingUpRealFast != 0 && ++bal.speedingUpRealFast == kSpeedTarget))
-                {
-                    DEBUGPRINT("%08u | capture | avail > kMaxTargetN %ld | %ld | speeding up...", frame, avail, avail - bufferSize);
-                    bal.speedingUp = 1;
-                    bal.speedingUpRealFast = 0;
-                    bal.slowingDown = bal.slowingDownRealFast = 0;
-                    dev->resampler->set_rratio(0.999995);
-                }
-                else if (++bal.speedingUp == 0)
-                {
-                    bal.speedingUp = 1;
-                }
+                bal.speedingUp = bal.speedingUpRealFast = 1;
+            }
+        }
+        else if (avail > kMaxTargetN)
+        {
+            if (bal.speedingUp == 0 || (bal.speedingUpRealFast != 0 && ++bal.speedingUpRealFast == kSpeedTarget))
+            {
+                DEBUGPRINT("%08u | capture | avail > kMaxTargetN %ld | %ld | speeding up...", frame, avail, avail - bufferSize);
+                bal.speedingUp = 1;
+                bal.speedingUpRealFast = 0;
+                bal.slowingDown = bal.slowingDownRealFast = 0;
+                dev->resampler->set_rratio(0.999995);
+            }
+            else if (++bal.speedingUp == 0)
+            {
+                bal.speedingUp = 1;
+            }
 
-                // while (avail - bufferSize * 2 > 0) {
-                //     const snd_pcm_uframes_t size = avail - bufferSize * 2 > bufferSize ? bufferSize : avail - bufferSize * 2;
-                //     err = snd_pcm_mmap_readi(dev->pcm, dev->buffer, size);
-                //     DEBUGPRINT("%08u | avail > bufferSize*2 %ld || err %ld", frame, avail, err);
-                //     if (err < 0)
-                //         break;
-                //     avail -= err;
-                // }
-                //
-                // avail = snd_pcm_avail(dev->pcm);
-            }
-            else if (avail <= kMinTargetRF)
+            // while (avail - bufferSize * 2 > 0) {
+            //     const snd_pcm_uframes_t size = avail - bufferSize * 2 > bufferSize ? bufferSize : avail - bufferSize * 2;
+            //     err = snd_pcm_mmap_readi(dev->pcm, dev->buffer, size);
+            //     DEBUGPRINT("%08u | avail > bufferSize*2 %ld || err %ld", frame, avail, err);
+            //     if (err < 0)
+            //         break;
+            //     avail -= err;
+            // }
+            //
+            // avail = snd_pcm_avail(dev->pcm);
+        }
+        else if (avail <= kMinTargetRF)
+        {
+            if (bal.slowingDownRealFast == 0)
             {
-                if (bal.slowingDownRealFast == 0)
-                {
-                    DEBUGPRINT("%08u | avail <= kMinTargetRF %ld | %ld | slowing down real fast...", frame, avail, avail - bufferSize);
-                    bal.slowingDownRealFast = bal.slowingDown = 1;
-                    bal.speedingUp = bal.speedingUpRealFast = 0;
-                    resampler->set_rratio(1.0005);
-                }
-                else if (++bal.slowingDownRealFast == 0 || ++bal.slowingDown == 0)
-                {
-                    bal.slowingDown = 1;
-                    bal.slowingDownRealFast = 1;
-                }
+                DEBUGPRINT("%08u | avail <= kMinTargetRF %ld | %ld | slowing down real fast...", frame, avail, avail - bufferSize);
+                bal.slowingDownRealFast = bal.slowingDown = 1;
+                bal.speedingUp = bal.speedingUpRealFast = 0;
+                resampler->set_rratio(1.0005);
             }
-            else if (avail < kMinTargetN)
+            else if (++bal.slowingDownRealFast == 0 || ++bal.slowingDown == 0)
             {
-                if (bal.slowingDown == 0)
-                {
-                    DEBUGPRINT("%08u | capture | avail < kMinTargetN %ld | %ld | slowing down...", frame, avail, avail - bufferSize);
-                    bal.slowingDown = 1;
-                    bal.slowingDownRealFast = 0;
-                    bal.speedingUp = bal.speedingUpRealFast = 0;
-                    resampler->set_rratio(1.000005);
-                }
-                else if (++bal.slowingDown == 0)
-                {
-                    bal.slowingDown = 1;
-                }
+                bal.slowingDown = 1;
+                bal.slowingDownRealFast = 1;
+            }
+        }
+        else if (avail < kMinTargetN)
+        {
+            if (bal.slowingDown == 0)
+            {
+                DEBUGPRINT("%08u | capture | avail < kMinTargetN %ld | %ld | slowing down...", frame, avail, avail - bufferSize);
+                bal.slowingDown = 1;
+                bal.slowingDownRealFast = 0;
+                bal.speedingUp = bal.speedingUpRealFast = 0;
+                resampler->set_rratio(1.000005);
+            }
+            else if (++bal.slowingDown == 0)
+            {
+                bal.slowingDown = 1;
+            }
+        }
+        else
+        {
+            if ((bal.slowingDown != 0 && ++bal.slowingDown == kSpeedTarget) || (bal.speedingUp != 0 && ++bal.speedingUp == kSpeedTarget))
+            {
+                DEBUGPRINT("%08u | capture | stopped speed compensation", frame);
+                bal.slowingDown = bal.slowingDownRealFast = bal.speedingUp = bal.speedingUpRealFast = 0;
+                resampler->set_rratio(1.0);
+            }
+        }
+    }
+
+   #if 0
+    if (avail == 0)
+    {
+        DEBUGPRINT("%08u | avail == 0", frame);
+        snd_pcm_rewind(dev->pcm, bufferSize);
+
+        avail = snd_pcm_avail_update(dev->pcm);
+        dev->hints |= kDeviceStarting;
+
+        DEBUGPRINT("%08u | avail < bufferSize --> %ld", frame, avail);
+
+        if ((hints & kDeviceStarting) == 0)
+        {
+            if (jack_ringbuffer_read_space(dev->ringbuffer[0]) < bufferSize * sizeof(float))
+            {
+                DEBUGPRINT("%08u | capture going too fast, failed to compensate! removing starting flag", frame);
+
+                dev->hints &= ~kDeviceStarting;
             }
             else
             {
-                if ((bal.slowingDown != 0 && ++bal.slowingDown == kSpeedTarget) || (bal.speedingUp != 0 && ++bal.speedingUp == kSpeedTarget))
-                {
-                    DEBUGPRINT("%08u | capture | stopped speed compensation", frame);
-                    bal.slowingDown = bal.slowingDownRealFast = bal.speedingUp = bal.speedingUpRealFast = 0;
-                    resampler->set_rratio(1.0);
-                }
-            }
-        }
+                DEBUGPRINT("%08u | capture going too fast but we are still ok!", frame);
 
-           #if 0
-        if (avail == 0)
-        {
-            DEBUGPRINT("%08u | avail == 0", frame);
-            snd_pcm_rewind(dev->pcm, bufferSize);
-
-            avail = snd_pcm_avail_update(dev->pcm);
-            dev->hints |= kDeviceStarting;
-
-            DEBUGPRINT("%08u | avail < bufferSize --> %ld", frame, avail);
-
-            if ((hints & kDeviceStarting) == 0)
-            {
-                if (jack_ringbuffer_read_space(dev->ringbuffer[0]) < bufferSize * sizeof(float))
-                {
-                    DEBUGPRINT("%08u | capture going too fast, failed to compensate! removing starting flag", frame);
-
-                    dev->hints &= ~kDeviceStarting;
-                }
-                else
-                {
-                    DEBUGPRINT("%08u | capture going too fast but we are still ok!", frame);
-
-                    for (uint8_t c=0; c<channels; ++c)
-                        jack_ringbuffer_write_advance(dev->ringbuffer[c], sizeof(float)*bufferSize);
-                }
-            }
-        }
-        #endif
-
-        int lasterr = 0;
-        const uint16_t extraBufferSize = bufferSize / 4;
-
-        for (;;)
-        {
-            err = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSize + extraBufferSize);
-            // DEBUGPRINT("%08u | read %ld of %u", frame, err, bufferSize + extraBufferSize);
-
-            if (err == -EAGAIN)
-            {
-                if (hints & kDeviceStarting)
-                {
-                    for (uint8_t c=0; c<channels; ++c)
-                        std::memset(buffers[c], 0, sizeof(float)*bufferSize);
-                    return;
-                }
-
-                if (++retries < 1000)
-                    continue;
-
-                {
-                    DEBUGPRINT("%08u | capture | read err == -EAGAIN %u retries %ld avail", frame, retries, avail);
-                    dev->hints |= kDeviceStarting;
-                }
-
-               #if 0
                 for (uint8_t c=0; c<channels; ++c)
-                    jack_ringbuffer_reset(dev->ringbuffer[c]);
-               #endif
+                    jack_ringbuffer_write_advance(dev->ringbuffer[c], sizeof(float)*bufferSize);
+            }
+        }
+    }
+   #endif
 
+    int lasterr = 0;
+    const uint16_t extraBufferSize = bufferSize / 4;
+
+    for (;;)
+    {
+        err = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSize + extraBufferSize);
+        // DEBUGPRINT("%08u | read %ld of %u", frame, err, bufferSize + extraBufferSize);
+
+        if (err == -EAGAIN)
+        {
+            if (hints & kDeviceStarting)
+            {
+                for (uint8_t c=0; c<channels; ++c)
+                    std::memset(buffers[c], 0, sizeof(float)*bufferSize);
                 return;
             }
 
-            if (err < 0)
-            {
-                dev->hints |= kDeviceInitializing|kDeviceStarting;
-                for (uint8_t c=0; c<channels; ++c)
-                    std::memset(buffers[c], 0, sizeof(float)*bufferSize);
-
-                DEBUGPRINT("%08u | capture | Error read %s\n", frame, snd_strerror(err));
-
-               #if 0
-                for (uint8_t c=0; c<channels; ++c)
-                    jack_ringbuffer_reset(dev->ringbuffer[c]);
-               #endif
-
-                // TODO offline recovery
-                if (xrun_recovery(dev->pcm, err) < 0)
-                {
-                    printf("%08u | capture | Read error: %s\n", frame, snd_strerror(err));
-                    exit(EXIT_FAILURE);
-                }
-
-                return;  /* skip one period */
-            }
-
-            if (static_cast<uint16_t>(err) >= bufferSize + extraBufferSize)
-            {
-                // if (err != avail) {
-                // }
-                // frames = 0;
-                if (dev->hints & kDeviceInitializing)
-                {
-                    DEBUGPRINT("%08u | Complete read >= %u, err %ld, %ld avail, removing kDeviceInitializing", frame, bufferSize + extraBufferSize, err, avail);
-                    dev->hints &= ~kDeviceInitializing;
-                }
-                else if (dev->hints & kDeviceStarting)
-                {
-                    DEBUGPRINT("%08u | Complete read >= %u, err %ld, %ld avail, removing kDeviceStarting", frame, bufferSize + extraBufferSize, err, avail);
-                    dev->hints &= ~kDeviceStarting;
-                }
-            }
-            else
-            {
-                // DEBUGPRINT("%08u | capture | Incomplete read %ld, %ld avail", frame, err, avail);
-
-                // TODO no rewind full frames, offset buffer instead
-
-                if ((dev->hints & kDeviceInitializing) && lasterr != err)
-                {
-                    DEBUGPRINT("%08u | capture | Incomplete read %ld, %ld avail, removing kDeviceInitializing", frame, err, avail);
-
-                    dev->hints &= ~kDeviceInitializing;
-                    snd_pcm_rewind(dev->pcm, bufferSize * 2.5 - err);
-                }
-                else if (lasterr == err && ++retries >= 100)
-                {
-                    DEBUGPRINT("%08u | capture | Incomplete read %ld, %ld avail, adding kDeviceInitializing", frame, err, avail);
-                    dev->hints |= kDeviceInitializing|kDeviceStarting;
-                    break;
-                }
-                else
-                {
-                    snd_pcm_rewind(dev->pcm, err);
-                }
-
-                lasterr = err;
+            if (++retries < 1000)
                 continue;
+
+            {
+                DEBUGPRINT("%08u | capture | read err == -EAGAIN %u retries %ld avail", frame, retries, avail);
+                dev->hints |= kDeviceStarting;
             }
 
-            const uint16_t offset = 0;
-            switch (hints & kDeviceSampleHints)
-            {
-            case kDeviceSample16:
-                int2float::s16(dev->buffers.f32, dev->buffers.raw, offset, channels, err);
-                break;
-            case kDeviceSample24:
-                int2float::s24(dev->buffers.f32, dev->buffers.raw, offset, channels, err);
-                break;
-            case kDeviceSample24LE3:
-                int2float::s24le3(dev->buffers.f32, dev->buffers.raw, offset, channels, err);
-                break;
-            case kDeviceSample32:
-                int2float::s32(dev->buffers.f32, dev->buffers.raw, offset, channels, err);
-                break;
-            }
+           #if 0
+            for (uint8_t c=0; c<channels; ++c)
+                jack_ringbuffer_reset(dev->ringbuffer[c]);
+           #endif
 
-            resampler->inp_count = err;
-            resampler->out_count = bufferSize;
-            resampler->inp_data = dev->buffers.f32;
-            resampler->out_data = buffers;
-            resampler->process();
+            return;
+        }
 
-            if (resampler->inp_count == 0)
+        if (err < 0)
+        {
+            dev->hints |= kDeviceInitializing|kDeviceStarting;
+            for (uint8_t c=0; c<channels; ++c)
+                std::memset(buffers[c], 0, sizeof(float)*bufferSize);
+
+            DEBUGPRINT("%08u | capture | Error read %s\n", frame, snd_strerror(err));
+
+           #if 0
+            for (uint8_t c=0; c<channels; ++c)
+                jack_ringbuffer_reset(dev->ringbuffer[c]);
+           #endif
+
+            // TODO offline recovery
+            if (xrun_recovery(dev->pcm, err) < 0)
             {
-                // printf("%08u | E1 resampler->out_count == %u | resampler->inp_count == %u | err %ld | avail %ld\n",
-                        // frame, resampler->out_count, resampler->inp_count, err, avail);
-                // err = bufferSize;
-            }
-            else if (resampler->inp_count != 0)
-            {
-                // printf("%08u | E2 resampler->out_count == %u | resampler->inp_count == %u | err %ld | avail %ld\n",
-                        // frame, resampler->out_count, resampler->inp_count, err, avail);
-                // err = bufferSize;
-            }
-            else if (resampler->out_count != 0)
-            {
-                printf("%08u | capture | E3 resampler->out_count == %u | resampler->inp_count == %u | err %ld | avail %ld\n",
-                        frame, resampler->out_count, resampler->inp_count, err, avail);
+                printf("%08u | capture | Read error: %s\n", frame, snd_strerror(err));
                 exit(EXIT_FAILURE);
             }
 
-            if (const unsigned inp_count = resampler->inp_count)
-            {
-                snd_pcm_rewind(dev->pcm, inp_count);
-            }
-
-            break;
-        }
-    }
-    // end of capture
-    else
-    // start of playback
-    {
-        if (frame == 0)
-        {
-            DEBUGPRINT("%08u | playback | frame == 0 | %ld", frame, avail);
-            snd_pcm_forward(dev->pcm, bufferSize);
-            avail = snd_pcm_avail(dev->pcm);
+            return;  /* skip one period */
         }
 
-        if (!(hints & kDeviceStarting))
+        if (static_cast<uint16_t>(err) >= bufferSize + extraBufferSize)
         {
-            DeviceAudio::Balance& bal(dev->balance);
+            // if (err != avail) {
+            // }
+            // frames = 0;
+            if (dev->hints & kDeviceInitializing)
+            {
+                DEBUGPRINT("%08u | Complete read >= %u, err %ld, %ld avail, removing kDeviceInitializing", frame, bufferSize + extraBufferSize, err, avail);
+                dev->hints &= ~kDeviceInitializing;
+            }
+            else if (dev->hints & kDeviceStarting)
+            {
+                DEBUGPRINT("%08u | Complete read >= %u, err %ld, %ld avail, removing kDeviceStarting", frame, bufferSize + extraBufferSize, err, avail);
+                dev->hints &= ~kDeviceStarting;
+            }
+        }
+        else
+        {
+            // DEBUGPRINT("%08u | capture | Incomplete read %ld, %ld avail", frame, err, avail);
 
-            const uint16_t kSpeedTarget = sampleRate / bufferSize * 15;
-            const uint16_t kMaxTargetRF = bufferSize * 2.85;
-            const uint16_t kMaxTargetN = bufferSize * 2.5;
-            const uint16_t kMinTargetRF = bufferSize * 1.15;
-            const uint16_t kMinTargetN = bufferSize * 1.5;
+            // TODO no rewind full frames, offset buffer instead
 
-            if (avail >= kMaxTargetRF)
+            if ((dev->hints & kDeviceInitializing) && lasterr != err)
             {
-                if (bal.slowingDownRealFast == 0)
-                {
-                    DEBUGPRINT("%08u | playback | avail >= kMaxTargetRF %ld | %ld | slowing down real fast...", frame, avail, avail - bufferSize);
-                    bal.slowingDown = bal.slowingDownRealFast = 1;
-                    bal.speedingUp = bal.speedingUpRealFast = 0;
-                    resampler->set_rratio(1.0005);
-                }
-                else if (++bal.slowingDown == 0 || ++bal.slowingDownRealFast == 0)
-                {
-                    bal.slowingDown = bal.slowingDownRealFast = 1;
-                }
+                DEBUGPRINT("%08u | capture | Incomplete read %ld, %ld avail, removing kDeviceInitializing", frame, err, avail);
+
+                dev->hints &= ~kDeviceInitializing;
+                snd_pcm_rewind(dev->pcm, bufferSize * 2.5 - err);
             }
-            else if (avail > kMaxTargetN)
+            else if (lasterr == err && ++retries >= 100)
             {
-                if (bal.slowingDown == 0)
-                {
-                    DEBUGPRINT("%08u | playback | avail > kMaxTargetN %ld | %ld | slowing down...", frame, avail, avail - bufferSize);
-                    bal.slowingDown = 1;
-                    bal.slowingDownRealFast = 0;
-                    bal.speedingUp = bal.speedingUpRealFast = 0;
-                    resampler->set_rratio(1.000005);
-                }
-                else if (++bal.slowingDown == 0)
-                {
-                    bal.slowingDown = 1;
-                    bal.slowingDownRealFast = 0;
-                }
-            }
-            else if (avail <= kMinTargetRF)
-            {
-                if (bal.speedingUpRealFast == 0)
-                {
-                    DEBUGPRINT("%08u | playback | avail <= kMinTargetRF %ld | %ld | speeding up real fast...", frame, avail, avail - bufferSize);
-                    bal.speedingUp = bal.speedingUpRealFast = 1;
-                    bal.slowingDown = bal.slowingDownRealFast = 0;
-                    resampler->set_rratio(0.9995);
-                }
-                else if (++bal.speedingUp == 0)
-                {
-                    bal.speedingUp = bal.speedingUpRealFast = 1;
-                }
-            }
-            else if (avail < kMinTargetN)
-            {
-                if (bal.speedingUp == 0)
-                {
-                    DEBUGPRINT("%08u | playback | avail < kMinTargetN %ld | %ld | speeding up...", frame, avail, avail - bufferSize);
-                    bal.speedingUp = 1;
-                    bal.speedingUpRealFast = 0;
-                    bal.slowingDown = bal.slowingDownRealFast = 0;
-                    resampler->set_rratio(0.999995);
-                }
-                else if (++bal.speedingUp == 0)
-                {
-                    bal.speedingUp = 1;
-                    bal.speedingUpRealFast = 0;
-                }
+                DEBUGPRINT("%08u | capture | Incomplete read %ld, %ld avail, adding kDeviceInitializing", frame, err, avail);
+                dev->hints |= kDeviceInitializing|kDeviceStarting;
+                break;
             }
             else
             {
-                if ((bal.slowingDown != 0 && ++bal.slowingDown == kSpeedTarget) || (bal.speedingUp != 0 && ++bal.speedingUp == kSpeedTarget))
-                {
-                    DEBUGPRINT("%08u | playback | stopped speed compensation", frame);
-                    bal.slowingDown = bal.slowingDownRealFast = bal.speedingUp = bal.speedingUpRealFast = 0;
-                    resampler->set_rratio(1.0);
-                }
+                snd_pcm_rewind(dev->pcm, err);
             }
+
+            lasterr = err;
+            continue;
         }
 
-        resampler->inp_count = bufferSize;
-        resampler->out_count = bufferSize * 2;
-        resampler->inp_data = buffers;
-        resampler->out_data = dev->buffers.f32;
-        resampler->process();
-
-        if (resampler->inp_count != 0)
-        {
-            printf("%08u | playback | E1 resampler->out_count == %u | resampler->inp_count == %u | avail %ld\n",
-                    frame, resampler->out_count, resampler->inp_count, avail);
-            exit(EXIT_FAILURE);
-        }
-        else if (resampler->out_count == 0)
-        {
-            printf("%08u | playback | E2 resampler->out_count == %u | resampler->inp_count == %u | avail %ld\n",
-                    frame, resampler->out_count, resampler->inp_count, avail);
-            exit(EXIT_FAILURE);
-        }
-        else if (resampler->out_count != 128)
-        {
-            // printf("%08u | E2 resampler->out_count == %u | resampler->inp_count == %u | avail %ld\n",
-                    // frame, resampler->out_count, resampler->inp_count, avail);
-        }
-
-        uint16_t frames = bufferSize * 2 - resampler->out_count;
-
+        const uint16_t offset = 0;
         switch (hints & kDeviceSampleHints)
         {
         case kDeviceSample16:
-            float2int::s16(dev->buffers.raw, dev->buffers.f32, channels, frames);
+            int2float::s16(dev->buffers.f32, dev->buffers.raw, offset, channels, err);
             break;
         case kDeviceSample24:
-            float2int::s24(dev->buffers.raw, dev->buffers.f32, channels, frames);
+            int2float::s24(dev->buffers.f32, dev->buffers.raw, offset, channels, err);
             break;
         case kDeviceSample24LE3:
-            float2int::s24le3(dev->buffers.raw, dev->buffers.f32, channels, frames);
+            int2float::s24le3(dev->buffers.f32, dev->buffers.raw, offset, channels, err);
             break;
         case kDeviceSample32:
-            float2int::s32(dev->buffers.raw, dev->buffers.f32, channels, frames);
-            break;
-        default:
-            DEBUGPRINT("unknown format");
+            int2float::s32(dev->buffers.f32, dev->buffers.raw, offset, channels, err);
             break;
         }
 
-        int8_t* ptr = dev->buffers.raw;
-        int err;
+        resampler->inp_count = err;
+        resampler->out_count = bufferSize;
+        resampler->inp_data = dev->buffers.f32;
+        resampler->out_data = buffers;
+        resampler->process();
 
-        while (frames != 0)
+        if (resampler->inp_count == 0)
         {
-            err = snd_pcm_mmap_writei(dev->pcm, ptr, frames);
-            // DEBUGPRINT("write %d of %u", err, frames);
+            // printf("%08u | E1 resampler->out_count == %u | resampler->inp_count == %u | err %ld | avail %ld\n",
+                    // frame, resampler->out_count, resampler->inp_count, err, avail);
+            // err = bufferSize;
+        }
+        else if (resampler->inp_count != 0)
+        {
+            // printf("%08u | E2 resampler->out_count == %u | resampler->inp_count == %u | err %ld | avail %ld\n",
+                    // frame, resampler->out_count, resampler->inp_count, err, avail);
+            // err = bufferSize;
+        }
+        else if (resampler->out_count != 0)
+        {
+            printf("%08u | capture | E3 resampler->out_count == %u | resampler->inp_count == %u | err %ld | avail %ld\n",
+                    frame, resampler->out_count, resampler->inp_count, err, avail);
+            exit(EXIT_FAILURE);
+        }
 
-            if (err == -EAGAIN)
+        if (const unsigned inp_count = resampler->inp_count)
+        {
+            snd_pcm_rewind(dev->pcm, inp_count);
+        }
+
+        break;
+    }
+}
+
+static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[])
+{
+    const uint32_t sampleRate = dev->sampleRate;
+    const uint16_t bufferSize = dev->bufferSize;
+    const uint8_t channels = dev->channels;
+    const uint8_t hints = dev->hints;
+    const uint8_t sampleSize = getSampleSizeFromHints(hints);
+    VResampler* const resampler = dev->resampler;
+
+    uint16_t retries = 0;
+
+    const uint32_t frame = dev->frame;
+    dev->frame += bufferSize;
+
+    snd_pcm_sframes_t avail = snd_pcm_avail(dev->pcm);
+
+    if (frame == 0)
+    {
+        DEBUGPRINT("%08u | playback | frame == 0 | %ld", frame, avail);
+        snd_pcm_forward(dev->pcm, bufferSize);
+        avail = snd_pcm_avail(dev->pcm);
+    }
+
+    if (!(hints & kDeviceStarting))
+    {
+        DeviceAudio::Balance& bal(dev->balance);
+
+        const uint16_t kSpeedTarget = sampleRate / bufferSize * 15;
+        const uint16_t kMaxTargetRF = bufferSize * 2.85;
+        const uint16_t kMaxTargetN = bufferSize * 2.5;
+        const uint16_t kMinTargetRF = bufferSize * 1.15;
+        const uint16_t kMinTargetN = bufferSize * 1.5;
+
+        if (avail >= kMaxTargetRF)
+        {
+            if (bal.slowingDownRealFast == 0)
             {
-                if (hints & kDeviceStarting)
-                {
-                    DEBUGPRINT("%08u | playback | -EAGAIN with kDeviceStarting", frame);
-                    return;
-                }
+                DEBUGPRINT("%08u | playback | avail >= kMaxTargetRF %ld | %ld | slowing down real fast...", frame, avail, avail - bufferSize);
+                bal.slowingDown = bal.slowingDownRealFast = 1;
+                bal.speedingUp = bal.speedingUpRealFast = 0;
+                resampler->set_rratio(1.0005);
+            }
+            else if (++bal.slowingDown == 0 || ++bal.slowingDownRealFast == 0)
+            {
+                bal.slowingDown = bal.slowingDownRealFast = 1;
+            }
+        }
+        else if (avail > kMaxTargetN)
+        {
+            if (bal.slowingDown == 0)
+            {
+                DEBUGPRINT("%08u | playback | avail > kMaxTargetN %ld | %ld | slowing down...", frame, avail, avail - bufferSize);
+                bal.slowingDown = 1;
+                bal.slowingDownRealFast = 0;
+                bal.speedingUp = bal.speedingUpRealFast = 0;
+                resampler->set_rratio(1.000005);
+            }
+            else if (++bal.slowingDown == 0)
+            {
+                bal.slowingDown = 1;
+                bal.slowingDownRealFast = 0;
+            }
+        }
+        else if (avail <= kMinTargetRF)
+        {
+            if (bal.speedingUpRealFast == 0)
+            {
+                DEBUGPRINT("%08u | playback | avail <= kMinTargetRF %ld | %ld | speeding up real fast...", frame, avail, avail - bufferSize);
+                bal.speedingUp = bal.speedingUpRealFast = 1;
+                bal.slowingDown = bal.slowingDownRealFast = 0;
+                resampler->set_rratio(0.9995);
+            }
+            else if (++bal.speedingUp == 0)
+            {
+                bal.speedingUp = bal.speedingUpRealFast = 1;
+            }
+        }
+        else if (avail < kMinTargetN)
+        {
+            if (bal.speedingUp == 0)
+            {
+                DEBUGPRINT("%08u | playback | avail < kMinTargetN %ld | %ld | speeding up...", frame, avail, avail - bufferSize);
+                bal.speedingUp = 1;
+                bal.speedingUpRealFast = 0;
+                bal.slowingDown = bal.slowingDownRealFast = 0;
+                resampler->set_rratio(0.999995);
+            }
+            else if (++bal.speedingUp == 0)
+            {
+                bal.speedingUp = 1;
+                bal.speedingUpRealFast = 0;
+            }
+        }
+        else
+        {
+            if ((bal.slowingDown != 0 && ++bal.slowingDown == kSpeedTarget) || (bal.speedingUp != 0 && ++bal.speedingUp == kSpeedTarget))
+            {
+                DEBUGPRINT("%08u | playback | stopped speed compensation", frame);
+                bal.slowingDown = bal.slowingDownRealFast = bal.speedingUp = bal.speedingUpRealFast = 0;
+                resampler->set_rratio(1.0);
+            }
+        }
+    }
 
-                if (++retries < 1000)
-                    continue;
+    resampler->inp_count = bufferSize;
+    resampler->out_count = bufferSize * 2;
+    resampler->inp_data = buffers;
+    resampler->out_data = dev->buffers.f32;
+    resampler->process();
 
-                {
-                    DEBUGPRINT("%08u | playback | write err == -EAGAIN %u retries", frame, retries);
-                    dev->hints |= kDeviceStarting;
-                }
+    if (resampler->inp_count != 0)
+    {
+        printf("%08u | playback | E1 resampler->out_count == %u | resampler->inp_count == %u | avail %ld\n",
+                frame, resampler->out_count, resampler->inp_count, avail);
+        exit(EXIT_FAILURE);
+    }
+    else if (resampler->out_count == 0)
+    {
+        printf("%08u | playback | E2 resampler->out_count == %u | resampler->inp_count == %u | avail %ld\n",
+                frame, resampler->out_count, resampler->inp_count, avail);
+        exit(EXIT_FAILURE);
+    }
+    else if (resampler->out_count != 128)
+    {
+        // printf("%08u | E2 resampler->out_count == %u | resampler->inp_count == %u | avail %ld\n",
+                // frame, resampler->out_count, resampler->inp_count, avail);
+    }
 
+    uint16_t frames = bufferSize * 2 - resampler->out_count;
+
+    switch (hints & kDeviceSampleHints)
+    {
+    case kDeviceSample16:
+        float2int::s16(dev->buffers.raw, dev->buffers.f32, channels, frames);
+        break;
+    case kDeviceSample24:
+        float2int::s24(dev->buffers.raw, dev->buffers.f32, channels, frames);
+        break;
+    case kDeviceSample24LE3:
+        float2int::s24le3(dev->buffers.raw, dev->buffers.f32, channels, frames);
+        break;
+    case kDeviceSample32:
+        float2int::s32(dev->buffers.raw, dev->buffers.f32, channels, frames);
+        break;
+    default:
+        DEBUGPRINT("unknown format");
+        break;
+    }
+
+    int8_t* ptr = dev->buffers.raw;
+    int err;
+
+    while (frames != 0)
+    {
+        err = snd_pcm_mmap_writei(dev->pcm, ptr, frames);
+        // DEBUGPRINT("write %d of %u", err, frames);
+
+        if (err == -EAGAIN)
+        {
+            if (hints & kDeviceStarting)
+            {
+                DEBUGPRINT("%08u | playback | -EAGAIN with kDeviceStarting", frame);
                 return;
             }
 
-            if (err < 0)
-            {
-                printf("%08u | playback | Write error: %s\n", frame, snd_strerror(err));
-                dev->hints |= kDeviceInitializing|kDeviceStarting;
+            if (++retries < 1000)
+                continue;
 
-                if (xrun_recovery(dev->pcm, err) < 0)
-                {
-                    printf("playback | xrun_recovery error: %s\n", snd_strerror(err));
-                    exit(EXIT_FAILURE);
-                }
-                break;  /* skip one period */
+            {
+                DEBUGPRINT("%08u | playback | write err == -EAGAIN %u retries", frame, retries);
+                dev->hints |= kDeviceStarting;
             }
 
-            if (static_cast<uint16_t>(err) == frames)
-            {
-                if (dev->hints & kDeviceInitializing)
-                    dev->hints &= ~kDeviceInitializing;
-                else
-                    dev->hints &= ~kDeviceStarting;
-
-                if (retries || frame == 0) {
-                    DEBUGPRINT("%08u | playback | Complete write %u, %u retries", frame, frames, retries);
-                }
-                break;
-            }
-
-            ptr += err * channels * sampleSize;
-            frames -= err;
-
-            DEBUGPRINT("%08u | playback | Incomplete write %d of %u, %u left, %u retries", frame, err, bufferSize, frames, retries);
+            return;
         }
+
+        if (err < 0)
+        {
+            printf("%08u | playback | Write error: %s\n", frame, snd_strerror(err));
+            dev->hints |= kDeviceInitializing|kDeviceStarting;
+
+            if (xrun_recovery(dev->pcm, err) < 0)
+            {
+                printf("playback | xrun_recovery error: %s\n", snd_strerror(err));
+                exit(EXIT_FAILURE);
+            }
+            break;  /* skip one period */
+        }
+
+        if (static_cast<uint16_t>(err) == frames)
+        {
+            if (dev->hints & kDeviceInitializing)
+                dev->hints &= ~kDeviceInitializing;
+            else
+                dev->hints &= ~kDeviceStarting;
+
+            if (retries || frame == 0) {
+                DEBUGPRINT("%08u | playback | Complete write %u, %u retries", frame, frames, retries);
+            }
+            break;
+        }
+
+        ptr += err * channels * sampleSize;
+        frames -= err;
+
+        DEBUGPRINT("%08u | playback | Incomplete write %d of %u, %u left, %u retries", frame, err, bufferSize, frames, retries);
     }
+}
+
+void runDeviceAudio(DeviceAudio* const dev, float* buffers[])
+{
+    if (dev->hints & kDeviceCapture)
+        runDeviceAudioCapture(dev, buffers);
+    else
+        runDeviceAudioPlayback(dev, buffers);
 }
 
 void closeDeviceAudio(DeviceAudio* const dev)
