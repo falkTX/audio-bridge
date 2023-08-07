@@ -21,13 +21,30 @@ enum DeviceHints {
     kDeviceSampleHints = kDeviceSample16|kDeviceSample24|kDeviceSample24LE3|kDeviceSample32
 };
 
+enum BalanceMode {
+    kBalanceNormal = 0,
+    kBalanceSlowingDown,
+    kBalanceSlowingDownRealFast,
+    kBalanceSpeedingUp,
+    kBalanceSpeedingUpRealFast,
+};
+
 struct DeviceAudio {
     struct Balance {
+        uint8_t mode = kBalanceNormal;
+        uint8_t unused[3];
         uint16_t slowingDown = 0;
         uint16_t slowingDownRealFast = 0;
         uint16_t speedingUp = 0;
         uint16_t speedingUpRealFast = 0;
+        double ratio = 1.0;
     } balance;
+
+    struct TimeStamps {
+        uint64_t alsaStartTime = 0;
+        uint32_t jackStartFrame = 0;
+        double ratio = 1.0;
+    } timestamps;
 
     snd_pcm_t* pcm;
     uint32_t frame;

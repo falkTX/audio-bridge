@@ -442,10 +442,17 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         goto error;
     }
 
-    // SND_PCM_TSTAMP_ENABLE
+    // SND_PCM_TSTAMP_NONE SND_PCM_TSTAMP_ENABLE
     if ((err = snd_pcm_sw_params_set_tstamp_mode(dev.pcm, swparams, SND_PCM_TSTAMP_MMAP)) != 0)
     {
         DEBUGPRINT("snd_pcm_sw_params_set_tstamp_mode fail %s", snd_strerror(err));
+        goto error;
+    }
+
+    // SND_PCM_TSTAMP_NONE SND_PCM_TSTAMP_ENABLE
+    if ((err = snd_pcm_sw_params_set_tstamp_type(dev.pcm, swparams, SND_PCM_TSTAMP_TYPE_MONOTONIC_RAW)) != 0)
+    {
+        DEBUGPRINT("snd_pcm_sw_params_set_tstamp_type fail %s", snd_strerror(err));
         goto error;
     }
 
@@ -579,7 +586,358 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
     return err;
 }
 
-static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[])
+static void deviceFailInitHints(DeviceAudio* const dev)
+{
+    dev->hints |= kDeviceInitializing|kDeviceStarting;
+    dev->balance.mode = kBalanceNormal;
+    dev->balance.slowingDown = dev->balance.slowingDownRealFast = dev->balance.speedingUp = dev->balance.speedingUpRealFast = 0;
+    dev->balance.ratio = 1.0;
+    dev->timestamps.alsaStartTime = dev->timestamps.jackStartFrame = 0;
+    dev->timestamps.ratio = 1.0;
+    dev->resampler->set_rratio(1.0);
+}
+
+static void balanceDeviceCaptureSpeed(DeviceAudio* const dev, const snd_pcm_sframes_t avail)
+{
+    const uint32_t frame = dev->frame;
+    const uint16_t bufferSize = dev->bufferSize;
+    const uint32_t sampleRate = dev->sampleRate;
+    VResampler* const resampler = dev->resampler;
+
+    DeviceAudio::Balance& bal(dev->balance);
+
+    const uint16_t kSpeedTarget = sampleRate / bufferSize * 15;
+    const uint16_t kMaxTargetRF = bufferSize * 2.85;
+    const uint16_t kMaxTargetN = bufferSize * 2.5;
+    const uint16_t kMinTargetRF = bufferSize * 1.25;
+    const uint16_t kMinTargetN = bufferSize * 1.4;
+
+    if (avail >= kMaxTargetRF)
+    {
+        if (bal.speedingUpRealFast == 0)
+        {
+            switch (bal.mode)
+            {
+            case kBalanceNormal:
+                bal.ratio *= 0.9995;
+                break;
+            case kBalanceSpeedingUp:
+            case kBalanceSpeedingUpRealFast:
+                bal.ratio = 0.9995;
+                break;
+            case kBalanceSlowingDown:
+            case kBalanceSlowingDownRealFast:
+                bal.ratio = 1.0;
+                break;
+            }
+            bal.mode = kBalanceSpeedingUpRealFast;
+            bal.speedingUpRealFast = bal.speedingUp = 1;
+            bal.slowingDown = bal.slowingDownRealFast = 0;
+            resampler->set_rratio(dev->timestamps.ratio * bal.ratio);
+            if (bal.ratio != 1.0) {
+                DEBUGPRINT("%08u | capture | avail >= kMaxTargetRF %ld | %ld | speeding up real fast...", frame, avail, avail - bufferSize);
+            }
+        }
+        else if (++bal.speedingUpRealFast == 0 || ++bal.speedingUp == 0)
+        {
+            bal.speedingUp = bal.speedingUpRealFast = 1;
+        }
+    }
+    else if (avail > kMaxTargetN)
+    {
+        if (bal.speedingUp == 0 || (bal.speedingUpRealFast != 0 && ++bal.speedingUpRealFast == kSpeedTarget))
+        {
+            switch (bal.mode)
+            {
+            case kBalanceNormal:
+                bal.ratio *= 0.999995;
+                break;
+            case kBalanceSpeedingUp:
+            case kBalanceSpeedingUpRealFast:
+                bal.ratio = 0.99999;
+                break;
+            case kBalanceSlowingDown:
+                bal.ratio = 1.0;
+                break;
+            case kBalanceSlowingDownRealFast:
+                bal.ratio *= 0.9995;
+                break;
+            }
+            bal.mode = kBalanceSpeedingUp;
+            bal.speedingUp = 1;
+            bal.speedingUpRealFast = 0;
+            bal.slowingDown = bal.slowingDownRealFast = 0;
+            resampler->set_rratio(dev->timestamps.ratio * bal.ratio);
+            if (bal.ratio != 1.0) {
+                DEBUGPRINT("%08u | capture | avail > kMaxTargetN %ld | %ld | speeding up...", frame, avail, avail - bufferSize);
+            }
+        }
+        else if (++bal.speedingUp == 0)
+        {
+            bal.speedingUp = 1;
+        }
+
+        // while (avail - bufferSize * 2 > 0) {
+        //     const snd_pcm_uframes_t size = avail - bufferSize * 2 > bufferSize ? bufferSize : avail - bufferSize * 2;
+        //     err = snd_pcm_mmap_readi(dev->pcm, dev->buffer, size);
+        //     DEBUGPRINT("%08u | avail > bufferSize*2 %ld || err %ld", frame, avail, err);
+        //     if (err < 0)
+        //         break;
+        //     avail -= err;
+        // }
+        //
+        // avail = snd_pcm_avail(dev->pcm);
+    }
+    else if (avail <= kMinTargetRF)
+    {
+        if (bal.slowingDownRealFast == 0)
+        {
+            switch (bal.mode)
+            {
+            case kBalanceNormal:
+                bal.ratio *= 1.0005;
+                break;
+            case kBalanceSlowingDown:
+            case kBalanceSlowingDownRealFast:
+                bal.ratio = 1.0005;
+                break;
+            case kBalanceSpeedingUp:
+            case kBalanceSpeedingUpRealFast:
+                bal.ratio = 1.0;
+                break;
+            }
+            bal.mode = kBalanceSlowingDownRealFast;
+            bal.slowingDownRealFast = bal.slowingDown = 1;
+            bal.speedingUp = bal.speedingUpRealFast = 0;
+            resampler->set_rratio(dev->timestamps.ratio * bal.ratio);
+            if (bal.ratio != 1.0) {
+                DEBUGPRINT("%08u | avail <= kMinTargetRF %ld | %ld | slowing down real fast...", frame, avail, avail - bufferSize);
+            }
+        }
+        else if (++bal.slowingDownRealFast == 0 || ++bal.slowingDown == 0)
+        {
+            bal.slowingDown = 1;
+            bal.slowingDownRealFast = 1;
+        }
+    }
+    else if (avail < kMinTargetN)
+    {
+        if (bal.slowingDown == 0)
+        {
+            switch (bal.mode)
+            {
+            case kBalanceNormal:
+                bal.ratio *= 1.000005;
+                break;
+            case kBalanceSlowingDown:
+            case kBalanceSlowingDownRealFast:
+                bal.ratio = 1.000001;
+                break;
+            case kBalanceSpeedingUp:
+                bal.ratio = 1.0;
+                break;
+            case kBalanceSpeedingUpRealFast:
+                bal.ratio *= 1.0005;
+                break;
+            }
+            bal.mode = kBalanceSlowingDown;
+            bal.slowingDown = 1;
+            bal.slowingDownRealFast = 0;
+            bal.speedingUp = bal.speedingUpRealFast = 0;
+            resampler->set_rratio(dev->timestamps.ratio * bal.ratio);
+            if (bal.ratio != 1.0) {
+                DEBUGPRINT("%08u | capture | avail < kMinTargetN %ld | %ld | slowing down...", frame, avail, avail - bufferSize);
+            }
+        }
+        else if (++bal.slowingDown == 0)
+        {
+            bal.slowingDown = 1;
+        }
+    }
+    else
+    {
+        if ((bal.slowingDown != 0 && ++bal.slowingDown == kSpeedTarget) || (bal.speedingUp != 0 && ++bal.speedingUp == kSpeedTarget))
+        {
+            DEBUGPRINT("%08u | capture | stopped speed compensation", frame);
+            bal.mode = kBalanceNormal;
+            bal.slowingDown = bal.slowingDownRealFast = bal.speedingUp = bal.speedingUpRealFast = 0;
+        }
+    }
+}
+
+static void balanceDevicePlaybackSpeed(DeviceAudio* const dev, const snd_pcm_sframes_t avail)
+{
+    const uint32_t frame = dev->frame;
+    const uint16_t bufferSize = dev->bufferSize;
+    const uint32_t sampleRate = dev->sampleRate;
+    VResampler* const resampler = dev->resampler;
+
+    DeviceAudio::Balance& bal(dev->balance);
+
+    const uint16_t kSpeedTarget = static_cast<double>(sampleRate) / bufferSize * 8;
+    const uint16_t kMaxTargetRFL = bufferSize * 2.333;
+    const uint16_t kMaxTargetRF = bufferSize * 2.25;
+    const uint16_t kMaxTargetN = bufferSize * 2;
+    const uint16_t kMinTargetRFL = bufferSize * 1;
+    const uint16_t kMinTargetRF = bufferSize * 1.05;
+    const uint16_t kMinTargetN = bufferSize * 1.25;
+
+    if (avail >= kMaxTargetRF)
+    {
+        if (bal.slowingDownRealFast == 0)
+        {
+            if (avail >= kMaxTargetRFL)
+            {
+                bal.ratio = 1.0005;
+            }
+            else
+            {
+                switch (bal.mode)
+                {
+                case kBalanceNormal:
+                case kBalanceSlowingDownRealFast:
+                    bal.ratio *= 1.0005;
+                    break;
+                case kBalanceSlowingDown:
+                    bal.ratio = (bal.ratio * 3 + 1.0005) / 4;
+                    break;
+                case kBalanceSpeedingUp:
+                case kBalanceSpeedingUpRealFast:
+                    bal.ratio = 1.0;
+                    break;
+                }
+            }
+            bal.mode = kBalanceSlowingDownRealFast;
+            bal.slowingDownRealFast = 1;
+            bal.slowingDown = bal.speedingUp = bal.speedingUpRealFast = 0;
+            resampler->set_rratio(dev->timestamps.ratio * bal.ratio);
+            if (bal.ratio != 1.0) {
+                DEBUGPRINT("%08u | playback | avail >= kMaxTargetRF %ld | %ld | %.9f | slowing down real fast...", frame, avail, avail - bufferSize, bal.ratio);
+            }
+        }
+        else if (++bal.slowingDown == 0 || ++bal.slowingDownRealFast == 0)
+        {
+            bal.slowingDown = bal.slowingDownRealFast = 1;
+        }
+    }
+    else if (avail > kMaxTargetN)
+    {
+        if (bal.slowingDown == 0)
+        {
+            switch (bal.mode)
+            {
+            case kBalanceNormal:
+            case kBalanceSlowingDown:
+                bal.ratio *= 1.000005;
+                break;
+            case kBalanceSlowingDownRealFast:
+                bal.ratio = (bal.ratio * 3 + 1.000005) / 4;
+                break;
+            case kBalanceSpeedingUp:
+                bal.ratio = 1.0;
+                break;
+            case kBalanceSpeedingUpRealFast:
+                bal.ratio = (bal.ratio * 3 + 1.0005) / 4;
+                break;
+            }
+            bal.mode = kBalanceSlowingDown;
+            bal.slowingDown = 1;
+            bal.slowingDownRealFast = bal.speedingUp = bal.speedingUpRealFast = 0;
+            resampler->set_rratio(dev->timestamps.ratio * bal.ratio);
+            if (bal.ratio != 1.0) {
+                DEBUGPRINT("%08u | playback | avail > kMaxTargetN %ld | %ld | %.9f | slowing down...", frame, avail, avail - bufferSize, bal.ratio);
+            }
+        }
+        else if (++bal.slowingDown == 0)
+        {
+            bal.slowingDown = 1;
+            bal.slowingDownRealFast = 0;
+        }
+    }
+    else if (avail <= kMinTargetRF)
+    {
+        if (bal.speedingUpRealFast == 0)
+        {
+            if (avail <= kMinTargetRFL)
+            {
+                bal.ratio = 0.9995;
+            }
+            else
+            {
+                switch (bal.mode)
+                {
+                case kBalanceNormal:
+                case kBalanceSpeedingUpRealFast:
+                    bal.ratio *= 0.9995;
+                    break;
+                case kBalanceSpeedingUp:
+                    bal.ratio = (bal.ratio * 3 + 0.9995) / 4;
+                    break;
+                case kBalanceSlowingDown:
+                case kBalanceSlowingDownRealFast:
+                    bal.ratio = 1.0;
+                    break;
+                }
+            }
+            bal.mode = kBalanceSpeedingUpRealFast;
+            bal.speedingUpRealFast = 1;
+            bal.speedingUp = bal.slowingDown = bal.slowingDownRealFast = 0;
+            resampler->set_rratio(dev->timestamps.ratio * bal.ratio);
+            if (bal.ratio != 1.0) {
+                DEBUGPRINT("%08u | playback | avail <= kMinTargetRF %ld | %ld | %.9f | speeding up real fast...", frame, avail, avail - bufferSize, bal.ratio);
+            }
+        }
+        else if (++bal.speedingUp == 0)
+        {
+            bal.speedingUp = bal.speedingUpRealFast = 1;
+        }
+    }
+    else if (avail < kMinTargetN)
+    {
+        if (bal.speedingUp == 0)
+        {
+            switch (bal.mode)
+            {
+            case kBalanceNormal:
+            case kBalanceSpeedingUp:
+                bal.ratio *= 0.999995;
+                break;
+            case kBalanceSpeedingUpRealFast:
+                bal.ratio = (bal.ratio * 3 + 0.999995) / 4;
+                break;
+            case kBalanceSlowingDown:
+                bal.ratio = 1.0;
+                break;
+            case kBalanceSlowingDownRealFast:
+                bal.ratio = (bal.ratio * 3 + 0.9995) / 4;
+                break;
+            }
+            bal.mode = kBalanceSpeedingUp;
+            bal.speedingUp = 1;
+            bal.speedingUpRealFast = bal.slowingDown = bal.slowingDownRealFast = 0;
+            resampler->set_rratio(dev->timestamps.ratio * bal.ratio);
+            if (bal.ratio != 1.0) {
+                DEBUGPRINT("%08u | playback | avail < kMinTargetN %ld | %ld | %.9f | speeding up...", frame, avail, avail - bufferSize, bal.ratio);
+            }
+        }
+        else if (++bal.speedingUp == 0)
+        {
+            bal.speedingUp = 1;
+            bal.speedingUpRealFast = 0;
+        }
+    }
+    else
+    {
+        if ((bal.slowingDown != 0 && ++bal.slowingDown == kSpeedTarget) || (bal.speedingUp != 0 && ++bal.speedingUp == kSpeedTarget))
+        {
+            DEBUGPRINT("%08u | playback | stopped speed compensation", frame);
+            bal.mode = kBalanceNormal;
+            bal.slowingDown = bal.slowingDownRealFast = bal.speedingUp = bal.speedingUpRealFast = 0;
+        }
+    }
+}
+
+static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], const uint32_t frame, snd_pcm_uframes_t avail)
 {
     const uint32_t sampleRate = dev->sampleRate;
     const uint16_t bufferSize = dev->bufferSize;
@@ -590,11 +948,6 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[])
 
     uint16_t retries = 0;
     size_t rbwrite;
-
-    const uint32_t frame = dev->frame;
-    dev->frame += bufferSize;
-
-    snd_pcm_sframes_t avail = snd_pcm_avail(dev->pcm);
 
     snd_pcm_sframes_t err;
 
@@ -635,93 +988,7 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[])
 
     if (!(hints & kDeviceStarting))
     {
-        DeviceAudio::Balance& bal(dev->balance);
-
-        const uint16_t kSpeedTarget = sampleRate / bufferSize * 15;
-        const uint16_t kMaxTargetRF = bufferSize * 2.85;
-        const uint16_t kMaxTargetN = bufferSize * 2.5;
-        const uint16_t kMinTargetRF = bufferSize * 1.15;
-        const uint16_t kMinTargetN = bufferSize * 1.5;
-
-        if (avail >= kMaxTargetRF)
-        {
-            if (bal.speedingUpRealFast == 0)
-            {
-                DEBUGPRINT("%08u | capture | avail >= kMaxTargetRF %ld | %ld | speeding up real fast...", frame, avail, avail - bufferSize);
-                bal.speedingUpRealFast = bal.speedingUp = 1;
-                bal.slowingDown = bal.slowingDownRealFast = 0;
-                dev->resampler->set_rratio(0.9995);
-            }
-            else if (++bal.speedingUpRealFast == 0 || ++bal.speedingUp == 0)
-            {
-                bal.speedingUp = bal.speedingUpRealFast = 1;
-            }
-        }
-        else if (avail > kMaxTargetN)
-        {
-            if (bal.speedingUp == 0 || (bal.speedingUpRealFast != 0 && ++bal.speedingUpRealFast == kSpeedTarget))
-            {
-                DEBUGPRINT("%08u | capture | avail > kMaxTargetN %ld | %ld | speeding up...", frame, avail, avail - bufferSize);
-                bal.speedingUp = 1;
-                bal.speedingUpRealFast = 0;
-                bal.slowingDown = bal.slowingDownRealFast = 0;
-                dev->resampler->set_rratio(0.999995);
-            }
-            else if (++bal.speedingUp == 0)
-            {
-                bal.speedingUp = 1;
-            }
-
-            // while (avail - bufferSize * 2 > 0) {
-            //     const snd_pcm_uframes_t size = avail - bufferSize * 2 > bufferSize ? bufferSize : avail - bufferSize * 2;
-            //     err = snd_pcm_mmap_readi(dev->pcm, dev->buffer, size);
-            //     DEBUGPRINT("%08u | avail > bufferSize*2 %ld || err %ld", frame, avail, err);
-            //     if (err < 0)
-            //         break;
-            //     avail -= err;
-            // }
-            //
-            // avail = snd_pcm_avail(dev->pcm);
-        }
-        else if (avail <= kMinTargetRF)
-        {
-            if (bal.slowingDownRealFast == 0)
-            {
-                DEBUGPRINT("%08u | avail <= kMinTargetRF %ld | %ld | slowing down real fast...", frame, avail, avail - bufferSize);
-                bal.slowingDownRealFast = bal.slowingDown = 1;
-                bal.speedingUp = bal.speedingUpRealFast = 0;
-                resampler->set_rratio(1.0005);
-            }
-            else if (++bal.slowingDownRealFast == 0 || ++bal.slowingDown == 0)
-            {
-                bal.slowingDown = 1;
-                bal.slowingDownRealFast = 1;
-            }
-        }
-        else if (avail < kMinTargetN)
-        {
-            if (bal.slowingDown == 0)
-            {
-                DEBUGPRINT("%08u | capture | avail < kMinTargetN %ld | %ld | slowing down...", frame, avail, avail - bufferSize);
-                bal.slowingDown = 1;
-                bal.slowingDownRealFast = 0;
-                bal.speedingUp = bal.speedingUpRealFast = 0;
-                resampler->set_rratio(1.000005);
-            }
-            else if (++bal.slowingDown == 0)
-            {
-                bal.slowingDown = 1;
-            }
-        }
-        else
-        {
-            if ((bal.slowingDown != 0 && ++bal.slowingDown == kSpeedTarget) || (bal.speedingUp != 0 && ++bal.speedingUp == kSpeedTarget))
-            {
-                DEBUGPRINT("%08u | capture | stopped speed compensation", frame);
-                bal.slowingDown = bal.slowingDownRealFast = bal.speedingUp = bal.speedingUpRealFast = 0;
-                resampler->set_rratio(1.0);
-            }
-        }
+        balanceDeviceCaptureSpeed(dev, avail);
     }
 
    #if 0
@@ -789,7 +1056,8 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[])
 
         if (err < 0)
         {
-            dev->hints |= kDeviceInitializing|kDeviceStarting;
+            deviceFailInitHints(dev);
+
             for (uint8_t c=0; c<channels; ++c)
                 std::memset(buffers[c], 0, sizeof(float)*bufferSize);
 
@@ -842,7 +1110,7 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[])
             else if (lasterr == err && ++retries >= 100)
             {
                 DEBUGPRINT("%08u | capture | Incomplete read %ld, %ld avail, adding kDeviceInitializing", frame, err, avail);
-                dev->hints |= kDeviceInitializing|kDeviceStarting;
+                deviceFailInitHints(dev);
                 break;
             }
             else
@@ -905,9 +1173,8 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[])
     }
 }
 
-static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[])
+static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], const uint32_t frame, snd_pcm_uframes_t avail)
 {
-    const uint32_t sampleRate = dev->sampleRate;
     const uint16_t bufferSize = dev->bufferSize;
     const uint8_t channels = dev->channels;
     const uint8_t hints = dev->hints;
@@ -915,11 +1182,6 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[])
     VResampler* const resampler = dev->resampler;
 
     uint16_t retries = 0;
-
-    const uint32_t frame = dev->frame;
-    dev->frame += bufferSize;
-
-    snd_pcm_sframes_t avail = snd_pcm_avail(dev->pcm);
 
     if (frame == 0)
     {
@@ -930,83 +1192,7 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[])
 
     if (!(hints & kDeviceStarting))
     {
-        DeviceAudio::Balance& bal(dev->balance);
-
-        const uint16_t kSpeedTarget = sampleRate / bufferSize * 15;
-        const uint16_t kMaxTargetRF = bufferSize * 2.85;
-        const uint16_t kMaxTargetN = bufferSize * 2.5;
-        const uint16_t kMinTargetRF = bufferSize * 1.15;
-        const uint16_t kMinTargetN = bufferSize * 1.5;
-
-        if (avail >= kMaxTargetRF)
-        {
-            if (bal.slowingDownRealFast == 0)
-            {
-                DEBUGPRINT("%08u | playback | avail >= kMaxTargetRF %ld | %ld | slowing down real fast...", frame, avail, avail - bufferSize);
-                bal.slowingDown = bal.slowingDownRealFast = 1;
-                bal.speedingUp = bal.speedingUpRealFast = 0;
-                resampler->set_rratio(1.0005);
-            }
-            else if (++bal.slowingDown == 0 || ++bal.slowingDownRealFast == 0)
-            {
-                bal.slowingDown = bal.slowingDownRealFast = 1;
-            }
-        }
-        else if (avail > kMaxTargetN)
-        {
-            if (bal.slowingDown == 0)
-            {
-                DEBUGPRINT("%08u | playback | avail > kMaxTargetN %ld | %ld | slowing down...", frame, avail, avail - bufferSize);
-                bal.slowingDown = 1;
-                bal.slowingDownRealFast = 0;
-                bal.speedingUp = bal.speedingUpRealFast = 0;
-                resampler->set_rratio(1.000005);
-            }
-            else if (++bal.slowingDown == 0)
-            {
-                bal.slowingDown = 1;
-                bal.slowingDownRealFast = 0;
-            }
-        }
-        else if (avail <= kMinTargetRF)
-        {
-            if (bal.speedingUpRealFast == 0)
-            {
-                DEBUGPRINT("%08u | playback | avail <= kMinTargetRF %ld | %ld | speeding up real fast...", frame, avail, avail - bufferSize);
-                bal.speedingUp = bal.speedingUpRealFast = 1;
-                bal.slowingDown = bal.slowingDownRealFast = 0;
-                resampler->set_rratio(0.9995);
-            }
-            else if (++bal.speedingUp == 0)
-            {
-                bal.speedingUp = bal.speedingUpRealFast = 1;
-            }
-        }
-        else if (avail < kMinTargetN)
-        {
-            if (bal.speedingUp == 0)
-            {
-                DEBUGPRINT("%08u | playback | avail < kMinTargetN %ld | %ld | speeding up...", frame, avail, avail - bufferSize);
-                bal.speedingUp = 1;
-                bal.speedingUpRealFast = 0;
-                bal.slowingDown = bal.slowingDownRealFast = 0;
-                resampler->set_rratio(0.999995);
-            }
-            else if (++bal.speedingUp == 0)
-            {
-                bal.speedingUp = 1;
-                bal.speedingUpRealFast = 0;
-            }
-        }
-        else
-        {
-            if ((bal.slowingDown != 0 && ++bal.slowingDown == kSpeedTarget) || (bal.speedingUp != 0 && ++bal.speedingUp == kSpeedTarget))
-            {
-                DEBUGPRINT("%08u | playback | stopped speed compensation", frame);
-                bal.slowingDown = bal.slowingDownRealFast = bal.speedingUp = bal.speedingUpRealFast = 0;
-                resampler->set_rratio(1.0);
-            }
-        }
+        balanceDevicePlaybackSpeed(dev, avail);
     }
 
     resampler->inp_count = bufferSize;
@@ -1018,13 +1204,13 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[])
     if (resampler->inp_count != 0)
     {
         printf("%08u | playback | E1 resampler->out_count == %u | resampler->inp_count == %u | avail %ld\n",
-                frame, resampler->out_count, resampler->inp_count, avail);
+               frame, resampler->out_count, resampler->inp_count, avail);
         exit(EXIT_FAILURE);
     }
     else if (resampler->out_count == 0)
     {
         printf("%08u | playback | E2 resampler->out_count == %u | resampler->inp_count == %u | avail %ld\n",
-                frame, resampler->out_count, resampler->inp_count, avail);
+               frame, resampler->out_count, resampler->inp_count, avail);
         exit(EXIT_FAILURE);
     }
     else if (resampler->out_count != 128)
@@ -1084,7 +1270,7 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[])
         if (err < 0)
         {
             printf("%08u | playback | Write error: %s\n", frame, snd_strerror(err));
-            dev->hints |= kDeviceInitializing|kDeviceStarting;
+            deviceFailInitHints(dev);
 
             if (xrun_recovery(dev->pcm, err) < 0)
             {
@@ -1104,6 +1290,19 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[])
             if (retries || frame == 0) {
                 DEBUGPRINT("%08u | playback | Complete write %u, %u retries", frame, frames, retries);
             }
+
+            if (retries != 0)
+            {
+                if (dev->balance.mode != kBalanceSpeedingUpRealFast || dev->balance.ratio > 0.9995)
+                    dev->balance.ratio = 0.9995;
+                else
+                    dev->balance.ratio *= 0.999995;
+                dev->balance.mode = kBalanceSpeedingUpRealFast;
+                dev->balance.slowingDown = dev->balance.slowingDownRealFast = 0;
+                dev->balance.speedingUpRealFast = dev->balance.speedingUp = 1;
+                resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
+                DEBUGPRINT("%08u | playback | %.9f | slowing down real fast...", frame, dev->balance.ratio);
+            }
             break;
         }
 
@@ -1116,10 +1315,35 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[])
 
 void runDeviceAudio(DeviceAudio* const dev, float* buffers[])
 {
+    const uint32_t frame = dev->frame;
+    dev->frame += dev->bufferSize;
+
+    snd_pcm_uframes_t avail = 0;
+    snd_htimestamp_t tstamp = {};
+    snd_pcm_htimestamp(dev->pcm, &avail, &tstamp);
+
+    if (dev->timestamps.alsaStartTime != 0 && frame >= dev->sampleRate * 2)
+    {
+        const uint64_t alsadiff = static_cast<uint64_t>(tstamp.tv_sec) * 1000000000ULL + tstamp.tv_nsec - dev->timestamps.alsaStartTime;
+        const uint32_t alsaframes = alsadiff * dev->sampleRate / 1000000000ULL;
+        const uint32_t jackframes = frame - dev->timestamps.jackStartFrame;
+        dev->timestamps.ratio = ((static_cast<double>(alsaframes) / jackframes) + dev->timestamps.ratio * 511) / 512;
+        dev->resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
+        if ((frame % dev->sampleRate) == 0) {
+            DEBUGPRINT("%08u | playback | %.09f = %.09f * %.09f", frame, dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, dev->balance.ratio);
+        }
+    }
+
     if (dev->hints & kDeviceCapture)
-        runDeviceAudioCapture(dev, buffers);
+        runDeviceAudioCapture(dev, buffers, frame, avail);
     else
-        runDeviceAudioPlayback(dev, buffers);
+        runDeviceAudioPlayback(dev, buffers, frame, avail);
+
+    if ((dev->hints & kDeviceInitializing) == 0x0 && dev->timestamps.alsaStartTime == 0)
+    {
+        dev->timestamps.alsaStartTime = static_cast<uint64_t>(tstamp.tv_sec) * 1000000000ULL + tstamp.tv_nsec;
+        dev->timestamps.jackStartFrame = frame;
+    }
 }
 
 void closeDeviceAudio(DeviceAudio* const dev)
