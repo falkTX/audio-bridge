@@ -29,6 +29,26 @@ enum BalanceMode {
     kBalanceSpeedingUpRealFast,
 };
 
+static inline
+const char* BalanceModeToStr(const uint8_t mode)
+{
+    switch (mode)
+    {
+    case kBalanceNormal:
+        return "kBalanceNormal";
+    case kBalanceSlowingDown:
+        return "kBalanceSlowingDown";
+    case kBalanceSlowingDownRealFast:
+        return "kBalanceSlowingDownRealFast";
+    case kBalanceSpeedingUp:
+        return "kBalanceSpeedingUp";
+    case kBalanceSpeedingUpRealFast:
+        return "kBalanceSpeedingUpRealFast";
+    }
+
+    return "";
+}
+
 struct DeviceAudio {
     struct Balance {
         uint8_t mode = kBalanceNormal;

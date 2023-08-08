@@ -606,9 +606,11 @@ static void balanceDeviceCaptureSpeed(DeviceAudio* const dev, const snd_pcm_sfra
 
     DeviceAudio::Balance& bal(dev->balance);
 
-    const uint16_t kSpeedTarget = sampleRate / bufferSize * 15;
-    const uint16_t kMaxTargetRF = bufferSize * 2.85;
-    const uint16_t kMaxTargetN = bufferSize * 2.5;
+    const uint16_t kSpeedTarget = sampleRate / bufferSize * 8;
+    const uint16_t kMaxTargetRFL = bufferSize * 2.333;
+    const uint16_t kMaxTargetRF = bufferSize * 2.25;
+    const uint16_t kMaxTargetN = bufferSize * 2;
+    const uint16_t kMinTargetRFL = bufferSize * 1.15;
     const uint16_t kMinTargetRF = bufferSize * 1.25;
     const uint16_t kMinTargetN = bufferSize * 1.4;
 
@@ -616,23 +618,34 @@ static void balanceDeviceCaptureSpeed(DeviceAudio* const dev, const snd_pcm_sfra
     {
         if (bal.speedingUpRealFast == 0)
         {
-            switch (bal.mode)
+            if (avail >= kMaxTargetRFL)
             {
-            case kBalanceNormal:
-                bal.ratio *= 0.9995;
-                break;
-            case kBalanceSpeedingUp:
-            case kBalanceSpeedingUpRealFast:
-                bal.ratio = 0.9995;
-                break;
-            case kBalanceSlowingDown:
-            case kBalanceSlowingDownRealFast:
-                bal.ratio = 1.0;
-                break;
+                bal.ratio = 0.95;
+            }
+            else
+            {
+                switch (bal.mode)
+                {
+                case kBalanceNormal:
+                case kBalanceSpeedingUpRealFast:
+                    bal.ratio *= 0.95;
+                    break;
+                case kBalanceSpeedingUp:
+                    bal.ratio = (bal.ratio * 3 + 0.95) / 4;
+                    break;
+                case kBalanceSlowingDown:
+                case kBalanceSlowingDownRealFast:
+                    bal.ratio = 1.0;
+                    break;
+                }
             }
             bal.mode = kBalanceSpeedingUpRealFast;
             bal.speedingUpRealFast = bal.speedingUp = 1;
             bal.slowingDown = bal.slowingDownRealFast = 0;
+
+            dev->timestamps.alsaStartTime = dev->timestamps.jackStartFrame = 0;
+            dev->timestamps.ratio = 1.0;
+
             resampler->set_rratio(dev->timestamps.ratio * bal.ratio);
             if (bal.ratio != 1.0) {
                 DEBUGPRINT("%08u | capture | avail >= kMaxTargetRF %ld | %ld | speeding up real fast...", frame, avail, avail - bufferSize);
@@ -650,17 +663,17 @@ static void balanceDeviceCaptureSpeed(DeviceAudio* const dev, const snd_pcm_sfra
             switch (bal.mode)
             {
             case kBalanceNormal:
-                bal.ratio *= 0.999995;
-                break;
             case kBalanceSpeedingUp:
+                bal.ratio *= 0.995;
+                break;
             case kBalanceSpeedingUpRealFast:
-                bal.ratio = 0.99999;
+                bal.ratio = (bal.ratio * 3 + 0.995) / 4;
                 break;
             case kBalanceSlowingDown:
                 bal.ratio = 1.0;
                 break;
             case kBalanceSlowingDownRealFast:
-                bal.ratio *= 0.9995;
+                bal.ratio *= (bal.ratio * 3 + 0.95) / 4;
                 break;
             }
             bal.mode = kBalanceSpeedingUp;
@@ -692,19 +705,26 @@ static void balanceDeviceCaptureSpeed(DeviceAudio* const dev, const snd_pcm_sfra
     {
         if (bal.slowingDownRealFast == 0)
         {
-            switch (bal.mode)
+            if (avail <= kMinTargetRFL)
             {
-            case kBalanceNormal:
-                bal.ratio *= 1.0005;
-                break;
-            case kBalanceSlowingDown:
-            case kBalanceSlowingDownRealFast:
-                bal.ratio = 1.0005;
-                break;
-            case kBalanceSpeedingUp:
-            case kBalanceSpeedingUpRealFast:
-                bal.ratio = 1.0;
-                break;
+                bal.ratio = 1.05;
+            }
+            else
+            {
+                switch (bal.mode)
+                {
+                case kBalanceNormal:
+                case kBalanceSlowingDownRealFast:
+                    bal.ratio *= 1.05;
+                    break;
+                case kBalanceSlowingDown:
+                    bal.ratio = (bal.ratio * 3 + 1.05) / 4;
+                    break;
+                case kBalanceSpeedingUp:
+                case kBalanceSpeedingUpRealFast:
+                    bal.ratio = 1.0;
+                    break;
+                }
             }
             bal.mode = kBalanceSlowingDownRealFast;
             bal.slowingDownRealFast = bal.slowingDown = 1;
@@ -727,17 +747,17 @@ static void balanceDeviceCaptureSpeed(DeviceAudio* const dev, const snd_pcm_sfra
             switch (bal.mode)
             {
             case kBalanceNormal:
-                bal.ratio *= 1.000005;
-                break;
             case kBalanceSlowingDown:
+                bal.ratio *= 1.005;
+                break;
             case kBalanceSlowingDownRealFast:
-                bal.ratio = 1.000001;
+                bal.ratio = (bal.ratio * 3 + 1.005) / 4;
                 break;
             case kBalanceSpeedingUp:
                 bal.ratio = 1.0;
                 break;
             case kBalanceSpeedingUpRealFast:
-                bal.ratio *= 1.0005;
+                bal.ratio = (bal.ratio * 3 + 1.05) / 4;
                 break;
             }
             bal.mode = kBalanceSlowingDown;
@@ -982,7 +1002,7 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
     if (frame == 0)
     {
         DEBUGPRINT("%08u | capture | frame == 0 | %ld", frame, avail);
-        snd_pcm_rewind(dev->pcm, bufferSize);
+        snd_pcm_rewind(dev->pcm, bufferSize * 2);
         avail = snd_pcm_avail(dev->pcm);
     }
 
@@ -1024,10 +1044,10 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
     int lasterr = 0;
     const uint16_t extraBufferSize = bufferSize / 4;
 
-    for (;;)
+    for (uint16_t frames = bufferSize; frames != 0;)
     {
-        err = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSize + extraBufferSize);
-        // DEBUGPRINT("%08u | read %ld of %u", frame, err, bufferSize + extraBufferSize);
+        err = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, frames + extraBufferSize);
+        // DEBUGPRINT("%08u | read %ld of %u", frame, err, frames + extraBufferSize);
 
         if (err == -EAGAIN)
         {
@@ -1078,48 +1098,40 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
             return;  /* skip one period */
         }
 
-        if (static_cast<uint16_t>(err) >= bufferSize + extraBufferSize)
-        {
-            // if (err != avail) {
-            // }
-            // frames = 0;
-            if (dev->hints & kDeviceInitializing)
-            {
-                DEBUGPRINT("%08u | Complete read >= %u, err %ld, %ld avail, removing kDeviceInitializing", frame, bufferSize + extraBufferSize, err, avail);
-                dev->hints &= ~kDeviceInitializing;
-            }
-            else if (dev->hints & kDeviceStarting)
-            {
-                DEBUGPRINT("%08u | Complete read >= %u, err %ld, %ld avail, removing kDeviceStarting", frame, bufferSize + extraBufferSize, err, avail);
-                dev->hints &= ~kDeviceStarting;
-            }
-        }
-        else
+        if (static_cast<uint16_t>(err) < frames + extraBufferSize)
         {
             // DEBUGPRINT("%08u | capture | Incomplete read %ld, %ld avail", frame, err, avail);
 
-            // TODO no rewind full frames, offset buffer instead
-
-            if ((dev->hints & kDeviceInitializing) && lasterr != err)
-            {
-                DEBUGPRINT("%08u | capture | Incomplete read %ld, %ld avail, removing kDeviceInitializing", frame, err, avail);
-
-                dev->hints &= ~kDeviceInitializing;
-                snd_pcm_rewind(dev->pcm, bufferSize * 2.5 - err);
-            }
-            else if (lasterr == err && ++retries >= 100)
+            if ((dev->hints & kDeviceInitializing) == 0x0 && lasterr == err && ++retries == 1000)
             {
                 DEBUGPRINT("%08u | capture | Incomplete read %ld, %ld avail, adding kDeviceInitializing", frame, err, avail);
                 deviceFailInitHints(dev);
                 break;
             }
-            else
-            {
-                snd_pcm_rewind(dev->pcm, err);
-            }
 
-            lasterr = err;
-            continue;
+            if (dev->balance.mode != kBalanceSlowingDownRealFast || dev->balance.ratio > 1.5)
+                dev->balance.ratio = 1.5;
+            else
+                dev->balance.ratio *= 1.5;
+            dev->balance.mode = kBalanceSlowingDownRealFast;
+            dev->balance.slowingDown = dev->balance.slowingDownRealFast = 1;
+            dev->balance.speedingUpRealFast = dev->balance.speedingUp = 0;
+            resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
+            DEBUGPRINT("%08u | capture | %.9f | slowing down real fast...", frame, dev->balance.ratio);
+        }
+
+        // if (err != avail) {
+        // }
+        // frames = 0;
+        if (dev->hints & kDeviceInitializing)
+        {
+            DEBUGPRINT("%08u | capture | Complete read >= %u, err %ld, %ld avail, removing kDeviceInitializing", frame, bufferSize + extraBufferSize, err, avail);
+            dev->hints &= ~kDeviceInitializing;
+        }
+        else if (dev->hints & kDeviceStarting)
+        {
+            DEBUGPRINT("%08u | capture | Complete read >= %u, err %ld, %ld avail, removing kDeviceStarting", frame, bufferSize + extraBufferSize, err, avail);
+            dev->hints &= ~kDeviceStarting;
         }
 
         const uint16_t offset = 0;
@@ -1140,7 +1152,7 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
         }
 
         resampler->inp_count = err;
-        resampler->out_count = bufferSize;
+        resampler->out_count = frames;
         resampler->inp_data = dev->buffers.f32;
         resampler->out_data = buffers;
         resampler->process();
@@ -1164,12 +1176,13 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
             exit(EXIT_FAILURE);
         }
 
-        if (const unsigned inp_count = resampler->inp_count)
-        {
-            snd_pcm_rewind(dev->pcm, inp_count);
-        }
+        retries = 0;
+        lasterr = err;
 
-        break;
+        if (const unsigned inp_count = resampler->inp_count)
+            snd_pcm_rewind(dev->pcm, inp_count);
+
+        frames = resampler->out_count;
     }
 }
 
@@ -1251,10 +1264,7 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
         if (err == -EAGAIN)
         {
             if (hints & kDeviceStarting)
-            {
-                DEBUGPRINT("%08u | playback | -EAGAIN with kDeviceStarting", frame);
                 return;
-            }
 
             if (++retries < 1000)
                 continue;
@@ -1298,10 +1308,10 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
                 else
                     dev->balance.ratio *= 0.999995;
                 dev->balance.mode = kBalanceSpeedingUpRealFast;
-                dev->balance.slowingDown = dev->balance.slowingDownRealFast = 0;
                 dev->balance.speedingUpRealFast = dev->balance.speedingUp = 1;
+                dev->balance.slowingDown = dev->balance.slowingDownRealFast = 0;
                 resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
-                DEBUGPRINT("%08u | playback | %.9f | slowing down real fast...", frame, dev->balance.ratio);
+                DEBUGPRINT("%08u | playback | %.9f | speeding up real fast...", frame, dev->balance.ratio);
             }
             break;
         }
@@ -1330,7 +1340,10 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[])
         dev->timestamps.ratio = ((static_cast<double>(alsaframes) / jackframes) + dev->timestamps.ratio * 511) / 512;
         dev->resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
         if ((frame % dev->sampleRate) == 0) {
-            DEBUGPRINT("%08u | playback | %.09f = %.09f * %.09f", frame, dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, dev->balance.ratio);
+        // if (dev->balance.ratio != 1) {
+            DEBUGPRINT("%08u | %s | %.09f = %.09f * %.09f | %u avail | mode: %s",
+                       frame, dev->hints & kDeviceCapture ? "capture" : "playback",
+                       dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, dev->balance.ratio, avail, BalanceModeToStr(dev->balance.mode));
         }
     }
 
