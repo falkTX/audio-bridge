@@ -1341,7 +1341,7 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[])
         dev->resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
         if ((frame % dev->sampleRate) == 0) {
         // if (dev->balance.ratio != 1) {
-            DEBUGPRINT("%08u | %s | %.09f = %.09f * %.09f | %u avail | mode: %s",
+            DEBUGPRINT("%08u | %s | %.09f = %.09f * %.09f | %lu avail | mode: %s",
                        frame, dev->hints & kDeviceCapture ? "capture" : "playback",
                        dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, dev->balance.ratio, avail, BalanceModeToStr(dev->balance.mode));
         }
