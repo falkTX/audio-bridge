@@ -287,7 +287,7 @@ void s32(float* const* const dst, void* const src, const uint16_t offset, const 
 // --------------------------------------------------------------------------------------------------------------------
 
 static inline
-void yield()
+void simd_yield()
 {
    #if defined(__SSE2_MATH__)
     _mm_pause();
@@ -546,15 +546,14 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         dev.buffers.raw = new int8_t[rawbufferlen];
         dev.buffers.f32 = new float*[channels];
         dev.ringbuffers = new HeapRingBuffer[channels];
-//         dev.ringbuffers = new jack_ringbuffer_t*[channels];
 
         for (uint8_t c=0; c<channels; ++c)
         {
             dev.buffers.f32[c] = new float[dev.bufferSize * 2];
-//             dev.ringbuffers[c] = jack_ringbuffer_create(sizeof(float) * dev.bufferSize * 5);
             dev.ringbuffers[c].createBuffer(sizeof(float) * dev.bufferSize * 5);
-            DISTRHO_SAFE_ASSERT_RETURN(dev.ringbuffers[c].getReadableDataSize() == 0, nullptr);
         }
+
+        sem_init(&dev.sem, 0, 0);
 
         dev.resampler = new VResampler;
 
@@ -580,13 +579,11 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         devptr->gain.setTargetValue(1.f);
        #endif
 
-        sem_init(&devptr->sem, 0, 0);
-
         pthread_attr_t attr;
         pthread_attr_init(&attr);
         pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
         sched_param sched = {};
-        sched.sched_priority = 70;
+        sched.sched_priority = playback ? 69 : 70;
         pthread_attr_setschedparam(&attr, &sched);
         pthread_create(&devptr->thread, &attr, deviceCaptureThread, devptr);
         pthread_attr_destroy(&attr);
@@ -1067,7 +1064,6 @@ static void* deviceCaptureThread(void* const  arg)
     const uint16_t bufferSize = dev->bufferSize;
     const uint16_t extraBufferSize = bufferSize / 2;
     const uint32_t periodTimeOver4 = ((bufferSize / 4) * 1000000) / dev->sampleRate * 1000;
-    VResampler* const resampler = dev->resampler;
 
     float** buffers = new float*[channels];
     for (uint8_t c=0; c<channels; ++c)
@@ -1091,6 +1087,9 @@ static void* deviceCaptureThread(void* const  arg)
         __asm__ __volatile__("vmsr fpscr, %0" :: "r" (flags | 0x1000000));
        #endif
     }
+
+    VResampler* const resampler = new VResampler;
+    resampler->setup(1.0, channels, 8);
 
     struct timespec ts = {};
     clock_gettime(CLOCK_REALTIME, &ts);
@@ -1226,7 +1225,7 @@ static void* deviceCaptureThread(void* const  arg)
                 balanceDeviceCaptureSpeed(dev, savail);
 
 //             dev->timestamps.ratio = 0.999997143;
-//             dev->resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
+//             resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
 
             if (dev->timestamps.alsaStartTime == 0)
             {
@@ -1239,7 +1238,7 @@ static void* deviceCaptureThread(void* const  arg)
                 const uint32_t alsaframes = alsadiff * dev->sampleRate / 1000000000ULL;
                 const uint32_t jackframes = frame - dev->timestamps.jackStartFrame;
                 dev->timestamps.ratio = ((static_cast<double>(alsaframes) / jackframes) + dev->timestamps.ratio * 511) / 512;
-                dev->resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
+                resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
                 if ((frameCount % dev->sampleRate) == 0)
                 {
                     DEBUGPRINT("%08u | %s | %.09f = %.09f * %.09f | %ld avail | mode: %s",
@@ -1281,9 +1280,6 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
     const HeapRingBuffer& rb(dev->ringbuffers[0]);
     uint32_t avail = rb.getReadableDataSize() / sizeof(float);
 
-//     const jack_ringbuffer_t* const rb = dev->ringbuffers[0];
-//     const uint32_t avail = jack_ringbuffer_read_space(rb) / sizeof(float);
-
 #if 1
     if (dev->hints & kDeviceInitializing)
     {
@@ -1311,13 +1307,7 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
         {
             int counter = 0;
             while (!dev->ringbuffers[c].readCustomData(buffers[c], sizeof(float) * bufferSize))
-    //             jack_ringbuffer_read(dev->ringbuffers[c],
-    //                                  static_cast<char*>(static_cast<void*>(buffers[c] + bufferOffset)),
-    //                                  sizeof(float) * bufferSize);
-            {
-                DEBUGPRINT("wait full copy");
-                yield();
-            }
+                simd_yield();
         }
     }
     else
@@ -1354,13 +1344,7 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
         for (uint8_t c=0; c<channels; ++c)
         {
             while (!dev->ringbuffers[c].readCustomData(buffers[c], sizeof(float) * avail))
-//                 jack_ringbuffer_read(dev->ringbuffers[c],
-//                                      static_cast<char*>(static_cast<void*>(buffers[c])),
-//                                      sizeof(float) * avail);
-            {
-                DEBUGPRINT("wait warning");
-                yield();
-            }
+                simd_yield();
         }
 
         // keep going while fetching the rest
@@ -1388,13 +1372,7 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
             for (uint8_t c=0; c<channels; ++c)
             {
                 while (!dev->ringbuffers[c].readCustomData(buffers[c] + offset, sizeof(float) * avail))
-    //                 jack_ringbuffer_read(dev->ringbuffers[c],
-    //                                      static_cast<char*>(static_cast<void*>(buffers[c])),
-    //                                      sizeof(float) * avail);
-                {
-                    DEBUGPRINT("wait warning");
-                    yield();
-                }
+                    simd_yield();
             }
         }
     }
