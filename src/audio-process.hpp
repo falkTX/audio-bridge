@@ -7,6 +7,14 @@
 //#define ALSA_PCM_NEW_SW_PARAMS_API
 #include <alsa/asoundlib.h>
 #include <jack/ringbuffer.h>
+#include <pthread.h>
+#include <semaphore.h>
+
+#include "RingBuffer.hpp"
+
+// #ifdef WITH_GAIN
+#include "ValueSmoother.hpp"
+// #endif
 
 #include "zita-resampler/vresampler.h"
 
@@ -79,6 +87,15 @@ struct DeviceAudio {
     } buffers;
 
     VResampler* resampler;
+
+   #ifdef WITH_GAIN
+    ExponentialValueSmoother gain;
+   #endif
+
+    pthread_t thread;
+    sem_t sem;
+//     jack_ringbuffer_t** ringbuffers;
+    HeapRingBuffer* ringbuffers;
 };
 
 DeviceAudio* initDeviceAudio(const char* deviceID, bool playback, uint8_t channels, uint16_t bufferSize, uint32_t sampleRate);

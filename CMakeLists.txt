@@ -21,6 +21,7 @@ set_property(GLOBAL PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 # Find dependencies
 
 find_package(PkgConfig REQUIRED)
+find_package(Threads REQUIRED)
 
 pkg_check_modules(ALSA IMPORTED_TARGET REQUIRED alsa)
 pkg_check_modules(LV2 IMPORTED_TARGET REQUIRED lv2)
@@ -43,6 +44,7 @@ function(set_common_target_properties TARGET)
 
   target_link_libraries(${TARGET}
     PRIVATE
+      ${CMAKE_THREAD_LIBS_INIT}
       PkgConfig::ALSA
   )
 endfunction()
