@@ -23,7 +23,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
-#include <zita-resampler/resampler-table.h>
+#include "zita-resampler/resampler-table.h"
 
 
 #undef ENABLE_VEC4

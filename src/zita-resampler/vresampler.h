@@ -23,7 +23,7 @@
 #define __VRESAMPLER_H
 
 
-#include "zita-resampler/resampler-table.h"
+#include "resampler-table.h"
 
 
 class VResampler
