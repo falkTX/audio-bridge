@@ -128,7 +128,6 @@ static void deviceFailInitHints(DeviceAudio* const dev)
     dev->balance.ratio = 1.0;
     dev->timestamps.alsaStartTime = dev->timestamps.jackStartFrame = 0;
     dev->timestamps.ratio = 1.0;
-    dev->resampler->set_rratio(1.0);
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -278,8 +277,33 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
 
     if (periodsParam == 0)
     {
-        DEBUGPRINT("can't find a buffer size match");
-        goto error;
+        for (unsigned periods : kPeriodsToTry)
+        {
+//             periodsParam = periods;
+//             if ((err = snd_pcm_hw_params_set_periods_max(dev.pcm, params, &periodsParam, nullptr)) != 0)
+//             {
+//                 periodsParam = 0;
+//                 DEBUGPRINT("snd_pcm_hw_params_set_periods_max fail %u %u %s", periods, bufferSize, snd_strerror(err));
+//                 continue;
+//             }
+
+            bufferSizeParam = bufferSize * periods;
+            if ((err = snd_pcm_hw_params_set_period_size_max(dev.pcm, params, &bufferSizeParam, nullptr)) != 0)
+            {
+                DEBUGPRINT("snd_pcm_hw_params_set_period_size_max fail %u %u %s", periods, bufferSize, snd_strerror(err));
+                continue;
+            }
+
+            periodsParam = periods;
+            // DEBUGPRINT("buffer size match %u, using %u periods", bufferSize, periodsParam);
+            break;
+        }
+
+        if (periodsParam == 0)
+        {
+            DEBUGPRINT("can't find a buffer size match");
+            goto error;
+        }
     }
 
     if ((err = snd_pcm_hw_params(dev.pcm, params)) != 0)
@@ -371,9 +395,6 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         }
 
         sem_init(&dev.sem, 0, 0);
-
-        dev.resampler = new VResampler;
-        dev.resampler->setup(1.0, channels, 8);
 
         DeviceAudio* const devptr = new DeviceAudio;
         std::memcpy(devptr, &dev, sizeof(dev));

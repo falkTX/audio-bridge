@@ -17,11 +17,11 @@ struct ClientData {
     jack_client_t* client = nullptr;
     float** buffers = {};
     jack_port_t** ports = {};
-   #ifdef MOD_AUDIO_USB_BRIDGE
+//    #ifdef MOD_AUDIO_USB_BRIDGE
     uint8_t channels = 4;
-   #else
-    uint8_t channels = 2;
-   #endif
+//    #else
+//     uint8_t channels = 2;
+//    #endif
     bool playback = false;
     bool running = true;
 

@@ -5,12 +5,13 @@
 
 #include <algorithm>
 
-static void balanceDeviceCaptureSpeed(DeviceAudio* const dev, const snd_pcm_sframes_t avail)
+static void balanceDeviceCaptureSpeed(DeviceAudio* const dev,
+                                      VResampler* const resampler,
+                                      const snd_pcm_sframes_t avail)
 {
     const uint32_t frame = dev->frame;
     const uint16_t bufferSize = dev->bufferSize;
     const uint32_t sampleRate = dev->sampleRate;
-    VResampler* const resampler = dev->resampler;
 
     DeviceAudio::Balance& bal(dev->balance);
 
@@ -175,6 +176,7 @@ static void* deviceCaptureThread(void* const  arg)
         if (frames < 0)
         {
             deviceFailInitHints(dev);
+            resampler->set_rratio(1.0);
 
             for (uint8_t c=0; c<channels; ++c)
                 dev->ringbuffers[c].clearData();
@@ -256,7 +258,7 @@ static void* deviceCaptureThread(void* const  arg)
             savail -= bufferSize;
 
             if ((dev->hints & kDeviceStarting) == 0)
-                balanceDeviceCaptureSpeed(dev, savail);
+                balanceDeviceCaptureSpeed(dev, resampler, savail);
 
             if (dev->timestamps.alsaStartTime == 0)
             {

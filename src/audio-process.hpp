@@ -82,8 +82,6 @@ struct DeviceAudio {
         float** f32;
     } buffers;
 
-    VResampler* resampler;
-
    #ifdef WITH_GAIN
     ExponentialValueSmoother gain;
    #endif
