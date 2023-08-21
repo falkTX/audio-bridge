@@ -304,7 +304,7 @@ public:
     {
         DISTRHO_SAFE_ASSERT_RETURN(buffer != nullptr, 0);
 
-        const uint32_t wrap = (buffer->tail >= buffer->wrtn) ? 0 : buffer->size;
+        const uint32_t wrap = buffer->tail >= buffer->wrtn ? 0 : buffer->size;
 
         return wrap + buffer->tail - buffer->wrtn;
     }
@@ -465,6 +465,40 @@ public:
 
         std::memset(&type, 0, sizeof(T));
         return false;
+    }
+
+    void skipRead(const uint32_t size) noexcept
+    {
+        DISTRHO_SAFE_ASSERT_RETURN(buffer != nullptr,);
+        DISTRHO_SAFE_ASSERT_RETURN(size > 0,);
+        DISTRHO_SAFE_ASSERT_RETURN(size < buffer->size,);
+
+        // empty
+        if (buffer->head == buffer->tail)
+            return;
+
+        const uint32_t head = buffer->head;
+        const uint32_t tail = buffer->tail;
+        const uint32_t wrap = head > tail ? 0 : buffer->size;
+
+        if (size > wrap + head - tail)
+        {
+            if (! errorReading)
+            {
+                errorReading = true;
+                d_stderr2("RingBuffer::skipRead(%u): failed, not enough space", size);
+            }
+            return;
+        }
+
+        uint32_t readto = tail + size;
+
+        if (readto >= buffer->size)
+            readto -= buffer->size;
+
+        buffer->tail = readto;
+        errorReading = false;
+        return;
     }
 
     // -------------------------------------------------------------------

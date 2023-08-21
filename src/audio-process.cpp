@@ -399,14 +399,6 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         DeviceAudio* const devptr = new DeviceAudio;
         std::memcpy(devptr, &dev, sizeof(dev));
 
-       #ifdef WITH_GAIN
-        devptr->gain.setSampleRate(sampleRate);
-        devptr->gain.setTargetValue(0.f);
-        devptr->gain.setTimeConstant(3.f);
-        devptr->gain.clearToTargetValue();
-        devptr->gain.setTargetValue(1.f);
-       #endif
-
         void* (*threadCall)(void*) = playback ? devicePlaybackThread : deviceCaptureThread;
 
         pthread_attr_t attr;

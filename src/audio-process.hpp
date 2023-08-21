@@ -47,7 +47,7 @@ const char* BalanceModeToStr(const uint8_t mode)
     case kBalanceNormal:
         return "kBalanceNormal";
     case kBalanceSlowingDown:
-        return "kBalanceSlowingDownRealFast";
+        return "kBalanceSlowingDown";
     case kBalanceSpeedingUp:
         return "kBalanceSpeedingUp";
     }
@@ -82,13 +82,8 @@ struct DeviceAudio {
         float** f32;
     } buffers;
 
-   #ifdef WITH_GAIN
-    ExponentialValueSmoother gain;
-   #endif
-
     pthread_t thread;
     sem_t sem;
-//     jack_ringbuffer_t** ringbuffers;
     HeapRingBuffer* ringbuffers;
 };
 

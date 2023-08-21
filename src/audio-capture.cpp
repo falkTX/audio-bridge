@@ -298,6 +298,8 @@ static void* deviceCaptureThread(void* const  arg)
         }
     }
 
+    delete resampler;
+
     for (uint8_t c=0; c<channels; ++c)
         delete[] buffers[c];
     delete[] buffers;
