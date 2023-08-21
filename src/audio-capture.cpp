@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "audio-process.hpp"
+#include "audio-utils.hpp"
 
 #include <algorithm>
 

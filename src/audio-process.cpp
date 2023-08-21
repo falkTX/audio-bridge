@@ -134,7 +134,6 @@ static void deviceFailInitHints(DeviceAudio* const dev)
 
 DeviceAudio* initDeviceAudio(const char* const deviceID,
                              const bool playback,
-                             const uint8_t channels,
                              const uint16_t bufferSize,
                              const uint32_t sampleRate)
 {
@@ -142,7 +141,6 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     DeviceAudio dev = {};
     dev.sampleRate = sampleRate;
     dev.bufferSize = bufferSize;
-    dev.channels = channels;
     dev.hints = kDeviceInitializing|kDeviceStarting|(playback ? 0 : kDeviceCapture);
 
     const snd_pcm_stream_t mode = playback ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE;
@@ -162,8 +160,8 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     snd_pcm_sw_params_t* swparams;
     snd_pcm_sw_params_alloca(&swparams);
 
-    unsigned periodsParam = 0;
-    unsigned long bufferSizeParam;
+    unsigned uintParam;
+    unsigned long ulongParam;
 
     if ((err = snd_pcm_hw_params_any(dev.pcm, params)) < 0)
     {
@@ -220,12 +218,6 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         goto error;
     }
 
-    if ((err = snd_pcm_hw_params_set_channels(dev.pcm, params, channels)) != 0)
-    {
-        DEBUGPRINT("snd_pcm_hw_params_set_channels fail %s", snd_strerror(err));
-        goto error;
-    }
-
     if ((err = snd_pcm_hw_params_set_rate(dev.pcm, params, sampleRate, 0)) != 0)
     {
         DEBUGPRINT("snd_pcm_hw_params_set_rate fail %s", snd_strerror(err));
@@ -238,6 +230,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     //     goto error;
     // }
 
+    uintParam = 0;
     for (unsigned periods : kPeriodsToTry)
     {
         if ((err = snd_pcm_hw_params_set_period_size(dev.pcm, params, bufferSize, 0)) != 0)
@@ -246,65 +239,47 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
             continue;
         }
 
-        // if ((err = snd_pcm_hw_params_set_period_size(dev.pcm, params, bufferSize, 1)) != 0)
-        // {
-        //     DEBUGPRINT("snd_pcm_hw_params_set_period_size fail %u %u %s", periods, bufferSize, snd_strerror(err));
-        //     continue;
-        // }
-
         if ((err = snd_pcm_hw_params_set_periods(dev.pcm, params, periods, 0)) != 0)
         {
             DEBUGPRINT("snd_pcm_hw_params_set_periods fail %u %u %s", periods, bufferSize, snd_strerror(err));
             continue;
         }
 
-        // if ((err = snd_pcm_hw_params_set_periods(dev.pcm, params, periods, 1)) != 0)
-        // {
-        //     DEBUGPRINT("snd_pcm_hw_params_set_periods fail %u %u %s", periods, bufferSize, snd_strerror(err));
-        //     continue;
-        // }
-
-        // if ((err = snd_pcm_hw_params_set_buffer_size(dev.pcm, params, bufferSize * periods)) != 0)
-        // {
-        //     DEBUGPRINT("snd_pcm_hw_params_set_buffer_size fail %u %u %s", periods, bufferSize, snd_strerror(err));
-        //     continue;
-        // }
-
-        periodsParam = periods;
-        // DEBUGPRINT("buffer size match %u, using %u periods", bufferSize, periodsParam);
+        uintParam = periods;
         break;
     }
 
-    if (periodsParam == 0)
+    if (uintParam == 0)
     {
         for (unsigned periods : kPeriodsToTry)
         {
-//             periodsParam = periods;
-//             if ((err = snd_pcm_hw_params_set_periods_max(dev.pcm, params, &periodsParam, nullptr)) != 0)
-//             {
-//                 periodsParam = 0;
-//                 DEBUGPRINT("snd_pcm_hw_params_set_periods_max fail %u %u %s", periods, bufferSize, snd_strerror(err));
-//                 continue;
-//             }
-
-            bufferSizeParam = bufferSize * periods;
-            if ((err = snd_pcm_hw_params_set_period_size_max(dev.pcm, params, &bufferSizeParam, nullptr)) != 0)
+            ulongParam = bufferSize * periods;
+            if ((err = snd_pcm_hw_params_set_period_size_max(dev.pcm, params, &ulongParam, nullptr)) != 0)
             {
                 DEBUGPRINT("snd_pcm_hw_params_set_period_size_max fail %u %u %s", periods, bufferSize, snd_strerror(err));
                 continue;
             }
 
-            periodsParam = periods;
-            // DEBUGPRINT("buffer size match %u, using %u periods", bufferSize, periodsParam);
+            uintParam = periods;
             break;
         }
 
-        if (periodsParam == 0)
+        if (uintParam == 0)
         {
             DEBUGPRINT("can't find a buffer size match");
             goto error;
         }
     }
+
+    dev.periods = uintParam;
+
+    if ((err = snd_pcm_hw_params_get_channels(params, &uintParam)) != 0)
+    {
+        DEBUGPRINT("snd_pcm_hw_params_get_channels fail %s", snd_strerror(err));
+        goto error;
+    }
+
+    dev.channels = uintParam;
 
     if ((err = snd_pcm_hw_params(dev.pcm, params)) != 0)
     {
@@ -345,7 +320,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     }
 
     if (playback)
-        err = snd_pcm_sw_params_set_avail_min(dev.pcm, swparams, bufferSize * (periodsParam - 1));
+        err = snd_pcm_sw_params_set_avail_min(dev.pcm, swparams, bufferSize * (dev.periods - 1));
     else
         err = snd_pcm_sw_params_set_avail_min(dev.pcm, swparams, 1);
 
@@ -373,22 +348,25 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         goto error;
     }
 
-    snd_pcm_hw_params_get_period_size(params, &bufferSizeParam, nullptr);
-    DEBUGPRINT("period size %lu", bufferSizeParam);
+    snd_pcm_hw_params_get_channels(params, &uintParam);
+    DEBUGPRINT("num channels %u | %u", uintParam, dev.channels);
 
-    snd_pcm_hw_params_get_buffer_size(params, &bufferSizeParam);
-    DEBUGPRINT("buffer size %lu", bufferSizeParam);
+    snd_pcm_hw_params_get_periods(params, &uintParam, nullptr);
+    DEBUGPRINT("num periods %u | %u", uintParam, dev.periods);
 
-    snd_pcm_hw_params_get_periods(params, &periodsParam, nullptr);
-    DEBUGPRINT("num periods %u", periodsParam);
+    snd_pcm_hw_params_get_period_size(params, &ulongParam, nullptr);
+    DEBUGPRINT("period size %lu | %u", ulongParam, dev.bufferSize);
+
+    snd_pcm_hw_params_get_buffer_size(params, &ulongParam);
+    DEBUGPRINT("buffer size %lu | %u", ulongParam, dev.bufferSize * dev.periods);
 
     {
-        const size_t rawbufferlen = getSampleSizeFromHints(dev.hints) * dev.bufferSize * channels * 2;
+        const size_t rawbufferlen = getSampleSizeFromHints(dev.hints) * dev.bufferSize * dev.channels * 2;
         dev.buffers.raw = new int8_t[rawbufferlen];
-        dev.buffers.f32 = new float*[channels];
-        dev.ringbuffers = new HeapRingBuffer[channels];
+        dev.buffers.f32 = new float*[dev.channels];
+        dev.ringbuffers = new HeapRingBuffer[dev.channels];
 
-        for (uint8_t c=0; c<channels; ++c)
+        for (uint8_t c=0; c<dev.channels; ++c)
         {
             dev.buffers.f32[c] = new float[dev.bufferSize * 2];
             dev.ringbuffers[c].createBuffer(sizeof(float) * dev.bufferSize * 5);
