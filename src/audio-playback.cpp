@@ -19,41 +19,7 @@ static void balanceDevicePlaybackSpeed(DeviceAudio* const dev,
 
     DeviceAudio::Balance& bal(dev->balance);
 
-    if (avail > bufferSize)
-    {
-        if (bal.slowingDown == 0)
-        {
-            switch (bal.mode)
-            {
-            case kBalanceNormal:
-            case kBalanceSlowingDown:
-                bal.ratio *= 1.00005;
-                break;
-            case kBalanceSpeedingUp:
-                bal.ratio = 1.0;
-                break;
-            }
-            bal.mode = kBalanceSlowingDown;
-            bal.slowingDown = 1;
-            bal.speedingUp = 0;
-            resampler->set_rratio(dev->timestamps.ratio * bal.ratio);
-//             if (bal.ratio != 1.0) {
-                DEBUGPRINT("%08u | playback | %.9f = %.9f * %.9f | %3u %3ld | avail > bufferSize | slowing down...",
-                           frame, dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, bal.ratio, rbavail, avail);
-//             }
-        }
-        else if (++bal.slowingDown == kSpeedTarget)
-        {
-            bal.slowingDown = 1;
-            if (d_isNotEqual(bal.ratio, 1.005))
-            {
-                bal.ratio = (bal.ratio * 3 + 1.005) / 4;
-                DEBUGPRINT("%08u | playback | %.9f = %.9f * %.9f | %3u %3ld | avail > bufferSize | slowing down even more...",
-                           frame, dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, bal.ratio, rbavail, avail);
-            }
-        }
-    }
-    else if (avail == 0 || rbavail > bufferSize)
+    if (avail == 0 || rbavail > bufferSize)
     {
         if (bal.speedingUp == 0)
         {
@@ -83,6 +49,40 @@ static void balanceDevicePlaybackSpeed(DeviceAudio* const dev,
             {
                 bal.ratio = (bal.ratio * 3 + 0.9995) / 4;
                 DEBUGPRINT("%08u | playback | %.9f = %.9f * %.9f | %3u %3ld | avail == 0 || rbavail > bufferSize | speeding up even more...",
+                           frame, dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, bal.ratio, rbavail, avail);
+            }
+        }
+    }
+    else if (avail > bufferSize)
+    {
+        if (bal.slowingDown == 0)
+        {
+            switch (bal.mode)
+            {
+            case kBalanceNormal:
+            case kBalanceSlowingDown:
+                bal.ratio *= 1.00005;
+                break;
+            case kBalanceSpeedingUp:
+                bal.ratio = 1.0;
+                break;
+            }
+            bal.mode = kBalanceSlowingDown;
+            bal.slowingDown = 1;
+            bal.speedingUp = 0;
+            resampler->set_rratio(dev->timestamps.ratio * bal.ratio);
+//             if (bal.ratio != 1.0) {
+                DEBUGPRINT("%08u | playback | %.9f = %.9f * %.9f | %3u %3ld | avail > bufferSize | slowing down...",
+                           frame, dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, bal.ratio, rbavail, avail);
+//             }
+        }
+        else if (++bal.slowingDown == kSpeedTarget)
+        {
+            bal.slowingDown = 1;
+            if (d_isNotEqual(bal.ratio, 1.005))
+            {
+                bal.ratio = (bal.ratio * 3 + 1.005) / 4;
+                DEBUGPRINT("%08u | playback | %.9f = %.9f * %.9f | %3u %3ld | avail > bufferSize | slowing down even more...",
                            frame, dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, bal.ratio, rbavail, avail);
             }
         }
