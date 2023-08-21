@@ -273,13 +273,19 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
 
     dev.periods = uintParam;
 
-    if ((err = snd_pcm_hw_params_get_channels(params, &uintParam)) != 0)
+    if (snd_pcm_hw_params_set_channels(dev.pcm, params, 2) == 0)
+    {
+        dev.channels = 2;
+    }
+    else if ((err = snd_pcm_hw_params_get_channels(params, &uintParam)) != 0)
     {
         DEBUGPRINT("snd_pcm_hw_params_get_channels fail %s", snd_strerror(err));
         goto error;
     }
-
-    dev.channels = uintParam;
+    else
+    {
+        dev.channels = uintParam;
+    }
 
     if ((err = snd_pcm_hw_params(dev.pcm, params)) != 0)
     {

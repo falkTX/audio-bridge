@@ -82,6 +82,32 @@
 <https://falktx.com/plugins/audio-bridge#playback>
     a doap:Project, lv2:UtilityPlugin, lv2:Plugin ;
 
+    lv2:optionalFeature state:threadSafeRestore ;
+
+    lv2:requiredFeature bufsize:boundedBlockLength ,
+                        bufsize:fixedBlockLength ,
+                        opts:options ,
+                        <http://lv2plug.in/ns/ext/urid#map> ;
+
+    lv2:extensionData opts:interface ,
+                      state:interface ,
+                      worker:interface ;
+
+    opts:supportedOption bufsize:maxBlockLength ,
+                         params:sampleRate ;
+
+    patch:writable <https://falktx.com/plugins/audio-bridge#device> ;
+
+    doap:developer [
+        foaf:name "falkTX" ;
+        foaf:homepage <https://falktx.com> ;
+        foaf:email <mailto:falktx@falktx.com> ;
+    ] ;
+    doap:maintainer [
+        foaf:name "falkTX" ;
+        foaf:homepage <https://github.com/falkTX/audio-bridge> ;
+    ] ;
+
     lv2:port [
         a lv2:InputPort, lv2:AudioPort ;
         lv2:index 0 ;

@@ -69,6 +69,9 @@ struct PluginData {
           features(featuresPtr),
           uris(features.uridMap)
     {
+        buffers.pointers = ports.audio;
+        buffers.dummy = nullptr;
+
         // set initial options
         optionsSet(static_cast<const LV2_Options_Option*>(lv2_features_data(featuresPtr, LV2_OPTIONS__options)));
     }
@@ -85,40 +88,49 @@ struct PluginData {
     }
 
     // TESTING
-    void testing()
+    bool testing()
     {
         if (bufferSize == 0)
-            return;
+            return false;
 
         std::vector<DeviceID> inputs, outputs;
         enumerateSoundcards(inputs, outputs);
 
-        dev = initDeviceAudio(playback ? outputs[outputs.size() - 1].id.c_str()
-                                       : inputs[inputs.size() - 1].id.c_str(),
-                              playback, bufferSize, sampleRate);
+        const std::vector<DeviceID>& devices(playback ? outputs : inputs);
 
-        if (dev != nullptr)
+        if (devices.size() == 0)
         {
-            printf("TESTING %u %u | %u %u %p\n", bufferSize, sampleRate, dev->channels, dev->periods, dev);
-
-            if (dev->channels <= 2)
-            {
-                buffers.pointers = ports.audio;
-                buffers.dummy = nullptr;
-            }
-            else
-            {
-                buffers.pointers = new float*[dev->channels];
-                buffers.dummy = new float[bufferSize];
-                std::memset(buffers.dummy, 0, sizeof(float) * bufferSize);
-
-                buffers.pointers[0] = ports.audio[0];
-                buffers.pointers[1] = ports.audio[1];
-
-                for (uint8_t c=2; c<dev->channels; ++c)
-                    buffers.pointers[c] = buffers.dummy;
-            }
+            printf("TESTING %u %u | no devices\n", bufferSize, sampleRate);
+            return false;
         }
+
+        dev = initDeviceAudio(devices[devices.size() - 1].id.c_str(), playback, bufferSize, sampleRate);
+
+        if (dev == nullptr)
+        {
+            printf("TESTING %u %u | can't open device\n", bufferSize, sampleRate);
+            return false;
+        }
+
+        printf("TESTING %u %u | %u %u %p | %s %s\n",
+               bufferSize, sampleRate, dev->channels, dev->periods, dev,
+               devices[devices.size() - 1].id.c_str(),
+               devices[devices.size() - 1].name.c_str());
+
+        if (dev->channels > 2)
+        {
+            buffers.pointers = new float*[dev->channels];
+            buffers.dummy = new float[bufferSize];
+            std::memset(buffers.dummy, 0, sizeof(float) * bufferSize);
+
+            buffers.pointers[0] = ports.audio[0];
+            buffers.pointers[1] = ports.audio[1];
+
+            for (uint8_t c=2; c<dev->channels; ++c)
+                buffers.pointers[c] = buffers.dummy;
+        }
+
+        return true;
     }
 
     void activate()
@@ -284,8 +296,9 @@ LV2_Handle lv2_instantiate_capture(const LV2_Descriptor*,
     if (PluginData* const p = lv2_instantiate(sampleRate, features))
     {
         p->playback = false;
-        p->testing();
-        return p;
+        if (p->testing())
+            return p;
+        delete p;
     }
     return nullptr;
 }
@@ -298,8 +311,9 @@ LV2_Handle lv2_instantiate_playback(const LV2_Descriptor*,
     if (PluginData* const p = lv2_instantiate(sampleRate, features))
     {
         p->playback = true;
-        p->testing();
-        return p;
+        if (p->testing())
+            return p;
+        delete p;
     }
     return nullptr;
 }

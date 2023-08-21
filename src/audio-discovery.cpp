@@ -7,6 +7,7 @@
 //#define ALSA_PCM_NEW_SW_PARAMS_API
 #include <alsa/asoundlib.h>
 #include <map>
+#include <cstring>
 
 #define DEBUGPRINT(...) printf(__VA_ARGS__); puts("");
 
@@ -154,6 +155,18 @@ bool enumerateSoundcards(std::vector<DeviceID>& inputs, std::vector<DeviceID>& o
             const char* cardId = snd_ctl_card_info_get_id(cardinfo);
             const char* cardName = snd_ctl_card_info_get_name(cardinfo);
 
+           #ifdef __MOD_DEVICES__
+            if (cardName != nullptr && *cardName != '\0')
+            {
+                if (std::strcmp(cardName, "MOD DWARF") == 0)
+                    goto skip;
+                if (std::strcmp(cardName, "USB Gadget") == 0)
+                    goto skip;
+                if (std::strcmp(cardName, "UAC2_Gadget") == 0)
+                    goto skip;
+            }
+           #endif
+
             if (cardId == nullptr || ::isdigit(cardId))
             {
                 snprintf(reserve, sizeof(reserve), "%i", card);
@@ -224,6 +237,7 @@ bool enumerateSoundcards(std::vector<DeviceID>& inputs, std::vector<DeviceID>& o
             }
         }
 
+    skip:
         snd_ctl_close(ctl);
     }
 
