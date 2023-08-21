@@ -56,9 +56,13 @@ add_library(audio-bridge SHARED)
 
 set_common_target_properties(audio-bridge)
 
+configure_file(res/manifest.ttl audio-bridge.lv2/manifest.ttl COPYONLY)
+configure_file(res/audio-bridge.ttl audio-bridge.lv2/audio-bridge.ttl COPYONLY)
+
 set_target_properties(audio-bridge
   PROPERTIES
     PREFIX ""
+    LIBRARY_OUTPUT_DIRECTORY audio-bridge.lv2
 )
 
 target_link_libraries(audio-bridge

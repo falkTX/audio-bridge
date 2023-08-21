@@ -10,8 +10,13 @@
 @prefix state:   <http://lv2plug.in/ns/ext/state#> .
 @prefix worker:  <http://lv2plug.in/ns/ext/worker#> .
 
-<https://falktx.com/plugins/audio-bridge>
-    a doap:Project, lv2:Plugin ;
+<https://falktx.com/plugins/audio-bridge#device>
+    a lv2:Parameter ;
+    rdfs:label "Device" ;
+    rdfs:range atom:String .
+
+<https://falktx.com/plugins/audio-bridge#capture>
+    a doap:Project, lv2:UtilityPlugin, lv2:Plugin ;
 
     lv2:optionalFeature state:threadSafeRestore ;
 
@@ -38,18 +43,6 @@
         foaf:name "falkTX" ;
         foaf:homepage <https://github.com/falkTX/audio-bridge> ;
     ] ;
-    doap:license <http://opensource.org/licenses/AGPL-3.0> ;
-
-    lv2:microVersion 0 ;
-    lv2:minorVersion 0 .
-
-<https://falktx.com/plugins/audio-bridge#device>
-    a lv2:Parameter ;
-    rdfs:label "Device" ;
-    rdfs:range atom:String .
-
-<https://falktx.com/plugins/audio-bridge#capture>
-    a lv2:UtilityPlugin, lv2:Plugin ;
 
     lv2:port [
         a lv2:OutputPort, lv2:AudioPort ;
@@ -80,11 +73,14 @@
     ] ;
 
     doap:name "Audio Capture" ;
+    doap:license <http://opensource.org/licenses/AGPL-3.0> ;
+
     lv2:symbol "capture" ;
-    lv2:prototype <https://falktx.com/plugins/audio-bridge> .
+    lv2:microVersion 0 ;
+    lv2:minorVersion 0 .
 
 <https://falktx.com/plugins/audio-bridge#playback>
-    a lv2:UtilityPlugin, lv2:Plugin ;
+    a doap:Project, lv2:UtilityPlugin, lv2:Plugin ;
 
     lv2:port [
         a lv2:InputPort, lv2:AudioPort ;
@@ -115,5 +111,8 @@
     ] ;
 
     doap:name "Audio Playback" ;
+    doap:license <http://opensource.org/licenses/AGPL-3.0> ;
+
     lv2:symbol "playback" ;
-    lv2:prototype <https://falktx.com/plugins/audio-bridge> .
+    lv2:microVersion 0 ;
+    lv2:minorVersion 0 .

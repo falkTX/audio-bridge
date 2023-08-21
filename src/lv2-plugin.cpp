@@ -33,6 +33,11 @@ struct PluginData {
               workerSchedule(static_cast<const LV2_Worker_Schedule*>(lv2_features_data(features, LV2_WORKER__schedule))) {}
     } features;
 
+    struct Buffers {
+        float** pointers;
+        float* dummy;
+    } buffers = {};
+
     struct Ports {
         float* audio[2];
         const LV2_Atom_Sequence* control;
@@ -72,6 +77,11 @@ struct PluginData {
     {
         if (dev != nullptr)
             closeDeviceAudio(dev);
+
+        delete[] buffers.dummy;
+
+        if (buffers.pointers != ports.audio)
+            delete[] buffers.pointers;
     }
 
     // TESTING
@@ -80,14 +90,35 @@ struct PluginData {
         if (bufferSize == 0)
             return;
 
-        printf("TESTING %u %u\n", bufferSize, sampleRate);
-
         std::vector<DeviceID> inputs, outputs;
         enumerateSoundcards(inputs, outputs);
 
         dev = initDeviceAudio(playback ? outputs[outputs.size() - 1].id.c_str()
                                        : inputs[inputs.size() - 1].id.c_str(),
                               playback, bufferSize, sampleRate);
+
+        if (dev != nullptr)
+        {
+            printf("TESTING %u %u | %u %u %p\n", bufferSize, sampleRate, dev->channels, dev->periods, dev);
+
+            if (dev->channels <= 2)
+            {
+                buffers.pointers = ports.audio;
+                buffers.dummy = nullptr;
+            }
+            else
+            {
+                buffers.pointers = new float*[dev->channels];
+                buffers.dummy = new float[bufferSize];
+                std::memset(buffers.dummy, 0, sizeof(float) * bufferSize);
+
+                buffers.pointers[0] = ports.audio[0];
+                buffers.pointers[1] = ports.audio[1];
+
+                for (uint8_t c=2; c<dev->channels; ++c)
+                    buffers.pointers[c] = buffers.dummy;
+            }
+        }
     }
 
     void activate()
@@ -107,6 +138,8 @@ struct PluginData {
         case 0:
         case 1:
             ports.audio[index] = static_cast<float*>(data);
+            if (buffers.pointers != ports.audio)
+                buffers.pointers[index] = ports.audio[index];
             break;
         case 2:
             ports.control = static_cast<const LV2_Atom_Sequence*>(data);
@@ -130,6 +163,7 @@ struct PluginData {
             notify->body.pad  = 0;
         }
 
+#if 0
         // handle control/input events
         if (const LV2_Atom_Sequence* const control = ports.control)
         {
@@ -164,6 +198,7 @@ struct PluginData {
                 }
             }
         }
+#endif
 
         if (dev != nullptr)
         {

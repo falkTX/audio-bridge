@@ -128,13 +128,17 @@ static void* deviceCaptureThread(void* const  arg)
     VResampler* const resampler = new VResampler;
     resampler->setup(1.0, channels, 8);
 
-    struct timespec ts = {};
-    clock_gettime(CLOCK_REALTIME, &ts);
-    ts.tv_sec += 15;
-
-    if (sem_timedwait(&dev->sem, &ts) != 0)
+    // wait for audio thread to post
     {
-        return nullptr;
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 15;
+
+        if (sem_timedwait(&dev->sem, &ts) != 0)
+        {
+            printf("%08u | capture | audio thread failed to post\n", dev->frame);
+            goto end;
+        }
     }
 
     while (dev->channels != 0)
@@ -146,6 +150,7 @@ static void* deviceCaptureThread(void* const  arg)
 
         if (frames == -EAGAIN)
         {
+            struct timespec ts;
             clock_gettime(CLOCK_REALTIME, &ts);
             ts.tv_nsec += periodTimeOver4;
             if (ts.tv_nsec >= 1000000000ULL)
@@ -154,7 +159,6 @@ static void* deviceCaptureThread(void* const  arg)
                 ts.tv_nsec -= 1000000000ULL;
             }
             sem_timedwait(&dev->sem, &ts);
-//             sem_wait(&dev->sem);
             again = true;
             continue;
         }
@@ -286,6 +290,7 @@ static void* deviceCaptureThread(void* const  arg)
         }
     }
 
+end:
     delete resampler;
 
     for (uint8_t c=0; c<channels; ++c)

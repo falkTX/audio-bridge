@@ -149,6 +149,9 @@ static void* devicePlaybackThread(void* const  arg)
         }
     }
 
+    if (dev->channels == 0)
+        goto end;
+
     // write silence until alsa buffers are full
     std::memset(dev->buffers.raw, 0, bufferSize * channels * sampleSize);
     while ((err = snd_pcm_mmap_writei(dev->pcm, dev->buffers.raw, bufferSize)) > 0);
