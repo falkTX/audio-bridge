@@ -123,20 +123,7 @@ static void* deviceCaptureThread(void* const  arg)
     snd_pcm_uframes_t avail = 0;
     snd_htimestamp_t tstamp = {};
 
-    // disable denormals and enable flush to zero
-    {
-       #if defined(__SSE2_MATH__)
-        _mm_setcsr(_mm_getcsr() | 0x8040);
-       #elif defined(__aarch64__)
-        uint64_t flags;
-        __asm__ __volatile__("mrs %0, fpcr" : "=r" (flags));
-        __asm__ __volatile__("msr fpcr, %0" :: "r" (flags | 0x1000000));
-       #elif defined(__arm__) && !defined(__SOFTFP__)
-        uint32_t flags;
-        __asm__ __volatile__("vmrs %0, fpscr" : "=r" (flags));
-        __asm__ __volatile__("vmsr fpscr, %0" :: "r" (flags | 0x1000000));
-       #endif
-    }
+    simd::init();
 
     VResampler* const resampler = new VResampler;
     resampler->setup(1.0, channels, 8);
@@ -341,7 +328,7 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
         for (uint8_t c=0; c<channels; ++c)
         {
             while (!dev->ringbuffers[c].readCustomData(buffers[c], sizeof(float) * bufferSize))
-                simd_yield();
+                simd::yield();
         }
     }
     else
@@ -377,7 +364,7 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
         for (uint8_t c=0; c<channels; ++c)
         {
             while (!dev->ringbuffers[c].readCustomData(buffers[c], sizeof(float) * avail))
-                simd_yield();
+                simd::yield();
         }
 
         // keep going while fetching the rest
@@ -405,7 +392,7 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
             for (uint8_t c=0; c<channels; ++c)
             {
                 while (!dev->ringbuffers[c].readCustomData(buffers[c] + offset, sizeof(float) * avail))
-                    simd_yield();
+                    simd::yield();
             }
         }
     }

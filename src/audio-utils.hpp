@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <sched.h>
+
 #if defined(__SSE2_MATH__)
 # include <xmmintrin.h>
 #endif
@@ -103,7 +105,7 @@ void s32(void* const dst, float* const* const src, const uint8_t channels, const
             dstptr[i*channels+c] = float32(src[c][i]);
 }
 
-}
+} // namespace float2int
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -175,12 +177,32 @@ void s32(float* const* const dst, void* const src, const uint16_t offset, const 
             dst[c][i+offset] = static_cast<double>(srcptr[i*channels+c]) * (1.0 / 2147483647.0);
 }
 
-}
+} // namespace int2float
 
 // --------------------------------------------------------------------------------------------------------------------
 
+namespace simd
+{
+
+// disable denormals and enable flush to zero
 static inline
-void simd_yield()
+void init()
+{
+   #if defined(__SSE2_MATH__)
+    _mm_setcsr(_mm_getcsr() | 0x8040);
+   #elif defined(__aarch64__)
+    uint64_t flags;
+    __asm__ __volatile__("mrs %0, fpcr" : "=r" (flags));
+    __asm__ __volatile__("msr fpcr, %0" :: "r" (flags | 0x1000000));
+   #elif defined(__arm__) && !defined(__SOFTFP__)
+    uint32_t flags;
+    __asm__ __volatile__("vmrs %0, fpscr" : "=r" (flags));
+    __asm__ __volatile__("vmsr fpscr, %0" :: "r" (flags | 0x1000000));
+   #endif
+}
+
+static inline
+void yield()
 {
    #if defined(__SSE2_MATH__)
     _mm_pause();
@@ -190,5 +212,7 @@ void simd_yield()
     sched_yield();
    #endif
 }
+
+} // namespace simd
 
 // --------------------------------------------------------------------------------------------------------------------

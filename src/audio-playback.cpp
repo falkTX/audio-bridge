@@ -121,20 +121,7 @@ static void* devicePlaybackThread(void* const  arg)
     bool again = false;
     bool pair = true;
 
-    // disable denormals and enable flush to zero
-    {
-       #if defined(__SSE2_MATH__)
-        _mm_setcsr(_mm_getcsr() | 0x8040);
-       #elif defined(__aarch64__)
-        uint64_t flags;
-        __asm__ __volatile__("mrs %0, fpcr" : "=r" (flags));
-        __asm__ __volatile__("msr fpcr, %0" :: "r" (flags | 0x1000000));
-       #elif defined(__arm__) && !defined(__SOFTFP__)
-        uint32_t flags;
-        __asm__ __volatile__("vmrs %0, fpscr" : "=r" (flags));
-        __asm__ __volatile__("vmsr fpscr, %0" :: "r" (flags | 0x1000000));
-       #endif
-    }
+    simd::init();
 
     // smooth initial volume to prevent clicks on start
     float xgain;
@@ -353,7 +340,7 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
     for (uint8_t c=0; c<channels; ++c)
     {
         while (!dev->ringbuffers[c].writeCustomData(buffers[c], sizeof(float) * halfBufferSize))
-            simd_yield();
+            simd::yield();
     }
 
     for (uint8_t c=0; c<channels; ++c)
@@ -364,7 +351,7 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
     for (uint8_t c=0; c<channels; ++c)
     {
         while (!dev->ringbuffers[c].writeCustomData(buffers[c] + halfBufferSize, sizeof(float) * halfBufferSize))
-            simd_yield();
+            simd::yield();
     }
 
     for (uint8_t c=0; c<channels; ++c)
