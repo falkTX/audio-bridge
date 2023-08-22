@@ -312,7 +312,7 @@ public:
     {
         DISTRHO_SAFE_ASSERT_RETURN(buffer != nullptr, 0);
 
-        const uint32_t wrap = buffer->tail >= buffer->wrtn ? 0 : buffer->size;
+        const uint32_t wrap = buffer->tail > buffer->wrtn ? 0 : buffer->size;
 
         return wrap + buffer->tail - buffer->wrtn;
     }
@@ -334,6 +334,20 @@ public:
         buffer->invalidateCommit = false;
 
         std::memset(buffer->buf, 0, buffer->size);
+    }
+
+    /*
+     * Reset the ring buffer read and write positions, marking the buffer as empty.
+     * Requires a buffer struct tied to this class.
+     */
+    void flush() noexcept
+    {
+        DISTRHO_SAFE_ASSERT_RETURN(buffer != nullptr,);
+
+        buffer->head = buffer->tail = buffer->wrtn = 0;
+        buffer->invalidateCommit = false;
+
+        errorWriting = false;
     }
 
     // -------------------------------------------------------------------

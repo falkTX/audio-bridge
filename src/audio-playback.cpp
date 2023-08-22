@@ -107,34 +107,25 @@ static void* devicePlaybackThread(void* const  arg)
     const uint8_t channels = dev->hwstatus.channels;
     const uint8_t sampleSize = getSampleSizeFromHints(hints);
     const uint16_t bufferSize = dev->bufferSize;
-    const uint32_t periodTimeOver4 = ((bufferSize / 4) * 1000000) / dev->sampleRate * 1000;
-
-    snd_pcm_sframes_t err;
-    uint16_t frames;
-    uint32_t frame;
-    uint32_t frameCount = 0;
+    const uint16_t bufferSizeOver4 = dev->bufferSize / 4;
+    const uint32_t periodTimeOver4 = (std::max(1, bufferSize / 4) * 1000000) / dev->sampleRate * 1000;
 
     float** buffers = new float*[channels];
     for (uint8_t c=0; c<channels; ++c)
-        buffers[c] = new float[bufferSize * 2];
-
-    bool again = false;
-    bool pair = true;
+        buffers[c] = new float[bufferSize];
 
     simd::init();
 
     // smooth initial volume to prevent clicks on start
-    float xgain;
     ExponentialValueSmoother gain;
     gain.setSampleRate(dev->sampleRate);
     gain.setTimeConstant(3.f);
-    // common setup
-    gain.setTargetValue(0.f);
-    gain.clearToTargetValue();
-    gain.setTargetValue(1.f);
 
     VResampler* const resampler = new VResampler;
     resampler->setup(1.0, channels, 8);
+
+    snd_pcm_sframes_t err;
+    float xgain;
 
     // wait for audio thread to post
     {
@@ -156,27 +147,47 @@ static void* devicePlaybackThread(void* const  arg)
     std::memset(dev->buffers.raw, 0, bufferSize * channels * sampleSize);
     while ((err = snd_pcm_mmap_writei(dev->pcm, dev->buffers.raw, bufferSize)) > 0);
 
-    if (err != -EAGAIN)
+    for (uint8_t loopCount = 1; dev->hwstatus.channels != 0; ++loopCount)
     {
-        printf("%08u | playback | initial write error: %s\n", dev->frame, snd_strerror(err));
-        goto end;
-    }
+        const uint32_t frame = dev->frame;
 
-    while (dev->hwstatus.channels != 0)
-    {
+        if (loopCount == 5)
+            loopCount = 1;
+
+        if (dev->hints & kDeviceInitializing)
+        {
+            // write silence until alsa buffers are full
+            bool restarted = false;
+            std::memset(dev->buffers.raw, 0, bufferSize * channels * sampleSize);
+            while ((err = snd_pcm_mmap_writei(dev->pcm, dev->buffers.raw, bufferSize)) > 0)
+                restarted = true;
+
+            if (restarted)
+            {
+                DEBUGPRINT("%08u | playback | can write data, removing kDeviceInitializing", frame);
+                dev->hints &= ~kDeviceInitializing;
+                gain.setTargetValue(0.f);
+                gain.clearToTargetValue();
+                gain.setTargetValue(1.f);
+            }
+
+            if (err != -EAGAIN)
+            {
+                printf("%08u | playback | initial write error: %s\n", frame, snd_strerror(err));
+                goto end;
+            }
+        }
+
         if (dev->ringbuffers[0].getReadableDataSize() == 0)
         {
             sem_wait(&dev->sem);
-            again = pair = true;
+            loopCount = 0;
             continue;
         }
 
-        frame = dev->frame;
-
-        pair = !pair;
         for (uint8_t c=0; c<channels; ++c)
         {
-            while (!dev->ringbuffers[c].readCustomData(buffers[c], sizeof(float) * bufferSize / 2))
+            while (!dev->ringbuffers[c].readCustomData(buffers[c], sizeof(float) * bufferSizeOver4))
             {
                 DEBUGPRINT("%08u | failed reading data", frame);
                 sched_yield();
@@ -186,13 +197,13 @@ static void* devicePlaybackThread(void* const  arg)
         if (dev->hwstatus.channels == 0)
             break;
 
-        resampler->inp_count = bufferSize / 2;
-        resampler->out_count = bufferSize * 2;
+        resampler->inp_count = bufferSizeOver4;
+        resampler->out_count = bufferSize;
         resampler->inp_data = buffers;
         resampler->out_data = dev->buffers.f32;
         resampler->process();
 
-        frames = bufferSize * 2 - resampler->out_count;
+        uint16_t frames = bufferSize - resampler->out_count;
 
         for (uint16_t i=0; i<frames; ++i)
         {
@@ -238,7 +249,6 @@ static void* devicePlaybackThread(void* const  arg)
                     ts.tv_nsec -= 1000000000ULL;
                 }
                 sem_timedwait(&dev->sem, &ts);
-                again = true;
                 continue;
             }
 
@@ -260,66 +270,72 @@ static void* devicePlaybackThread(void* const  arg)
                     exit(EXIT_FAILURE);
                 }
 
-                again = false;
                 break;
             }
 
-            if (pair && (again || (static_cast<uint16_t>(err) == frames && ptr == dev->buffers.raw)))
+            if (static_cast<uint16_t>(err) != frames)
+            {
+                ptr += err * channels * sampleSize;
+                frames -= err;
+
+                DEBUGPRINT("%08u | playback | Incomplete write %ld of %u, %u left",
+                           frame, err, bufferSize, frames);
+                continue;
+            }
+
+            if (loopCount == 4 && ptr == dev->buffers.raw)
             {
                 snd_pcm_uframes_t avail;
-                snd_htimestamp_t tstamp;
+                snd_htimestamp_t ts;
 
-                if (snd_pcm_htimestamp(dev->pcm, &avail, &tstamp) != 0)
+                if (snd_pcm_htimestamp(dev->pcm, &avail, &ts) != 0)
                 {
                     DEBUGPRINT("snd_pcm_htimestamp failed");
                     break;
                 }
 
-                uint32_t rbavail = 0;
-                rbavail += dev->ringbuffers[0].getReadableDataSize() /  sizeof(float);
-                rbavail += frames - err;
-
-                if ((dev->hints & kDeviceStarting) == 0)
-                    balanceDevicePlaybackSpeed(dev, resampler, avail, rbavail);
-
-                if (dev->timestamps.alsaStartTime == 0)
+                if (dev->hints & kDeviceStarting)
                 {
-                    dev->timestamps.alsaStartTime = static_cast<uint64_t>(tstamp.tv_sec) * 1000000000ULL + tstamp.tv_nsec;
-                    dev->timestamps.jackStartFrame = frame;
-                }
-                else if (dev->timestamps.alsaStartTime != 0 && frame != 0 && dev->timestamps.jackStartFrame != frame)
-                {
-                    const uint64_t alsadiff = static_cast<uint64_t>(tstamp.tv_sec) * 1000000000ULL + tstamp.tv_nsec - dev->timestamps.alsaStartTime;
-                    const uint32_t alsaframes = alsadiff * dev->sampleRate / 1000000000ULL;
-                    const uint32_t jackframes = frame - dev->timestamps.jackStartFrame;
-                    dev->timestamps.ratio = ((static_cast<double>(jackframes) / alsaframes) + dev->timestamps.ratio * 511) / 512;
-                    resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
-//                     if ((frameCount % dev->sampleRate) <= bufferSize || avail > 255)
-//                     {
-//                         DEBUGPRINT("%08u | playback | %.09f = %.09f * %.09f | %3u %3ld | mode: %s",
-//                                    frame, dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, dev->balance.ratio,
-//                                    rbavail, avail, BalanceModeToStr(dev->balance.mode));
-//                     }
-                }
-            }
-
-            if (static_cast<uint16_t>(err) == frames)
-            {
-                /**/ if (dev->hints & kDeviceInitializing)
-                    dev->hints &= ~kDeviceInitializing;
-                else if (dev->hints & kDeviceStarting)
                     dev->hints &= ~kDeviceStarting;
-                break;
+                }
+                else
+                {
+                    if (dev->timestamps.alsaStartTime == 0)
+                    {
+                        dev->timestamps.alsaStartTime = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+                        dev->timestamps.jackStartFrame = frame;
+                    }
+                    else
+                    {
+                        // hw ratio
+                        const uint64_t alsadiff = ts.tv_sec * 1000000000ULL + ts.tv_nsec - dev->timestamps.alsaStartTime;
+                        const double alsaframes = static_cast<double>(alsadiff * dev->sampleRate / 1000000000ULL);
+                        const double jackframes = static_cast<double>(frame - dev->timestamps.jackStartFrame);
+                        dev->timestamps.ratio = ((jackframes / alsaframes) + dev->timestamps.ratio * 511) / 512;
+
+                        // sw ratio
+                        const uint32_t totalavail = avail + dev->ringbuffers[0].getReadableDataSize() / sizeof(float);
+                        const double availratio = totalavail > bufferSizeOver4 ? 1.001
+                                                : totalavail < bufferSizeOver4 ? 0.999 : 1;
+                        dev->balance.ratio = (availratio + dev->balance.ratio * 511) / 512;
+
+                        // combined ratio for dynamic resampling
+                        resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
+
+                        // TESTING DEBUG REMOVE ME
+                        if ((frame % dev->sampleRate) == 0 || avail > 255)
+                        {
+                            DEBUGPRINT("%08u | playback | %.09f = %.09f * %.09f | %3u %3ld",
+                                       frame, dev->timestamps.ratio * dev->balance.ratio,
+                                       dev->timestamps.ratio, dev->balance.ratio,
+                                       totalavail, avail);
+                        }
+                    }
+                }
             }
 
-            ptr += err * channels * sampleSize;
-            frames -= err;
-
-            DEBUGPRINT("%08u | playback | Incomplete write %ld of %u, %u left",
-                       frame, err, bufferSize, frames);
+            break;
         }
-
-        frameCount += bufferSize / 2;
     }
 
 end:
@@ -334,31 +350,40 @@ end:
 
 static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], const uint32_t frame)
 {
-    const uint16_t bufferSize = dev->bufferSize;
-    const uint16_t halfBufferSize = bufferSize / 2;
+    if (dev->hints & kDeviceInitializing)
+    {
+        sem_post(&dev->sem);
+        return;
+    }
+
     const uint8_t channels = dev->hwstatus.channels;
 
-    // TODO stop trying at some point
-
-    for (uint8_t c=0; c<channels; ++c)
+    if (dev->ringbuffers[0].getWritableDataSize() < sizeof(float) * dev->bufferSize ||
+        dev->ringbuffers[channels - 1].getWritableDataSize() < sizeof(float) * dev->bufferSize)
     {
-        while (!dev->ringbuffers[c].writeCustomData(buffers[c], sizeof(float) * halfBufferSize))
-            simd::yield();
+        DEBUGPRINT("%08u | playback | buffer full, adding kDeviceInitializing", frame);
+        dev->hints |= kDeviceInitializing;
+        for (uint8_t c=0; c<channels; ++c)
+            dev->ringbuffers[c].flush();
+        return;
     }
 
-    for (uint8_t c=0; c<channels; ++c)
-        dev->ringbuffers[c].commitWrite();
+    const uint16_t bufferSizeOver4 = dev->bufferSize / 4;
+    const uint16_t rbWriteSize = bufferSizeOver4 * sizeof(float);
 
-    sem_post(&dev->sem);
-
-    for (uint8_t c=0; c<channels; ++c)
+    for (uint8_t q=0; q<4; ++q)
     {
-        while (!dev->ringbuffers[c].writeCustomData(buffers[c] + halfBufferSize, sizeof(float) * halfBufferSize))
-            simd::yield();
+        for (uint8_t c=0; c<channels; ++c)
+        {
+            while (!dev->ringbuffers[c].writeCustomData(buffers[c] + bufferSizeOver4 * q, rbWriteSize))
+            {
+                DEBUGPRINT("%08u | failed writing data", frame);
+                simd::yield();
+            }
+
+            dev->ringbuffers[c].commitWrite();
+        }
+
+        sem_post(&dev->sem);
     }
-
-    for (uint8_t c=0; c<channels; ++c)
-        dev->ringbuffers[c].commitWrite();
-
-    sem_post(&dev->sem);
 }

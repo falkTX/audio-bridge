@@ -380,7 +380,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         for (uint8_t c=0; c<channels; ++c)
         {
             dev.buffers.f32[c] = new float[dev.bufferSize * 2];
-            dev.ringbuffers[c].createBuffer(sizeof(float) * dev.bufferSize * 5);
+            dev.ringbuffers[c].createBuffer(sizeof(float) * dev.bufferSize * 32);
         }
 
         sem_init(&dev.sem, 0, 0);
