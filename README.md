@@ -12,8 +12,8 @@ A few things already work, while others are still in progress.
 
 - [x] Audio card discovery
 - [x] Capture and playback of 16/24/32-bit audio
-- [x] Dynamic resampling for clock sync (WIP mostly works already)
-- [x] JACK client for capture and playback (WIP stereo only)
+- [x] Dynamic resampling for clock sync (WIP final tweaks)
+- [x] JACK client for capture and playback
 - [x] LV2 plugin for capture and playback (WIP stereo only)
 - [ ] Parse command-line input on JACK CLI tool
 - [ ] Parse parameter input on internal JACK client
