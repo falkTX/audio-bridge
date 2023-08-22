@@ -180,6 +180,7 @@ static void* devicePlaybackThread(void* const  arg)
                 break;
             }
 
+            // FIXME check against snd_pcm_sw_params_set_avail_min ??
             if (static_cast<uint16_t>(err) != frames)
             {
                 ptr += err * channels * sampleSize;
@@ -221,9 +222,9 @@ static void* devicePlaybackThread(void* const  arg)
                         dev->timestamps.ratio = ((jackframes / alsaframes) + dev->timestamps.ratio * 511) / 512;
 
                         // sw ratio
-                        const uint32_t totalavail = avail + dev->ringbuffers[0].getReadableDataSize() / sizeof(float);
-                        const double availratio = totalavail > bufferSizeOver4 ? 1.001
-                                                : totalavail < bufferSizeOver4 ? 0.999 : 1;
+                        const uint32_t availtotal = avail + dev->ringbuffers[0].getReadableDataSize() / sizeof(float);
+                        const double availratio = availtotal > bufferSizeOver4 ? 1.001
+                                                : availtotal < bufferSizeOver4 ? 0.999 : 1;
                         dev->balance.ratio = (availratio + dev->balance.ratio * 511) / 512;
 
                         // combined ratio for dynamic resampling
@@ -235,7 +236,7 @@ static void* devicePlaybackThread(void* const  arg)
                             DEBUGPRINT("%08u | playback | %.09f = %.09f * %.09f | %3u %3ld",
                                        frame, dev->timestamps.ratio * dev->balance.ratio,
                                        dev->timestamps.ratio, dev->balance.ratio,
-                                       totalavail, avail);
+                                       availtotal, avail);
                         }
                     }
                 }
