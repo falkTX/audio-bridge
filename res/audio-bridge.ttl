@@ -8,6 +8,7 @@
 @prefix patch:   <http://lv2plug.in/ns/ext/patch#> .
 @prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix state:   <http://lv2plug.in/ns/ext/state#> .
+@prefix units:   <http://lv2plug.in/ns/extensions/units#> .
 @prefix worker:  <http://lv2plug.in/ns/ext/worker#> .
 
 <https://falktx.com/plugins/audio-bridge#device>
@@ -70,6 +71,79 @@
         lv2:designation lv2:control;
         lv2:symbol "notify";
         lv2:name "Notify";
+    ], [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 4;
+        lv2:symbol "status";
+        lv2:name "Status";
+        lv2:default 0 ;
+        lv2:minimum 0 ;
+        lv2:maximum 3 ;
+    ], [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 5;
+        lv2:symbol "channels";
+        lv2:name "Num channels";
+        lv2:default 2 ;
+        lv2:minimum 1 ;
+        lv2:maximum 64 ;
+    ], [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 6;
+        lv2:symbol "periods";
+        lv2:name "Num periods";
+        lv2:default 3 ;
+        lv2:minimum 1 ;
+        lv2:maximum 4 ;
+    ] , [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 7;
+        lv2:symbol "periodsize";
+        lv2:name "Period size";
+        lv2:default 1 ;
+        lv2:minimum 1 ;
+        lv2:maximum 16384 ;
+    ] , [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 8;
+        lv2:symbol "buffersize";
+        lv2:name "Buffer size";
+        lv2:default 1 ;
+        lv2:minimum 1 ;
+        lv2:maximum 65536 ;
+    ] , [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 9;
+        lv2:symbol "hwratio";
+        lv2:name "HW ratio";
+        lv2:default 1.0 ;
+        lv2:minimum 0.5 ;
+        lv2:maximum 1.5 ;
+    ] , [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 10;
+        lv2:symbol "swratio";
+        lv2:name "SW ratio";
+        lv2:default 1.0 ;
+        lv2:minimum 0.5 ;
+        lv2:maximum 1.5 ;
+    ] , [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 11;
+        lv2:symbol "ratio";
+        lv2:name "Final ratio";
+        lv2:default 1.0 ;
+        lv2:minimum 0.5 ;
+        lv2:maximum 1.5 ;
+    ] , [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 12;
+        lv2:symbol "bufferfill";
+        lv2:name "Buffer fill";
+        lv2:default 0.0 ;
+        lv2:minimum 0.0 ;
+        lv2:maximum 1.0 ;
+        units:unit units:pc ;
     ] ;
 
     doap:name "Audio Capture" ;
@@ -134,6 +208,84 @@
         lv2:designation lv2:control;
         lv2:symbol "notify";
         lv2:name "Notify";
+    ], [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 4;
+        lv2:symbol "status";
+        lv2:name "Status";
+        lv2:default 0 ;
+        lv2:minimum 0 ;
+        lv2:maximum 3 ;
+        lv2:portProperty lv2:integer ;
+    ], [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 5;
+        lv2:symbol "channels";
+        lv2:name "Num channels";
+        lv2:default 2 ;
+        lv2:minimum 1 ;
+        lv2:maximum 64 ;
+        lv2:portProperty lv2:integer ;
+    ], [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 6;
+        lv2:symbol "periods";
+        lv2:name "Num periods";
+        lv2:default 3 ;
+        lv2:minimum 1 ;
+        lv2:maximum 4 ;
+        lv2:portProperty lv2:integer ;
+    ] , [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 7;
+        lv2:symbol "periodsize";
+        lv2:name "Period size";
+        lv2:default 1 ;
+        lv2:minimum 1 ;
+        lv2:maximum 16384 ;
+        lv2:portProperty lv2:integer ;
+    ] , [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 8;
+        lv2:symbol "buffersize";
+        lv2:name "Buffer size";
+        lv2:default 1 ;
+        lv2:minimum 1 ;
+        lv2:maximum 65536 ;
+        lv2:portProperty lv2:integer ;
+    ] , [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 9;
+        lv2:symbol "hwratio";
+        lv2:name "HW ratio";
+        lv2:default 1.0 ;
+        lv2:minimum 0.5 ;
+        lv2:maximum 1.5 ;
+    ] , [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 10;
+        lv2:symbol "swratio";
+        lv2:name "SW ratio";
+        lv2:default 1.0 ;
+        lv2:minimum 0.5 ;
+        lv2:maximum 1.5 ;
+    ] , [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 11;
+        lv2:symbol "ratio";
+        lv2:name "Final ratio";
+        lv2:default 1.0 ;
+        lv2:minimum 0.5 ;
+        lv2:maximum 1.5 ;
+    ] , [
+        a lv2:OutputPort, lv2:ControlPort;
+        lv2:index 12;
+        lv2:symbol "bufferfill";
+        lv2:name "Buffer fill";
+        lv2:default 0.0 ;
+        lv2:minimum 0.0 ;
+        lv2:maximum 1.0 ;
+        units:unit units:pc ;
     ] ;
 
     doap:name "Audio Playback" ;

@@ -40,7 +40,7 @@ struct ClientData {
 
             if (dev != nullptr)
             {
-                channels = dev->channels;
+                channels = dev->hwstatus.channels;
 
                 if (playback)
                     activate_playback(this);
@@ -76,7 +76,7 @@ struct ClientData {
 
                 if (dev != nullptr)
                 {
-                    channels = dev->channels;
+                    channels = dev->hwstatus.channels;
 
                     if (playback)
                         activate_playback(this);
@@ -151,10 +151,10 @@ static ClientData* init_playback(jack_client_t* client = nullptr)
 
 static bool activate_capture(ClientData* const d)
 {
-    if (d->dev == nullptr || d->dev->channels == 0)
+    if (d->dev == nullptr || d->dev->hwstatus.channels == 0)
         return false;
 
-    const uint8_t channels = d->dev->channels;
+    const uint8_t channels = d->dev->hwstatus.channels;
     jack_client_t* const client = d->client;
 
     d->buffers = new float* [channels];
@@ -191,10 +191,10 @@ static bool activate_capture(ClientData* const d)
 
 static bool activate_playback(ClientData* const d)
 {
-    if (d->dev == nullptr || d->dev->channels == 0)
+    if (d->dev == nullptr || d->dev->hwstatus.channels == 0)
         return false;
 
-    const uint8_t channels = d->dev->channels;
+    const uint8_t channels = d->dev->hwstatus.channels;
     jack_client_t* const client = d->client;
 
     d->buffers = new float* [channels];

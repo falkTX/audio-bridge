@@ -286,6 +286,14 @@ public:
     }
 
     /*
+     * Get the full ringbuffer size.
+     */
+    uint32_t getSize() const noexcept
+    {
+        return buffer != nullptr ? buffer->size : 0;
+    }
+
+    /*
      * Get the size of the data available to read.
      */
     uint32_t getReadableDataSize() const noexcept

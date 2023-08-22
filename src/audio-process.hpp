@@ -79,12 +79,17 @@ struct DeviceAudio {
         double ratio = 1.0;
     } timestamps;
 
+    struct HWStatus {
+        uint8_t channels;
+        uint8_t periods;
+        uint16_t periodSize;
+        uint16_t bufferSize;
+    } hwstatus;
+
     snd_pcm_t* pcm;
     uint32_t frame;
     uint32_t sampleRate;
     uint16_t bufferSize;
-    uint8_t channels;
-    uint8_t periods;
     uint8_t hints;
 
     struct {

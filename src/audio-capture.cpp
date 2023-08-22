@@ -110,7 +110,7 @@ static void* deviceCaptureThread(void* const  arg)
     uint32_t frameCount = 0;
 
     const uint8_t hints = dev->hints;
-    const uint8_t channels = dev->channels;
+    const uint8_t channels = dev->hwstatus.channels;
     const uint16_t bufferSize = dev->bufferSize;
     const uint16_t extraBufferSize = bufferSize / 2;
     const uint32_t periodTimeOver4 = ((bufferSize / 4) * 1000000) / dev->sampleRate * 1000;
@@ -141,11 +141,11 @@ static void* deviceCaptureThread(void* const  arg)
         }
     }
 
-    while (dev->channels != 0)
+    while (dev->hwstatus.channels != 0)
     {
         frames = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSize + extraBufferSize);
 
-        if (dev->channels == 0)
+        if (dev->hwstatus.channels == 0)
             break;
 
         if (frames == -EAGAIN)
@@ -303,7 +303,7 @@ end:
 static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], const uint32_t frame)
 {
     const uint16_t bufferSize = dev->bufferSize;
-    const uint8_t channels = dev->channels;
+    const uint8_t channels = dev->hwstatus.channels;
 
     const HeapRingBuffer& rb(dev->ringbuffers[0]);
     uint32_t avail = rb.getReadableDataSize() / sizeof(float);

@@ -104,7 +104,7 @@ static void* devicePlaybackThread(void* const  arg)
     DeviceAudio* const dev = static_cast<DeviceAudio*>(arg);
 
     const uint8_t hints = dev->hints;
-    const uint8_t channels = dev->channels;
+    const uint8_t channels = dev->hwstatus.channels;
     const uint8_t sampleSize = getSampleSizeFromHints(hints);
     const uint16_t bufferSize = dev->bufferSize;
     const uint32_t periodTimeOver4 = ((bufferSize / 4) * 1000000) / dev->sampleRate * 1000;
@@ -149,7 +149,7 @@ static void* devicePlaybackThread(void* const  arg)
         }
     }
 
-    if (dev->channels == 0)
+    if (dev->hwstatus.channels == 0)
         goto end;
 
     // write silence until alsa buffers are full
@@ -162,12 +162,12 @@ static void* devicePlaybackThread(void* const  arg)
         goto end;
     }
 
-    while (dev->channels != 0)
+    while (dev->hwstatus.channels != 0)
     {
         if (dev->ringbuffers[0].getReadableDataSize() == 0)
         {
             sem_wait(&dev->sem);
-            again = true;
+            again = pair = true;
             continue;
         }
 
@@ -183,7 +183,7 @@ static void* devicePlaybackThread(void* const  arg)
             }
         }
 
-        if (dev->channels == 0)
+        if (dev->hwstatus.channels == 0)
             break;
 
         resampler->inp_count = bufferSize / 2;
@@ -292,14 +292,14 @@ static void* devicePlaybackThread(void* const  arg)
                     const uint64_t alsadiff = static_cast<uint64_t>(tstamp.tv_sec) * 1000000000ULL + tstamp.tv_nsec - dev->timestamps.alsaStartTime;
                     const uint32_t alsaframes = alsadiff * dev->sampleRate / 1000000000ULL;
                     const uint32_t jackframes = frame - dev->timestamps.jackStartFrame;
-                    dev->timestamps.ratio = ((static_cast<double>(alsaframes) / jackframes) + dev->timestamps.ratio * 511) / 512;
+                    dev->timestamps.ratio = ((static_cast<double>(jackframes) / alsaframes) + dev->timestamps.ratio * 511) / 512;
                     resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
-                    if ((frameCount % dev->sampleRate) <= bufferSize || avail > 255)
-                    {
-                        DEBUGPRINT("%08u | playback | %.09f = %.09f * %.09f | %3u %3ld | mode: %s",
-                                   frame, dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, dev->balance.ratio,
-                                   rbavail, avail, BalanceModeToStr(dev->balance.mode));
-                    }
+//                     if ((frameCount % dev->sampleRate) <= bufferSize || avail > 255)
+//                     {
+//                         DEBUGPRINT("%08u | playback | %.09f = %.09f * %.09f | %3u %3ld | mode: %s",
+//                                    frame, dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, dev->balance.ratio,
+//                                    rbavail, avail, BalanceModeToStr(dev->balance.mode));
+//                     }
                 }
             }
 
@@ -336,7 +336,7 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
 {
     const uint16_t bufferSize = dev->bufferSize;
     const uint16_t halfBufferSize = bufferSize / 2;
-    const uint8_t channels = dev->channels;
+    const uint8_t channels = dev->hwstatus.channels;
 
     // TODO stop trying at some point
 

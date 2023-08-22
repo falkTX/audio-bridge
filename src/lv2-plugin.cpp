@@ -21,6 +21,7 @@ struct PluginData {
     DeviceAudio* dev = nullptr;
     uint16_t bufferSize = 0;
     uint32_t sampleRate = 0;
+    uint32_t maxRingBufferSize = 0;
     bool playback = false;
     bool activated = false;
 
@@ -42,6 +43,7 @@ struct PluginData {
         float* audio[2];
         const LV2_Atom_Sequence* control;
         LV2_Atom_Sequence* notify;
+        float* status[9];
     } ports = {};
 
     struct URIs {
@@ -104,7 +106,8 @@ struct PluginData {
             return false;
         }
 
-        dev = initDeviceAudio(devices[devices.size() - 1].id.c_str(), playback, bufferSize, sampleRate);
+        for (std::vector<DeviceID>::const_reverse_iterator it=devices.rbegin(); it != devices.rend() && dev == nullptr; ++it)
+            dev = initDeviceAudio((*it).id.c_str(), playback, bufferSize, sampleRate);
 
         if (dev == nullptr)
         {
@@ -112,21 +115,23 @@ struct PluginData {
             return false;
         }
 
+        maxRingBufferSize = dev->ringbuffers[0].getSize();
+
         printf("TESTING %u %u | %u %u %p | %s %s\n",
-               bufferSize, sampleRate, dev->channels, dev->periods, dev,
+               bufferSize, sampleRate, dev->hwstatus.channels, dev->hwstatus.periods, dev,
                devices[devices.size() - 1].id.c_str(),
                devices[devices.size() - 1].name.c_str());
 
-        if (dev->channels > 2)
+        if (dev->hwstatus.channels > 2)
         {
-            buffers.pointers = new float*[dev->channels];
+            buffers.pointers = new float*[dev->hwstatus.channels];
             buffers.dummy = new float[bufferSize];
             std::memset(buffers.dummy, 0, sizeof(float) * bufferSize);
 
             buffers.pointers[0] = ports.audio[0];
             buffers.pointers[1] = ports.audio[1];
 
-            for (uint8_t c=2; c<dev->channels; ++c)
+            for (uint8_t c=2; c<dev->hwstatus.channels; ++c)
                 buffers.pointers[c] = buffers.dummy;
         }
 
@@ -158,6 +163,17 @@ struct PluginData {
             break;
         case 3:
             ports.notify = static_cast<LV2_Atom_Sequence*>(data);
+            break;
+        case 4:
+        case 5:
+        case 6:
+        case 7:
+        case 8:
+        case 9:
+        case 10:
+        case 11:
+        case 12:
+            ports.status[index - 4] = static_cast<float*>(data);
             break;
         }
     }
@@ -215,11 +231,29 @@ struct PluginData {
         if (dev != nullptr)
         {
             runDeviceAudio(dev, ports.audio);
+
+            const uint8_t hints = dev->hints;
+            *ports.status[0] = hints & kDeviceInitializing ? 1.f : hints & kDeviceStarting ? 2.f : 3.f;
+            *ports.status[1] = dev->hwstatus.channels;
+            *ports.status[2] = dev->hwstatus.periods;
+            *ports.status[3] = dev->hwstatus.periodSize;
+            *ports.status[4] = dev->hwstatus.bufferSize;
+            *ports.status[5] = dev->timestamps.ratio;
+            *ports.status[6] = dev->balance.ratio;
+            *ports.status[7] = dev->timestamps.ratio * dev->balance.ratio;
+            *ports.status[8] = static_cast<float>(dev->ringbuffers[0].getReadableDataSize() / sizeof(float) / 16)
+                             / static_cast<float>(maxRingBufferSize / sizeof(float) / 16);
         }
-        else if (!playback)
+        else
         {
-            std::memset(ports.audio[0], 0, sizeof(float)*frames);
-            std::memset(ports.audio[1], 0, sizeof(float)*frames);
+            *ports.status[0] = *ports.status[1] = *ports.status[2] = *ports.status[3] = 0.f;
+            *ports.status[4] = *ports.status[5] = *ports.status[6] = *ports.status[7] = *ports.status[8] = 0.f;
+
+            if (!playback)
+            {
+                std::memset(ports.audio[0], 0, sizeof(float)*frames);
+                std::memset(ports.audio[1], 0, sizeof(float)*frames);
+            }
         }
     }
 

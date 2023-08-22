@@ -271,11 +271,11 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         }
     }
 
-    dev.periods = uintParam;
+    dev.hwstatus.periods = uintParam;
 
     if (snd_pcm_hw_params_set_channels(dev.pcm, params, 2) == 0)
     {
-        dev.channels = 2;
+        dev.hwstatus.channels = 2;
     }
     else if ((err = snd_pcm_hw_params_get_channels(params, &uintParam)) != 0)
     {
@@ -284,7 +284,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     }
     else
     {
-        dev.channels = uintParam;
+        dev.hwstatus.channels = uintParam;
     }
 
     if ((err = snd_pcm_hw_params(dev.pcm, params)) != 0)
@@ -326,7 +326,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     }
 
     if (playback)
-        err = snd_pcm_sw_params_set_avail_min(dev.pcm, swparams, bufferSize * (dev.periods - 1));
+        err = snd_pcm_sw_params_set_avail_min(dev.pcm, swparams, bufferSize * (dev.hwstatus.periods - 1));
     else
         err = snd_pcm_sw_params_set_avail_min(dev.pcm, swparams, 1);
 
@@ -355,24 +355,29 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     }
 
     snd_pcm_hw_params_get_channels(params, &uintParam);
-    DEBUGPRINT("num channels %u | %u", uintParam, dev.channels);
+    DEBUGPRINT("num channels %u | %u", uintParam, dev.hwstatus.channels);
+    dev.hwstatus.channels = uintParam;
 
     snd_pcm_hw_params_get_periods(params, &uintParam, nullptr);
-    DEBUGPRINT("num periods %u | %u", uintParam, dev.periods);
+    DEBUGPRINT("num periods %u | %u", uintParam, dev.hwstatus.periods);
+    dev.hwstatus.periods = uintParam;
 
     snd_pcm_hw_params_get_period_size(params, &ulongParam, nullptr);
     DEBUGPRINT("period size %lu | %u", ulongParam, dev.bufferSize);
+    dev.hwstatus.periodSize = ulongParam;
 
     snd_pcm_hw_params_get_buffer_size(params, &ulongParam);
-    DEBUGPRINT("buffer size %lu | %u", ulongParam, dev.bufferSize * dev.periods);
+    DEBUGPRINT("buffer size %lu | %u", ulongParam, dev.bufferSize * dev.hwstatus.periods);
+    dev.hwstatus.bufferSize = ulongParam;
 
     {
-        const size_t rawbufferlen = getSampleSizeFromHints(dev.hints) * dev.bufferSize * dev.channels * 2;
+        const uint8_t channels = dev.hwstatus.channels;
+        const size_t rawbufferlen = getSampleSizeFromHints(dev.hints) * dev.bufferSize * channels * 2;
         dev.buffers.raw = new int8_t[rawbufferlen];
-        dev.buffers.f32 = new float*[dev.channels];
-        dev.ringbuffers = new HeapRingBuffer[dev.channels];
+        dev.buffers.f32 = new float*[channels];
+        dev.ringbuffers = new HeapRingBuffer[channels];
 
-        for (uint8_t c=0; c<dev.channels; ++c)
+        for (uint8_t c=0; c<channels; ++c)
         {
             dev.buffers.f32[c] = new float[dev.bufferSize * 2];
             dev.ringbuffers[c].createBuffer(sizeof(float) * dev.bufferSize * 5);
@@ -424,8 +429,8 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[])
 
 void closeDeviceAudio(DeviceAudio* const dev)
 {
-    const uint8_t channels = dev->channels;
-    dev->channels = 0;
+    const uint8_t channels = dev->hwstatus.channels;
+    dev->hwstatus.channels = 0;
     sem_post(&dev->sem);
     pthread_join(dev->thread, nullptr);
 
