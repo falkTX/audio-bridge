@@ -89,7 +89,7 @@ static void* devicePlaybackThread(void* const  arg)
             sched_yield();
        #endif
 
-        if (dev->ringbuffers[0].getReadableDataSize() == 0 || dev->hints & kDeviceInitializing)
+        if (dev->ringbuffers[0].getReadableDataSize() == 0)
         {
             if (loopCount != 1)
             {
