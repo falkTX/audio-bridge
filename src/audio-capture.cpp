@@ -113,7 +113,6 @@ static void* deviceCaptureThread(void* const  arg)
     const uint8_t channels = dev->hwstatus.channels;
     const uint16_t bufferSize = dev->bufferSize;
     const uint16_t extraBufferSize = bufferSize / 2;
-    const uint32_t periodTimeOver4 = ((bufferSize / 4) * 1000000) / dev->sampleRate * 1000;
 
     float** buffers = new float*[channels];
     for (uint8_t c=0; c<channels; ++c)
@@ -150,15 +149,7 @@ static void* deviceCaptureThread(void* const  arg)
 
         if (frames == -EAGAIN)
         {
-            struct timespec ts;
-            clock_gettime(CLOCK_REALTIME, &ts);
-            ts.tv_nsec += periodTimeOver4;
-            if (ts.tv_nsec >= 1000000000ULL)
-            {
-                ts.tv_sec += 1;
-                ts.tv_nsec -= 1000000000ULL;
-            }
-            sem_timedwait(&dev->sem, &ts);
+            deviceTimedWait(dev);
             again = true;
             continue;
         }

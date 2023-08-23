@@ -110,6 +110,7 @@ void closeDeviceAudio(DeviceAudio* dev);
 
 // private
 static void deviceFailInitHints(DeviceAudio* dev);
+static void deviceTimedWait(DeviceAudio* dev);
 static void runDeviceAudioCapture(DeviceAudio* dev, float* buffers[], uint32_t frame);
 static void runDeviceAudioPlayback(DeviceAudio* dev, float* buffers[], uint32_t frame);
 static void* deviceCaptureThread(void* arg);

@@ -3,6 +3,7 @@
 
 #include "audio-device-init.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -128,6 +129,24 @@ static void deviceFailInitHints(DeviceAudio* const dev)
     dev->balance.ratio = 1.0;
     dev->timestamps.alsaStartTime = dev->timestamps.jackStartFrame = 0;
     dev->timestamps.ratio = 1.0;
+}
+
+static void deviceTimedWait(DeviceAudio* const dev)
+{
+    if (sem_trywait(&dev->sem) == 0)
+        return;
+
+    const uint32_t periodTimeOver4 = (std::max(1, dev->bufferSize / 4) * 1000000) / dev->sampleRate * 1000;
+
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_nsec += periodTimeOver4;
+    if (ts.tv_nsec >= 1000000000ULL)
+    {
+        ++ts.tv_sec;
+        ts.tv_nsec -= 1000000000ULL;
+    }
+    sem_timedwait(&dev->sem, &ts);
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -392,6 +411,8 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
 
         pthread_attr_t attr;
         pthread_attr_init(&attr);
+        pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
+        pthread_attr_setscope(&attr, PTHREAD_SCOPE_SYSTEM);
         pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
         sched_param sched = {};
         sched.sched_priority = playback ? 69 : 70;
@@ -419,12 +440,13 @@ error:
 void runDeviceAudio(DeviceAudio* const dev, float* buffers[])
 {
     const uint32_t frame = dev->frame;
-    dev->frame += dev->bufferSize;
 
     if (dev->hints & kDeviceCapture)
         runDeviceAudioCapture(dev, buffers, frame);
     else
         runDeviceAudioPlayback(dev, buffers, frame);
+
+    dev->frame += dev->bufferSize;
 }
 
 void closeDeviceAudio(DeviceAudio* const dev)

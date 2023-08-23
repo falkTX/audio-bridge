@@ -4,8 +4,6 @@
 #include "audio-device-init.hpp"
 #include "audio-utils.hpp"
 
-#include <algorithm>
-
 static void* devicePlaybackThread(void* const  arg)
 {
     DeviceAudio* const dev = static_cast<DeviceAudio*>(arg);
@@ -15,7 +13,6 @@ static void* devicePlaybackThread(void* const  arg)
     const uint8_t sampleSize = getSampleSizeFromHints(hints);
     const uint16_t bufferSize = dev->bufferSize;
     const uint16_t bufferSizeOver4 = dev->bufferSize / 4;
-    const uint32_t periodTimeOver4 = (std::max(1, bufferSize / 4) * 1000000) / dev->sampleRate * 1000;
 
     float** buffers = new float*[channels];
     for (uint8_t c=0; c<channels; ++c)
@@ -85,10 +82,22 @@ static void* devicePlaybackThread(void* const  arg)
             }
         }
 
-        if (dev->ringbuffers[0].getReadableDataSize() == 0)
+       #if 0
+        // NOTE trick for when not using RT
+        // sem_timedwait make the scheduler put us at the end of the queue and we end up missing the audio timing
+        while (dev->ringbuffers[0].getReadableDataSize() == 0 && (dev->hints & kDeviceInitializing) == 0)
+            sched_yield();
+       #endif
+
+        if (dev->ringbuffers[0].getReadableDataSize() == 0 || dev->hints & kDeviceInitializing)
         {
-            sem_wait(&dev->sem);
-            loopCount = 0;
+            if (loopCount != 1)
+            {
+                DEBUGPRINT("%08u | playback | WARNING | long wait outside loopCount 1, %u", frame, loopCount);
+            }
+
+            --loopCount;
+            deviceTimedWait(dev);
             continue;
         }
 
@@ -147,15 +156,7 @@ static void* devicePlaybackThread(void* const  arg)
 
             if (err == -EAGAIN)
             {
-                struct timespec ts;
-                clock_gettime(CLOCK_REALTIME, &ts);
-                ts.tv_nsec += periodTimeOver4;
-                if (ts.tv_nsec >= 1000000000ULL)
-                {
-                    ts.tv_sec += 1;
-                    ts.tv_nsec -= 1000000000ULL;
-                }
-                sem_timedwait(&dev->sem, &ts);
+                deviceTimedWait(dev);
                 continue;
             }
 
@@ -265,9 +266,10 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
     }
 
     const uint8_t channels = dev->hwstatus.channels;
+    const uint16_t bufferSize = dev->bufferSize;
 
-    if (dev->ringbuffers[0].getWritableDataSize() < sizeof(float) * dev->bufferSize ||
-        dev->ringbuffers[channels - 1].getWritableDataSize() < sizeof(float) * dev->bufferSize)
+    if (dev->ringbuffers[0].getWritableDataSize() < sizeof(float) * bufferSize ||
+        dev->ringbuffers[channels - 1].getWritableDataSize() < sizeof(float) * bufferSize)
     {
         DEBUGPRINT("%08u | playback | buffer full, adding kDeviceInitializing", frame);
         dev->hints |= kDeviceInitializing;
@@ -276,12 +278,12 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
         return;
     }
 
-    const uint16_t bufferSizeOver4 = dev->bufferSize / 4;
+    const uint16_t bufferSizeOver4 = bufferSize / 4;
     const uint16_t rbWriteSize = bufferSizeOver4 * sizeof(float);
 
     for (uint8_t q=0; q<4; ++q)
     {
-        for (uint8_t c=0; c<channels; ++c)
+        for (int8_t c = channels; --c >= 0;)
         {
             while (!dev->ringbuffers[c].writeCustomData(buffers[c] + bufferSizeOver4 * q, rbWriteSize))
             {
