@@ -84,7 +84,7 @@ static void* devicePlaybackThread(void* const  arg)
 
        #if 0
         // NOTE trick for when not using RT
-        // sem_timedwait make the scheduler put us at the end of the queue and we end up missing the audio timing
+        // sem_timedwait makes the scheduler put us at the end of the queue and we end up missing the audio timing
         while (dev->ringbuffers[0].getReadableDataSize() == 0 && (dev->hints & kDeviceInitializing) == 0)
             sched_yield();
        #endif
@@ -270,8 +270,7 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
     const uint8_t channels = dev->hwstatus.channels;
     const uint16_t bufferSize = dev->bufferSize;
 
-    if (dev->ringbuffers[0].getWritableDataSize() < sizeof(float) * bufferSize ||
-        dev->ringbuffers[channels - 1].getWritableDataSize() < sizeof(float) * bufferSize)
+    if (dev->ringbuffers[0].getWritableDataSize() < sizeof(float) * bufferSize)
     {
         DEBUGPRINT("%08u | playback | buffer full, adding kDeviceInitializing", frame);
         dev->hints |= kDeviceInitializing;
@@ -288,10 +287,7 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
         for (int8_t c = channels; --c >= 0;)
         {
             while (!dev->ringbuffers[c].writeCustomData(buffers[c] + bufferSizeOver4 * q, rbWriteSize))
-            {
-                DEBUGPRINT("%08u | failed writing data", frame);
                 simd::yield();
-            }
 
             dev->ringbuffers[c].commitWrite();
         }
