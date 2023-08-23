@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2021-2023 Filipe Coelho <falktx@falktx.com>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-#include "audio-discovery.hpp"
+#include "audio-device-discovery.hpp"
 
 //#define ALSA_PCM_NEW_HW_PARAMS_API
 //#define ALSA_PCM_NEW_SW_PARAMS_API

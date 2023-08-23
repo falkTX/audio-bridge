@@ -73,8 +73,8 @@ target_link_libraries(audio-bridge
 
 target_sources(audio-bridge
   PRIVATE
-    src/audio-discovery.cpp
-    src/audio-process.cpp
+    src/audio-device-discovery.cpp
+    src/audio-device-init.cpp
     src/lv2-plugin.cpp
     src/resampler-table.cc
     src/vresampler.cc
@@ -94,8 +94,8 @@ target_link_libraries(jack-audio-bridge
 
 target_sources(jack-audio-bridge
   PRIVATE
-    src/audio-discovery.cpp
-    src/audio-process.cpp
+    src/audio-device-discovery.cpp
+    src/audio-device-init.cpp
     src/jack-client.cpp
     src/resampler-table.cc
     src/vresampler.cc
@@ -126,8 +126,8 @@ target_link_libraries(jack-int-audio-bridge
 
 target_sources(jack-int-audio-bridge
   PRIVATE
-    src/audio-discovery.cpp
-    src/audio-process.cpp
+    src/audio-device-discovery.cpp
+    src/audio-device-init.cpp
     src/jack-client.cpp
     src/resampler-table.cc
     src/vresampler.cc
@@ -142,7 +142,7 @@ set_common_target_properties(audio-bridge-test)
 
 target_sources(audio-bridge-test
   PRIVATE
-    src/audio-discovery.cpp
+    src/audio-device-discovery.cpp
     src/tests.cpp
 )
 

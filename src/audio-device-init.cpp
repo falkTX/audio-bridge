@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2021-2023 Filipe Coelho <falktx@falktx.com>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-#include "audio-process.hpp"
+#include "audio-device-init.hpp"
 
 #include <cmath>
 #include <cstring>
