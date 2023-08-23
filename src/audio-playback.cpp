@@ -224,8 +224,8 @@ static void* devicePlaybackThread(void* const  arg)
 
                         // sw ratio
                         const uint32_t availtotal = avail + dev->ringbuffers[0].getReadableDataSize() / sizeof(float);
-                        const double availratio = availtotal > bufferSizeOver4 ? 1.001
-                                                : availtotal < bufferSizeOver4 ? 0.999 : 1;
+                        const double availratio = availtotal > bufferSizeOver4 ? 1.0001
+                                                : availtotal < bufferSizeOver4 ? 0.9999 : 1;
                         dev->balance.ratio = (availratio + dev->balance.ratio * 511) / 512;
 
                         // combined ratio for dynamic resampling
