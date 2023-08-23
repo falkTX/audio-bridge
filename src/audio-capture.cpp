@@ -106,8 +106,6 @@ static void* deviceCaptureThread(void* const  arg)
 
     int err;
     snd_pcm_sframes_t frames;
-    uint32_t frame, written;
-    uint32_t frameCount = 0;
 
     const uint8_t hints = dev->hints;
     const uint8_t channels = dev->hwstatus.channels;
@@ -142,6 +140,8 @@ static void* deviceCaptureThread(void* const  arg)
 
     while (dev->hwstatus.channels != 0)
     {
+        const uint32_t frame = dev->frame;
+
         frames = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSize + extraBufferSize);
 
         if (dev->hwstatus.channels == 0)
@@ -153,8 +153,6 @@ static void* deviceCaptureThread(void* const  arg)
             again = true;
             continue;
         }
-
-        frame = dev->frame;
 
         if (frames < 0)
         {
@@ -219,7 +217,7 @@ static void* deviceCaptureThread(void* const  arg)
         resampler->out_data = buffers;
         resampler->process();
 
-        written = bufferSize * 2 - resampler->out_count;
+        const uint32_t written = bufferSize * 2 - resampler->out_count;
 
         full = false;
         for (uint8_t c=0; c<channels; ++c)
@@ -255,7 +253,7 @@ static void* deviceCaptureThread(void* const  arg)
                 const uint32_t jackframes = frame - dev->timestamps.jackStartFrame;
                 dev->timestamps.ratio = ((static_cast<double>(alsaframes) / jackframes) + dev->timestamps.ratio * 511) / 512;
                 resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
-                if ((frameCount % dev->sampleRate) == 0)
+                if ((frame % dev->sampleRate) == 0)
                 {
                     DEBUGPRINT("%08u | %s | %.09f = %.09f * %.09f | %ld avail | mode: %s",
                             frame, dev->hints & kDeviceCapture ? "capture" : "playback",
@@ -265,7 +263,6 @@ static void* deviceCaptureThread(void* const  arg)
         }
 
         again = full;
-        frameCount += frames;
 
         if (full)
         {
@@ -282,6 +279,8 @@ static void* deviceCaptureThread(void* const  arg)
     }
 
 end:
+    DEBUGPRINT("%08u | capture | audio thread closed", dev->frame);
+
     delete resampler;
 
     for (uint8_t c=0; c<channels; ++c)

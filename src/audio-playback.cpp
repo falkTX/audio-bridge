@@ -248,6 +248,8 @@ static void* devicePlaybackThread(void* const  arg)
     }
 
 end:
+    DEBUGPRINT("%08u | capture | audio thread closed", dev->frame);
+
     delete resampler;
 
     for (uint8_t c=0; c<channels; ++c)
