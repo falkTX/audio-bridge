@@ -179,8 +179,11 @@ static bool activate_capture(ClientData* const d)
    #endif
     jack_connect(client, "mod-usbgadget_c:p1", "mod-peakmeter:in_3");
     jack_connect(client, "mod-usbgadget_c:p2", "mod-peakmeter:in_4");
-    // jack_connect(client, "mod-usbgadget_c:p3", "mod-host:in1");
-    // jack_connect(client, "mod-usbgadget_c:p4", "mod-host:in2");
+    // optional 4x4 mode
+    jack_connect(client, "mod-usbgadget_c:p3", "mod-peakmeter:in_1");
+    jack_connect(client, "mod-usbgadget_c:p3", "mod-host:in1");
+    jack_connect(client, "mod-usbgadget_c:p4", "mod-peakmeter:in_2");
+    jack_connect(client, "mod-usbgadget_c:p4", "mod-host:in2");
   #else
     jack_connect(client, "audio-bridge-capture:p1", "audio-bridge-playback:p1");
     jack_connect(client, "audio-bridge-capture:p2", "audio-bridge-playback:p2");
