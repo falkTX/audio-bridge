@@ -292,7 +292,7 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
         for (int8_t c = channels; --c >= 0;)
         {
             while (!dev->ringbuffers[c].writeCustomData(buffers[c] + bufferSizeOver4 * q, rbWriteSize))
-                simd::yield();
+                sched_yield();
 
             dev->ringbuffers[c].commitWrite();
         }

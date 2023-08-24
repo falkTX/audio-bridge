@@ -158,7 +158,7 @@ static void* deviceCaptureThread(void* const  arg)
                 continue;
             }
 
-            for (uint8_t c=0; c<channels; ++c)
+            for (int8_t c = channels; --c >= 0;)
             {
                 while (!dev->ringbuffers[c].writeCustomData(buffers[c], sizeof(float) * rbavail))
                 {
@@ -250,6 +250,8 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
 {
     const uint8_t channels = dev->hwstatus.channels;
     const uint16_t bufferSize = dev->bufferSize;
+    const uint16_t bufferSizeOver4 = bufferSize / 4;
+    const uint16_t rbReadSize = bufferSizeOver4 * sizeof(float);
 
     if (dev->hints & kDeviceStarting)
         goto clear;
@@ -257,19 +259,22 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
     if (dev->ringbuffers[0].getReadableDataSize() < sizeof(float) * bufferSize)
     {
         DEBUGPRINT("%08u | capture | buffer empty, adding kDeviceInitializing", frame);
-        dev->hints |= kDeviceInitializing;
+        dev->hints |= kDeviceInitializing|kDeviceStarting;
         for (uint8_t c=0; c<channels; ++c)
             dev->ringbuffers[c].flush();
         goto clear;
     }
 
-    for (uint8_t c=0; c<channels; ++c)
+    for (uint8_t q=0; q<4; ++q)
     {
-        while (!dev->ringbuffers[c].readCustomData(buffers[c], sizeof(float) * bufferSize))
-            simd::yield();
+        for (uint8_t c=0; c<channels; ++c)
+        {
+            while (!dev->ringbuffers[c].readCustomData(buffers[c] + bufferSizeOver4 * q, rbReadSize))
+                sched_yield();
+        }
+        sem_post(&dev->sem);
     }
 
-    sem_post(&dev->sem);
     return;
 
 clear:

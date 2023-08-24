@@ -162,7 +162,7 @@ static bool activate_capture(ClientData* const d)
 
     for (uint8_t c = 0; c < channels; ++c)
     {
-        char name[8] = {};
+        char name[16] = {};
         std::snprintf(name, sizeof(name)-1, "p%d", c + 1);
         d->ports[c] = jack_port_register(client, name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput|JackPortIsTerminal, 0);
     }
@@ -202,7 +202,7 @@ static bool activate_playback(ClientData* const d)
 
     for (uint8_t c = 0; c < channels; ++c)
     {
-        char name[8] = {};
+        char name[16] = {};
         std::snprintf(name, sizeof(name)-1, "p%d", c + 1);
         d->ports[c] = jack_port_register(client, name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput|JackPortIsTerminal, 0);
     }
