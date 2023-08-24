@@ -66,8 +66,8 @@ struct PluginData {
               patch_Set(uridMap->map(uridMap->handle, LV2_PATCH__Set)) {}
     } uris;
 
-    PluginData(const uint32_t sampleRate, const LV2_Feature* const* const featuresPtr)
-        : sampleRate(sampleRate),
+    PluginData(const uint32_t sampleRate_, const LV2_Feature* const* const featuresPtr)
+        : sampleRate(sampleRate_),
           features(featuresPtr),
           uris(features.uridMap)
     {

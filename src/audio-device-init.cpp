@@ -9,6 +9,19 @@
 
 // --------------------------------------------------------------------------------------------------------------------
 
+// private
+static void deviceFailInitHints(DeviceAudio* dev);
+static void deviceTimedWait(DeviceAudio* dev);
+static void runDeviceAudioCapture(DeviceAudio* dev, float* buffers[], uint32_t frame);
+static void runDeviceAudioPlayback(DeviceAudio* dev, float* buffers[], uint32_t frame);
+static void* deviceCaptureThread(void* arg);
+static void* devicePlaybackThread(void* arg);
+
+// TODO cleanup, see what is needed
+static int xrun_recovery(snd_pcm_t *handle, int err);
+
+// --------------------------------------------------------------------------------------------------------------------
+
 static constexpr const snd_pcm_format_t kFormatsToTry[] = {
     SND_PCM_FORMAT_S32,
     SND_PCM_FORMAT_S24_3LE,
@@ -141,10 +154,10 @@ static void deviceTimedWait(DeviceAudio* const dev)
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     ts.tv_nsec += periodTimeOver4;
-    if (ts.tv_nsec >= 1000000000ULL)
+    if (ts.tv_nsec >= 1000000000LL)
     {
         ++ts.tv_sec;
-        ts.tv_nsec -= 1000000000ULL;
+        ts.tv_nsec -= 1000000000LL;
     }
     sem_timedwait(&dev->sem, &ts);
 }

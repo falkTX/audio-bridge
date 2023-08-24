@@ -237,8 +237,10 @@ bool enumerateSoundcards(std::vector<DeviceID>& inputs, std::vector<DeviceID>& o
             }
         }
 
+   #ifdef __MOD_DEVICES__
     skip:
         snd_ctl_close(ctl);
+   #endif
     }
 
     return inputs.size() + outputs.size() != 0;

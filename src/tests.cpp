@@ -3,7 +3,7 @@
 
 #include "audio-device-discovery.hpp"
 
-int main(int argc, const char* argv[])
+int main()
 {
     std::vector<DeviceID> inputs, outputs;
     enumerateSoundcards(inputs, outputs);

@@ -12,7 +12,7 @@ static void* devicePlaybackThread(void* const  arg)
     const uint8_t channels = dev->hwstatus.channels;
     const uint8_t sampleSize = getSampleSizeFromHints(hints);
     const uint16_t bufferSize = dev->bufferSize;
-    const uint16_t bufferSizeOver4 = dev->bufferSize / 4;
+    const uint16_t bufferSizeOver4 = bufferSize / 4;
 
     float** buffers = new float*[channels];
     for (uint8_t c=0; c<channels; ++c)
@@ -66,6 +66,12 @@ static void* devicePlaybackThread(void* const  arg)
             while ((err = snd_pcm_mmap_writei(dev->pcm, dev->buffers.raw, bufferSize)) > 0)
                 restarted = true;
 
+            if (err != -EAGAIN)
+            {
+                printf("%08u | playback | initial write error: %s\n", frame, snd_strerror(err));
+                goto end;
+            }
+
             if (restarted)
             {
                 DEBUGPRINT("%08u | playback | can write data, removing kDeviceInitializing", frame);
@@ -74,11 +80,10 @@ static void* devicePlaybackThread(void* const  arg)
                 gain.clearToTargetValue();
                 gain.setTargetValue(1.f);
             }
-
-            if (err != -EAGAIN)
+            else
             {
-                printf("%08u | playback | initial write error: %s\n", frame, snd_strerror(err));
-                goto end;
+                deviceTimedWait(dev);
+                continue;
             }
         }
 
@@ -89,7 +94,7 @@ static void* devicePlaybackThread(void* const  arg)
             sched_yield();
        #endif
 
-        if (dev->ringbuffers[0].getReadableDataSize() == 0)
+        if (dev->ringbuffers[0].getReadableDataSize() / sizeof(float) < bufferSizeOver4)
         {
             if (loopCount != 1)
             {
@@ -105,7 +110,7 @@ static void* devicePlaybackThread(void* const  arg)
         {
             while (!dev->ringbuffers[c].readCustomData(buffers[c], sizeof(float) * bufferSizeOver4))
             {
-                DEBUGPRINT("%08u | failed reading data", frame);
+                DEBUGPRINT("%08u | playback | failed reading data", frame);
                 sched_yield();
             }
         }
@@ -192,53 +197,53 @@ static void* devicePlaybackThread(void* const  arg)
                 continue;
             }
 
-            if (loopCount == 4 && ptr == dev->buffers.raw)
+            if (loopCount != 4 || ptr != dev->buffers.raw)
+                break;
+
+            snd_pcm_uframes_t avail;
+            snd_htimestamp_t ts;
+
+            if (snd_pcm_htimestamp(dev->pcm, &avail, &ts) != 0)
             {
-                snd_pcm_uframes_t avail;
-                snd_htimestamp_t ts;
+                DEBUGPRINT("snd_pcm_htimestamp failed");
+                break;
+            }
 
-                if (snd_pcm_htimestamp(dev->pcm, &avail, &ts) != 0)
+            if (dev->hints & kDeviceStarting)
+            {
+                dev->hints &= ~kDeviceStarting;
+            }
+            else
+            {
+                if (dev->timestamps.alsaStartTime == 0)
                 {
-                    DEBUGPRINT("snd_pcm_htimestamp failed");
-                    break;
-                }
-
-                if (dev->hints & kDeviceStarting)
-                {
-                    dev->hints &= ~kDeviceStarting;
+                    dev->timestamps.alsaStartTime = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+                    dev->timestamps.jackStartFrame = frame;
                 }
                 else
                 {
-                    if (dev->timestamps.alsaStartTime == 0)
+                    // hw ratio
+                    const uint64_t alsadiff = ts.tv_sec * 1000000000ULL + ts.tv_nsec - dev->timestamps.alsaStartTime;
+                    const double alsaframes = static_cast<double>(alsadiff * dev->sampleRate / 1000000000ULL);
+                    const double jackframes = static_cast<double>(frame - dev->timestamps.jackStartFrame);
+                    dev->timestamps.ratio = ((jackframes / alsaframes) + dev->timestamps.ratio * 511) / 512;
+
+                    // sw ratio
+                    const uint32_t availtotal = avail + dev->ringbuffers[0].getReadableDataSize() / sizeof(float);
+                    const double availratio = availtotal > bufferSizeOver4 ? 1.0001
+                                            : availtotal < bufferSizeOver4 ? 0.9999 : 1;
+                    dev->balance.ratio = (availratio + dev->balance.ratio * 511) / 512;
+
+                    // combined ratio for dynamic resampling
+                    resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
+
+                    // TESTING DEBUG REMOVE ME
+                    if ((frame % dev->sampleRate) == 0 || avail > 255)
                     {
-                        dev->timestamps.alsaStartTime = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
-                        dev->timestamps.jackStartFrame = frame;
-                    }
-                    else
-                    {
-                        // hw ratio
-                        const uint64_t alsadiff = ts.tv_sec * 1000000000ULL + ts.tv_nsec - dev->timestamps.alsaStartTime;
-                        const double alsaframes = static_cast<double>(alsadiff * dev->sampleRate / 1000000000ULL);
-                        const double jackframes = static_cast<double>(frame - dev->timestamps.jackStartFrame);
-                        dev->timestamps.ratio = ((jackframes / alsaframes) + dev->timestamps.ratio * 511) / 512;
-
-                        // sw ratio
-                        const uint32_t availtotal = avail + dev->ringbuffers[0].getReadableDataSize() / sizeof(float);
-                        const double availratio = availtotal > bufferSizeOver4 ? 1.0001
-                                                : availtotal < bufferSizeOver4 ? 0.9999 : 1;
-                        dev->balance.ratio = (availratio + dev->balance.ratio * 511) / 512;
-
-                        // combined ratio for dynamic resampling
-                        resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
-
-                        // TESTING DEBUG REMOVE ME
-                        if ((frame % dev->sampleRate) == 0 || avail > 255)
-                        {
-                            DEBUGPRINT("%08u | playback | %.09f = %.09f * %.09f | %3u %3ld",
-                                       frame, dev->timestamps.ratio * dev->balance.ratio,
-                                       dev->timestamps.ratio, dev->balance.ratio,
-                                       availtotal, avail);
-                        }
+                        DEBUGPRINT("%08u | playback | %.09f = %.09f * %.09f | %3u %3ld",
+                                    frame, dev->timestamps.ratio * dev->balance.ratio,
+                                    dev->timestamps.ratio, dev->balance.ratio,
+                                    availtotal, avail);
                     }
                 }
             }

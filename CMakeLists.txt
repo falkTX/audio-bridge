@@ -37,6 +37,13 @@ function(set_common_target_properties TARGET)
       _POSIX_PTHREAD_SEMANTICS
   )
 
+  target_compile_options(${TARGET}
+    PRIVATE
+      -Wall
+      -Wextra
+      -Wshadow
+  )
+
   target_include_directories(${TARGET}
     PRIVATE
       src

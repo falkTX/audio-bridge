@@ -6,124 +6,31 @@
 
 #include <algorithm>
 
-static void balanceDeviceCaptureSpeed(DeviceAudio* const dev,
-                                      VResampler* const resampler,
-                                      const snd_pcm_sframes_t avail)
-{
-    const uint32_t frame = dev->frame;
-    const uint16_t bufferSize = dev->bufferSize;
-    const uint32_t sampleRate = dev->sampleRate;
-
-    DeviceAudio::Balance& bal(dev->balance);
-
-    const uint16_t kSpeedTarget = static_cast<double>(sampleRate) / bufferSize * 5;
-    const uint16_t kMaxTarget = bufferSize * 4.25;
-    const uint16_t kMinTarget = bufferSize * 2.75;
-
-    if (avail > kMaxTarget)
-    {
-        if (bal.speedingUp == 0)
-        {
-            switch (bal.mode)
-            {
-            case kBalanceNormal:
-            case kBalanceSpeedingUp:
-                bal.ratio *= 0.999995;
-                break;
-            case kBalanceSlowingDown:
-                bal.ratio = 1.0;
-                break;
-            }
-            bal.mode = kBalanceSpeedingUp;
-            bal.speedingUp = 1;
-            bal.slowingDown = 0;
-            resampler->set_rratio(dev->timestamps.ratio * bal.ratio);
-            if (bal.ratio != 1.0) {
-                DEBUGPRINT("%08u | capture | %.9f = %.9f * %.9f | %ld | avail > kMaxTarget | speeding up...",
-                           frame, dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, bal.ratio, avail);
-            }
-        }
-        else if (++bal.speedingUp >= kSpeedTarget)
-        {
-            bal.speedingUp = 1;
-            if (d_isNotEqual(bal.ratio, 0.995))
-            {
-                bal.ratio = (bal.ratio * 3 + 0.995) / 4;
-                DEBUGPRINT("%08u | capture | %.9f = %.9f * %.9f | %ld | avail > kMaxTarget | speeding up even more...",
-                           frame, dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, bal.ratio, avail);
-            }
-        }
-    }
-    else if (avail < kMinTarget)
-    {
-        if (bal.slowingDown == 0)
-        {
-            switch (bal.mode)
-            {
-            case kBalanceNormal:
-            case kBalanceSlowingDown:
-                bal.ratio *= 1.000005;
-                break;
-            case kBalanceSpeedingUp:
-                bal.ratio = 1.0;
-                break;
-            }
-            bal.mode = kBalanceSlowingDown;
-            bal.slowingDown = 1;
-            bal.speedingUp = 0;
-            resampler->set_rratio(dev->timestamps.ratio * bal.ratio);
-            if (bal.ratio != 1.0) {
-                DEBUGPRINT("%08u | capture | %.9f = %.9f * %.9f | %ld | avail < kMinTarget | slowing down...",
-                           frame, dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, bal.ratio, avail);
-            }
-        }
-        else if (++bal.slowingDown >= kSpeedTarget)
-        {
-            bal.slowingDown = 1;
-            if (d_isNotEqual(bal.ratio, 1.0005))
-            {
-                bal.ratio = (bal.ratio * 3 + 1.0005) / 4;
-                DEBUGPRINT("%08u | capture | %.9f = %.9f * %.9f | %ld | avail < kMinTarget | slowing down even more...",
-                           frame, dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, bal.ratio, avail);
-            }
-        }
-    }
-    else
-    {
-        if ((bal.slowingDown != 0 && ++bal.slowingDown >= kSpeedTarget) || (bal.speedingUp != 0 && ++bal.speedingUp >= kSpeedTarget))
-        {
-            DEBUGPRINT("%08u | capture | %.9f = %.9f * %.9f | %ld | stopped speed compensation",
-                       frame, dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, bal.ratio, avail);
-            bal.mode = kBalanceNormal;
-            bal.slowingDown = bal.speedingUp = 0;
-        }
-    }
-}
-
 static void* deviceCaptureThread(void* const  arg)
 {
     DeviceAudio* const dev = static_cast<DeviceAudio*>(arg);
 
-    int err;
-    snd_pcm_sframes_t frames;
-
     const uint8_t hints = dev->hints;
     const uint8_t channels = dev->hwstatus.channels;
     const uint16_t bufferSize = dev->bufferSize;
-    const uint16_t extraBufferSize = bufferSize / 2;
+    const uint16_t bufferSizeOver4 = bufferSize / 4;
 
     float** buffers = new float*[channels];
     for (uint8_t c=0; c<channels; ++c)
         buffers[c] = new float[bufferSize * 2];
 
-    bool again = false, full;
-    snd_pcm_uframes_t avail = 0;
-    snd_htimestamp_t tstamp = {};
-
     simd::init();
+
+    // smooth initial volume to prevent clicks on start
+    ExponentialValueSmoother gain;
+    gain.setSampleRate(dev->sampleRate);
+    gain.setTimeConstant(3.f);
 
     VResampler* const resampler = new VResampler;
     resampler->setup(1.0, channels, 8);
+
+    snd_pcm_sframes_t err;
+    float xgain;
 
     // wait for audio thread to post
     {
@@ -138,143 +45,192 @@ static void* deviceCaptureThread(void* const  arg)
         }
     }
 
-    while (dev->hwstatus.channels != 0)
+    if (dev->hwstatus.channels == 0)
+        goto end;
+
+    // read until alsa buffers are empty
+    while ((err = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSize)) > 0);
+
+    for (uint32_t lastframe = 0; dev->hwstatus.channels != 0;)
     {
         const uint32_t frame = dev->frame;
 
-        frames = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSize + extraBufferSize);
+        if (dev->hints & kDeviceInitializing)
+        {
+            // read until alsa buffers are empty
+            bool restarted = false;
+            while ((err = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSize)) > 0)
+                restarted = true;
+
+            if (err != -EAGAIN)
+            {
+                printf("%08u | capture | initial read error: %s\n", frame, snd_strerror(err));
+                goto end;
+            }
+
+            if (restarted)
+            {
+                DEBUGPRINT("%08u | capture | can read data, removing kDeviceInitializing", frame);
+                dev->hints &= ~kDeviceInitializing;
+                gain.setTargetValue(0.f);
+                gain.clearToTargetValue();
+                gain.setTargetValue(1.f);
+            }
+            else
+            {
+                deviceTimedWait(dev);
+                continue;
+            }
+        }
+
+        err = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSizeOver4);
 
         if (dev->hwstatus.channels == 0)
             break;
 
-        if (frames == -EAGAIN)
+        if (err == -EAGAIN)
         {
             deviceTimedWait(dev);
-            again = true;
             continue;
         }
 
-        if (frames < 0)
+        if (err < 0)
         {
             deviceFailInitHints(dev);
             resampler->set_rratio(1.0);
 
+            /*
             for (uint8_t c=0; c<channels; ++c)
                 dev->ringbuffers[c].clearData();
+            */
 
-            DEBUGPRINT("%08u | capture | Error read %s\n", frame, snd_strerror(frames));
+            DEBUGPRINT("%08u | capture | Read error %s\n", frame, snd_strerror(err));
 
             // TODO offline recovery
-            if (xrun_recovery(dev->pcm, frames) < 0)
+            if (xrun_recovery(dev->pcm, err) < 0)
             {
-                printf("%08u | capture | Read error: %s\n", frame, snd_strerror(frames));
+                printf("%08u | capture | xrun_recovery error: %s\n", frame, snd_strerror(err));
                 exit(EXIT_FAILURE);
             }
 
-            again = false;
-            continue;
+            break;
         }
 
-        if (again)
-        {
-            if (snd_pcm_htimestamp(dev->pcm, &avail, &tstamp) != 0)
-            {
-                DEBUGPRINT("snd_pcm_htimestamp failed");
-                break;
-            }
-        }
-
-        const uint16_t offset = 0;
         switch (hints & kDeviceSampleHints)
         {
         case kDeviceSample16:
-            int2float::s16(dev->buffers.f32, dev->buffers.raw, offset, channels, frames);
+            int2float::s16(dev->buffers.f32, dev->buffers.raw, channels, err);
             break;
         case kDeviceSample24:
-            int2float::s24(dev->buffers.f32, dev->buffers.raw, offset, channels, frames);
+            int2float::s24(dev->buffers.f32, dev->buffers.raw, channels, err);
             break;
         case kDeviceSample24LE3:
-            int2float::s24le3(dev->buffers.f32, dev->buffers.raw, offset, channels, frames);
+            int2float::s24le3(dev->buffers.f32, dev->buffers.raw, channels, err);
             break;
         case kDeviceSample32:
-            int2float::s32(dev->buffers.f32, dev->buffers.raw, offset, channels, frames);
+            int2float::s32(dev->buffers.f32, dev->buffers.raw, channels, err);
             break;
         }
 
-       #ifdef WITH_GAIN
-        float gain;
-        for (uint16_t i=0; i<bufferSize; ++i)
-        {
-            gain = dev->gain.next();
-            for (uint8_t c=0; c<channels; ++c)
-                buffers[c][i] *= gain;
-        }
-       #endif
-
-        resampler->inp_count = frames;
+        resampler->inp_count = err;
         resampler->out_count = bufferSize * 2;
         resampler->inp_data = dev->buffers.f32;
         resampler->out_data = buffers;
         resampler->process();
 
-        const uint32_t written = bufferSize * 2 - resampler->out_count;
+        uint32_t frames = bufferSize * 2 - resampler->out_count;
 
-        full = false;
-        for (uint8_t c=0; c<channels; ++c)
+        for (uint16_t i=0; i<frames; ++i)
         {
-            while (!dev->ringbuffers[c].writeCustomData(buffers[c], sizeof(float) * written))
-            {
-                sched_yield();
-                full = true;
-            }
-
-            dev->ringbuffers[c].commitWrite();
+            xgain = gain.next();
+            for (uint8_t c=0; c<channels; ++c)
+                buffers[c][i] *= xgain;
         }
 
-        if (again)
+        while (frames != 0)
         {
-            snd_pcm_sframes_t savail = 0;
-            savail += dev->ringbuffers[0].getReadableDataSize() /  sizeof(float);
-            savail += frames;
-            savail -= bufferSize;
+            const uint32_t rbavail = std::min<uint32_t>(frames,
+                                                        dev->ringbuffers[0].getWritableDataSize() / sizeof(float));
 
-            if ((dev->hints & kDeviceStarting) == 0)
-                balanceDeviceCaptureSpeed(dev, resampler, savail);
-
-            if (dev->timestamps.alsaStartTime == 0)
+            if (rbavail == 0)
             {
-                dev->timestamps.alsaStartTime = static_cast<uint64_t>(tstamp.tv_sec) * 1000000000ULL + tstamp.tv_nsec;
-                dev->timestamps.jackStartFrame = frame;
+                deviceTimedWait(dev);
+                continue;
             }
-            else if (dev->timestamps.alsaStartTime != 0 && frame != 0 && dev->timestamps.jackStartFrame != frame)
+
+            for (uint8_t c=0; c<channels; ++c)
             {
-                const uint64_t alsadiff = static_cast<uint64_t>(tstamp.tv_sec) * 1000000000ULL + tstamp.tv_nsec - dev->timestamps.alsaStartTime;
-                const uint32_t alsaframes = alsadiff * dev->sampleRate / 1000000000ULL;
-                const uint32_t jackframes = frame - dev->timestamps.jackStartFrame;
-                dev->timestamps.ratio = ((static_cast<double>(alsaframes) / jackframes) + dev->timestamps.ratio * 511) / 512;
-                resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
-                if ((frame % dev->sampleRate) == 0)
+                while (!dev->ringbuffers[c].writeCustomData(buffers[c], sizeof(float) * rbavail))
                 {
-                    DEBUGPRINT("%08u | %s | %.09f = %.09f * %.09f | %ld avail | mode: %s",
-                            frame, dev->hints & kDeviceCapture ? "capture" : "playback",
-                            dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, dev->balance.ratio, savail, BalanceModeToStr(dev->balance.mode));
+                    DEBUGPRINT("%08u | capture | failed writing data", frame);
+                    sched_yield();
+                }
+
+                dev->ringbuffers[c].commitWrite();
+            }
+
+            if (rbavail != frames)
+            {
+                frames -= rbavail;
+                DEBUGPRINT("%08u | capture | Incomplete write %u of %u", frame, rbavail, frames);
+                continue;
+            }
+
+            if (lastframe == frame)
+                break;
+
+            lastframe = frame;
+
+            snd_pcm_uframes_t avail;
+            snd_htimestamp_t ts;
+
+            if (snd_pcm_htimestamp(dev->pcm, &avail, &ts) != 0)
+            {
+                DEBUGPRINT("snd_pcm_htimestamp failed");
+                break;
+            }
+
+            if (dev->hints & kDeviceStarting)
+            {
+                if (dev->ringbuffers[0].getReadableDataSize() / sizeof(float) >= bufferSize * 3)
+                    dev->hints &= ~kDeviceStarting;
+            }
+            else
+            {
+                if (dev->timestamps.alsaStartTime == 0)
+                {
+                    dev->timestamps.alsaStartTime = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+                    dev->timestamps.jackStartFrame = frame;
+                }
+                else
+                {
+                    // hw ratio
+                    const uint64_t alsadiff = ts.tv_sec * 1000000000ULL + ts.tv_nsec - dev->timestamps.alsaStartTime;
+                    const double alsaframes = static_cast<double>(alsadiff * dev->sampleRate / 1000000000ULL);
+                    const double jackframes = static_cast<double>(frame - dev->timestamps.jackStartFrame);
+                    dev->timestamps.ratio = ((jackframes / alsaframes) + dev->timestamps.ratio * 511) / 512;
+
+                    // sw ratio
+                    const uint32_t availtotal = avail + dev->ringbuffers[0].getReadableDataSize() / sizeof(float);
+                    const double availratio = availtotal > bufferSize * 3 ? 0.9999
+                                            : availtotal < bufferSize * 3 ? 1.0001 : 1;
+                    dev->balance.ratio = (availratio + dev->balance.ratio * 511) / 512;
+
+                    // combined ratio for dynamic resampling
+                    resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
+
+                    // TESTING DEBUG REMOVE ME
+                    if ((frame % dev->sampleRate) == 0 || avail > 255)
+                    {
+                        DEBUGPRINT("%08u | capture | %.09f = %.09f * %.09f | %3u %3ld",
+                                    frame, dev->timestamps.ratio * dev->balance.ratio,
+                                    dev->timestamps.ratio, dev->balance.ratio,
+                                    availtotal, avail);
+                    }
                 }
             }
-        }
 
-        again = full;
-
-        if (full)
-        {
-            dev->balance.mode = kBalanceSpeedingUp;
-            dev->balance.ratio = std::min(0.995, (dev->balance.ratio * 3 + 0.995) / 4);
-            dev->balance.speedingUp = 1;
-            dev->balance.slowingDown = 0;
-            resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
-            DEBUGPRINT("%08u | capture | %.9f = %.9f * %.9f | speeding up real fast...",
-                       frame, dev->timestamps.ratio * dev->balance.ratio, dev->timestamps.ratio, dev->balance.ratio);
-
-            sem_wait(&dev->sem);
+            break;
         }
     }
 
@@ -292,106 +248,33 @@ end:
 
 static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], const uint32_t frame)
 {
-    const uint16_t bufferSize = dev->bufferSize;
     const uint8_t channels = dev->hwstatus.channels;
+    const uint16_t bufferSize = dev->bufferSize;
 
-    const HeapRingBuffer& rb(dev->ringbuffers[0]);
-    uint32_t avail = rb.getReadableDataSize() / sizeof(float);
+    if (dev->hints & kDeviceStarting)
+        goto clear;
 
-    if (dev->hints & kDeviceInitializing)
+    if (dev->ringbuffers[0].getReadableDataSize() < sizeof(float) * bufferSize)
     {
-        if (avail >= bufferSize * 2)
-        {
-            dev->hints &= ~kDeviceInitializing;
-            DEBUGPRINT("%08u | capture | %u >= bufferSize * 2, removing kDeviceInitializing", frame, avail);
-        }
+        DEBUGPRINT("%08u | capture | buffer empty, adding kDeviceInitializing", frame);
+        dev->hints |= kDeviceInitializing;
+        for (uint8_t c=0; c<channels; ++c)
+            dev->ringbuffers[c].flush();
+        goto clear;
     }
 
-    if (dev->hints & kDeviceInitializing)
+    for (uint8_t c=0; c<channels; ++c)
     {
-        for (uint8_t c=0; c<channels; ++c)
-            std::memset(buffers[c], 0, sizeof(float) * bufferSize);
-    }
-    else if (avail >= bufferSize)
-    {
-        if ((dev->hints & kDeviceStarting) != 0)
-        {
-            dev->hints &= ~kDeviceStarting;
-            DEBUGPRINT("%08u | capture | %u >= bufferSize, removing kDeviceStarting", frame, avail);
-        }
-
-        for (uint8_t c=0; c<channels; ++c)
-        {
-            while (!dev->ringbuffers[c].readCustomData(buffers[c], sizeof(float) * bufferSize))
-                simd::yield();
-        }
-    }
-    else
-    {
-        // oh no! lets see if the reader side can quickly get a few more samples
-        sem_post(&dev->sem);
-
-        dev->hints |= kDeviceStarting;
-        DEBUGPRINT("%08u | capture | WARNING %u < bufferSize, adding kDeviceStarting", frame, avail);
-
-        if (avail == 0)
-        {
-            sched_yield();
-            avail = rb.getReadableDataSize() / sizeof(float);
-
-            if (avail == 0)
-            {
-                dev->hints |= kDeviceInitializing;
-                DEBUGPRINT("%08u | capture | ERROR no audio available, adding kDeviceInitializing", frame);
-
-                dev->balance.mode = kBalanceNormal;
-                dev->balance.ratio = 1.0;
-                dev->balance.slowingDown = dev->balance.speedingUp = 0;
-
-                for (uint8_t c=0; c<channels; ++c)
-                    std::memset(buffers[c], 0, sizeof(float) * bufferSize);
-
-                return;
-            }
-        }
-
-        // write what we can already
-        for (uint8_t c=0; c<channels; ++c)
-        {
-            while (!dev->ringbuffers[c].readCustomData(buffers[c], sizeof(float) * avail))
-                simd::yield();
-        }
-
-        // keep going while fetching the rest
-        for (uint16_t offset = avail, retries = 0; offset < bufferSize; offset += avail)
-        {
-            sem_post(&dev->sem);
-
-            sched_yield();
-            avail = std::min<uint32_t>(bufferSize - offset, rb.getReadableDataSize() / sizeof(float));
-
-            if (avail == 0)
-            {
-                if (++retries == 1000)
-                {
-                    dev->hints |= kDeviceInitializing;
-                    DEBUGPRINT("%08u | capture | ERROR no more audio available, adding kDeviceInitializing", frame);
-                    for (uint8_t c=0; c<channels; ++c)
-                        std::memset(buffers[c] + offset, 0, sizeof(float) * (bufferSize - offset));
-                    break;
-                }
-                continue;
-            }
-
-            retries = 0;
-            for (uint8_t c=0; c<channels; ++c)
-            {
-                while (!dev->ringbuffers[c].readCustomData(buffers[c] + offset, sizeof(float) * avail))
-                    simd::yield();
-            }
-        }
+        while (!dev->ringbuffers[c].readCustomData(buffers[c], sizeof(float) * bufferSize))
+            simd::yield();
     }
 
     sem_post(&dev->sem);
-}
+    return;
 
+clear:
+    sem_post(&dev->sem);
+
+    for (uint8_t c=0; c<channels; ++c)
+        std::memset(buffers[c], 0, sizeof(float) * bufferSize);
+}

@@ -114,27 +114,27 @@ namespace int2float
 {
 
 static inline
-void s16(float* const* const dst, void* const src, const uint16_t offset, const uint8_t channels, const uint16_t samples)
+void s16(float* const* const dst, void* const src, const uint8_t channels, const uint16_t samples)
 {
     int16_t* const srcptr = static_cast<int16_t*>(src);
 
     for (uint16_t i=0; i<samples; ++i)
         for (uint8_t c=0; c<channels; ++c)
-            dst[c][i+offset] = static_cast<float>(srcptr[i*channels+c]) * (1.f / 32767.f);
+            dst[c][i] = static_cast<float>(srcptr[i*channels+c]) * (1.f / 32767.f);
 }
 
 static inline
-void s24(float* const* const dst, void* const src, const uint16_t offset, const uint8_t channels, const uint16_t samples)
+void s24(float* const* const dst, void* const src, const uint8_t channels, const uint16_t samples)
 {
     int32_t* const srcptr = static_cast<int32_t*>(src);
 
     for (uint16_t i=0; i<samples; ++i)
         for (uint8_t c=0; c<channels; ++c)
-            dst[c][i+offset] = static_cast<float>(srcptr[i*channels+c]) * (1.f / 8388607.f);
+            dst[c][i] = static_cast<float>(srcptr[i*channels+c]) * (1.f / 8388607.f);
 }
 
 static inline
-void s24le3(float* const* const dst, void* const src, const uint16_t offset, const uint8_t channels, const uint16_t samples)
+void s24le3(float* const* const dst, void* const src, const uint8_t channels, const uint16_t samples)
 {
     uint8_t* srcptr = static_cast<uint8_t*>(src);
     int32_t z;
@@ -159,9 +159,9 @@ void s24le3(float* const* const dst, void* const src, const uint16_t offset, con
                 z |= 0xff000000;
            #endif
 
-            dst[c][i+offset] = z <= -8388607 ? -1.f
-                             : z >= 8388607 ? 1.f
-                             : static_cast<float>(z) * (1.f / 8388607.f);
+            dst[c][i] = z <= -8388607 ? -1.f
+                      : z >= 8388607 ? 1.f
+                      : static_cast<float>(z) * (1.f / 8388607.f);
 
             srcptr += 3;
         }
@@ -169,13 +169,13 @@ void s24le3(float* const* const dst, void* const src, const uint16_t offset, con
 }
 
 static inline
-void s32(float* const* const dst, void* const src, const uint16_t offset, const uint8_t channels, const uint16_t samples)
+void s32(float* const* const dst, void* const src, const uint8_t channels, const uint16_t samples)
 {
     int32_t* const srcptr = static_cast<int32_t*>(src);
 
     for (uint16_t i=0; i<samples; ++i)
         for (uint8_t c=0; c<channels; ++c)
-            dst[c][i+offset] = static_cast<double>(srcptr[i*channels+c]) * (1.0 / 2147483647.0);
+            dst[c][i] = static_cast<double>(srcptr[i*channels+c]) * (1.0 / 2147483647.0);
 }
 
 } // namespace int2float

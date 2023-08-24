@@ -108,17 +108,6 @@ DeviceAudio* initDeviceAudio(const char* deviceID, bool playback, uint16_t buffe
 void runDeviceAudio(DeviceAudio* dev, float* buffers[]);
 void closeDeviceAudio(DeviceAudio* dev);
 
-// private
-static void deviceFailInitHints(DeviceAudio* dev);
-static void deviceTimedWait(DeviceAudio* dev);
-static void runDeviceAudioCapture(DeviceAudio* dev, float* buffers[], uint32_t frame);
-static void runDeviceAudioPlayback(DeviceAudio* dev, float* buffers[], uint32_t frame);
-static void* deviceCaptureThread(void* arg);
-static void* devicePlaybackThread(void* arg);
-
-// TODO cleanup, see what is needed
-static int xrun_recovery(snd_pcm_t *handle, int err);
-
 #define DEBUGPRINT(...) { printf(__VA_ARGS__); puts(""); }
 
 // --------------------------------------------------------------------------------------------------------------------
