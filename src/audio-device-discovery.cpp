@@ -158,6 +158,10 @@ bool enumerateSoundcards(std::vector<DeviceID>& inputs, std::vector<DeviceID>& o
            #ifdef __MOD_DEVICES__
             if (cardName != nullptr && *cardName != '\0')
             {
+                if (std::strcmp(cardName, "MOD DUO") == 0)
+                    goto skip;
+                if (std::strcmp(cardName, "MOD DUOX") == 0)
+                    goto skip;
                 if (std::strcmp(cardName, "MOD DWARF") == 0)
                     goto skip;
                 if (std::strcmp(cardName, "USB Gadget") == 0)
