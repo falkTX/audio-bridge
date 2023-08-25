@@ -82,6 +82,7 @@ static void* devicePlaybackThread(void* const  arg)
             }
             else
             {
+                --loopCount;
                 deviceTimedWait(dev);
                 continue;
             }
@@ -194,6 +195,8 @@ static void* devicePlaybackThread(void* const  arg)
 
                 DEBUGPRINT("%08u | playback | Incomplete write %ld of %u, %u left",
                            frame, err, bufferSize, frames);
+
+                deviceTimedWait(dev);
                 continue;
             }
 
