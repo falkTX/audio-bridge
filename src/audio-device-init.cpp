@@ -286,9 +286,9 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         for (unsigned periods : kPeriodsToTry)
         {
             ulongParam = bufferSize * periods;
-            if ((err = snd_pcm_hw_params_set_period_size_max(dev.pcm, params, &ulongParam, nullptr)) != 0)
+            if ((err = snd_pcm_hw_params_set_buffer_size_max(dev.pcm, params, &ulongParam)) != 0)
             {
-                DEBUGPRINT("snd_pcm_hw_params_set_period_size_max fail %u %u %s", periods, bufferSize, snd_strerror(err));
+                DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_max fail %u %u %s", periods, bufferSize, snd_strerror(err));
                 continue;
             }
 
