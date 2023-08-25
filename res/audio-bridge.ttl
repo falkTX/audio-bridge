@@ -156,6 +156,13 @@
     doap:name "Audio Capture" ;
     doap:license <http://opensource.org/licenses/AGPL-3.0> ;
 
+    rdfs:comment """
+An audio bridge plugin that allows using external audio interfaces as part of the processing chain.
+This is the "capture" side, it receives input from an audio interface and exposes it to the host.
+
+Currently limited to 2 audio ports and a single device, which is automatically connected once available.
+""" ;
+
     lv2:symbol "capture" ;
     lv2:microVersion 0 ;
     lv2:minorVersion 0 .
@@ -299,6 +306,13 @@
 
     doap:name "Audio Playback" ;
     doap:license <http://opensource.org/licenses/AGPL-3.0> ;
+
+    rdfs:comment """
+An audio bridge plugin that allows using external audio interfaces as part of the processing chain.
+This is the "playback" side, it sends the output from the host into an audio interface.
+
+Currently limited to 2 audio ports and a single device, which is automatically connected once available.
+""" ;
 
     lv2:symbol "playback" ;
     lv2:microVersion 0 ;
