@@ -17,6 +17,21 @@
 #include <cmath>
 #include <cstring>
 
+static constexpr const uint8_t kMaxIO = 32;
+static constexpr const uint8_t kRingBufferDataFactor = sizeof(float) * 16;
+
+typedef std::vector<DeviceID>::const_reverse_iterator cri;
+
+enum {
+    kWorkerTryLoadingDevice = 1,
+    kWorkerDestroyDevice
+};
+
+struct WorkerDevice {
+    uint32_t r;
+    DeviceAudio* dev;
+};
+
 struct PluginData {
     DeviceAudio* dev = nullptr;
     uint16_t bufferSize = 0;
@@ -24,10 +39,13 @@ struct PluginData {
     uint32_t maxRingBufferSize = 0;
     bool playback = false;
     bool activated = false;
+   #if 1 // def __MOD_DEVICES__
+    uint32_t numIdleSamples = 0;
+   #endif
 
     struct Features {
-        const LV2_URID_Map* uridMap;
-        const LV2_Worker_Schedule* workerSchedule;
+        const LV2_URID_Map* const uridMap;
+        const LV2_Worker_Schedule* const workerSchedule;
 
         Features(const LV2_Feature* const* const features)
             : uridMap(static_cast<const LV2_URID_Map*>(lv2_features_data(features, LV2_URID__map))),
@@ -35,12 +53,11 @@ struct PluginData {
     } features;
 
     struct Buffers {
-        float** pointers;
+        float* pointers[kMaxIO];
         float* dummy;
     } buffers = {};
 
     struct Ports {
-        float* audio[2];
         const LV2_Atom_Sequence* control;
         LV2_Atom_Sequence* notify;
         float* status[9];
@@ -71,9 +88,6 @@ struct PluginData {
           features(featuresPtr),
           uris(features.uridMap)
     {
-        buffers.pointers = ports.audio;
-        buffers.dummy = nullptr;
-
         // set initial options
         optionsSet(static_cast<const LV2_Options_Option*>(lv2_features_data(featuresPtr, LV2_OPTIONS__options)));
     }
@@ -84,58 +98,6 @@ struct PluginData {
             closeDeviceAudio(dev);
 
         delete[] buffers.dummy;
-
-        if (buffers.pointers != ports.audio)
-            delete[] buffers.pointers;
-    }
-
-    // TESTING
-    bool testing()
-    {
-        if (bufferSize == 0)
-            return false;
-
-        std::vector<DeviceID> inputs, outputs;
-        enumerateSoundcards(inputs, outputs);
-
-        const std::vector<DeviceID>& devices(playback ? outputs : inputs);
-
-        if (devices.size() == 0)
-        {
-            printf("TESTING %u %u | no devices\n", bufferSize, sampleRate);
-            return false;
-        }
-
-        for (std::vector<DeviceID>::const_reverse_iterator it=devices.rbegin(); it != devices.rend() && dev == nullptr; ++it)
-            dev = initDeviceAudio((*it).id.c_str(), playback, bufferSize, sampleRate);
-
-        if (dev == nullptr)
-        {
-            printf("TESTING %u %u | can't open device\n", bufferSize, sampleRate);
-            return false;
-        }
-
-        maxRingBufferSize = dev->ringbuffers[0].getSize();
-
-        printf("TESTING %u %u | %u %u %p | %s %s\n",
-               bufferSize, sampleRate, dev->hwstatus.channels, dev->hwstatus.periods, dev,
-               devices[devices.size() - 1].id.c_str(),
-               devices[devices.size() - 1].name.c_str());
-
-        if (dev->hwstatus.channels > 2)
-        {
-            buffers.pointers = new float*[dev->hwstatus.channels];
-            buffers.dummy = new float[bufferSize];
-            std::memset(buffers.dummy, 0, sizeof(float) * bufferSize);
-
-            buffers.pointers[0] = ports.audio[0];
-            buffers.pointers[1] = ports.audio[1];
-
-            for (uint8_t c=2; c<dev->hwstatus.channels; ++c)
-                buffers.pointers[c] = buffers.dummy;
-        }
-
-        return true;
     }
 
     void activate()
@@ -154,9 +116,7 @@ struct PluginData {
         {
         case 0:
         case 1:
-            ports.audio[index] = static_cast<float*>(data);
-            if (buffers.pointers != ports.audio)
-                buffers.pointers[index] = ports.audio[index];
+            buffers.pointers[index] = static_cast<float*>(data);
             break;
         case 2:
             ports.control = static_cast<const LV2_Atom_Sequence*>(data);
@@ -228,10 +188,17 @@ struct PluginData {
         }
 #endif
 
+        if (dev != nullptr && ! runDeviceAudio(dev, buffers.pointers))
+        {
+            DeviceAudio* const olddev = dev;
+            dev = nullptr;
+
+            const WorkerDevice r = { kWorkerDestroyDevice, olddev };
+            features.workerSchedule->schedule_work(features.workerSchedule->handle, sizeof(r), &r);
+        }
+
         if (dev != nullptr)
         {
-            runDeviceAudio(dev, ports.audio);
-
             const uint8_t hints = dev->hints;
             *ports.status[0] = hints & kDeviceInitializing ? 1.f : hints & kDeviceStarting ? 2.f : 3.f;
             *ports.status[1] = dev->hwstatus.channels;
@@ -241,8 +208,8 @@ struct PluginData {
             *ports.status[5] = dev->timestamps.ratio;
             *ports.status[6] = dev->balance.ratio;
             *ports.status[7] = dev->timestamps.ratio * dev->balance.ratio;
-            *ports.status[8] = static_cast<float>(dev->ringbuffers[0].getReadableDataSize() / sizeof(float) / 16)
-                             / static_cast<float>(maxRingBufferSize / sizeof(float) / 16);
+            *ports.status[8] = static_cast<float>(dev->ringbuffers[0].getReadableDataSize() / kRingBufferDataFactor)
+                             / static_cast<float>(maxRingBufferSize);
         }
         else
         {
@@ -251,9 +218,20 @@ struct PluginData {
 
             if (!playback)
             {
-                std::memset(ports.audio[0], 0, sizeof(float)*frames);
-                std::memset(ports.audio[1], 0, sizeof(float)*frames);
+                std::memset(buffers.pointers[0], 0, sizeof(float)*frames);
+                std::memset(buffers.pointers[1], 0, sizeof(float)*frames);
             }
+
+           #if 1 // def __MOD_DEVICES__
+            numIdleSamples += frames;
+
+            if (numIdleSamples >= sampleRate)
+            {
+                numIdleSamples = 0;
+                const uint32_t r = kWorkerTryLoadingDevice;
+                features.workerSchedule->schedule_work(features.workerSchedule->handle, sizeof(r), &r);
+            }
+           #endif
         }
     }
 
@@ -274,7 +252,7 @@ struct PluginData {
                 }
                 else
                 {
-                    bufferSize = *(const int32_t*)options[i].value;
+                    setBufferSize(*static_cast<const int32_t*>(options[i].value));
                 }
                 break;
             }
@@ -283,6 +261,22 @@ struct PluginData {
         return LV2_OPTIONS_SUCCESS;
     }
 
+    void setBufferSize(const uint32_t newBufferSize)
+    {
+        if (bufferSize == newBufferSize)
+            return;
+
+        bufferSize = newBufferSize;
+
+        delete[] buffers.dummy;
+        buffers.dummy = new float[newBufferSize];
+        std::memset(buffers.dummy, 0, sizeof(float) * bufferSize);
+
+        for (uint8_t i=2; i<kMaxIO; ++i)
+            buffers.pointers[i] = buffers.dummy;
+    }
+
+   #if 0 // ndef __MOD_DEVICES__
     LV2_State_Status stateSave(const LV2_State_Store_Function store,
                                const LV2_State_Handle handle,
                                const uint32_t flags,
@@ -298,18 +292,73 @@ struct PluginData {
     {
         return LV2_STATE_ERR_UNKNOWN;
     }
+   #endif
 
     LV2_Worker_Status work(const LV2_Worker_Respond_Function respond,
                            const LV2_Worker_Respond_Handle handle,
                            const uint32_t size,
                            const void* const data)
     {
-        return LV2_WORKER_ERR_UNKNOWN;
+        DISTRHO_SAFE_ASSERT_RETURN(size >= sizeof(uint32_t), LV2_WORKER_ERR_UNKNOWN);
+        DISTRHO_SAFE_ASSERT_RETURN(bufferSize != 0, LV2_WORKER_ERR_UNKNOWN);
+
+        const uint32_t r = *static_cast<const uint32_t*>(data);
+
+        switch (r)
+        {
+        case kWorkerTryLoadingDevice:
+        {
+            std::vector<DeviceID> inputs, outputs;
+            enumerateSoundcards(inputs, outputs);
+
+            const std::vector<DeviceID>& devices(playback ? outputs : inputs);
+
+            if (devices.size() == 0)
+                return LV2_WORKER_SUCCESS;
+
+            DeviceAudio* devptr = nullptr;
+
+            for (cri it = devices.rbegin(); it != devices.rend() && devptr == nullptr; ++it)
+                devptr = initDeviceAudio((*it).id.c_str(), playback, bufferSize, sampleRate);
+
+            if (devptr == nullptr)
+                return LV2_WORKER_SUCCESS;
+
+            printf("TESTING %u %u | %u %u %p | %s %s\n",
+                   bufferSize, sampleRate, devptr->hwstatus.channels, devptr->hwstatus.periods, devptr,
+                   devices[devices.size() - 1].id.c_str(),
+                   devices[devices.size() - 1].name.c_str());
+
+            respond(handle, sizeof(devptr), &devptr);
+            break;
+        }
+        case kWorkerDestroyDevice:
+        {
+            DeviceAudio* const olddev = static_cast<const WorkerDevice*>(data)->dev;
+            closeDeviceAudio(olddev);
+            break;
+        }
+        }
+
+        return LV2_WORKER_SUCCESS;
     }
 
     LV2_Worker_Status workResponse(const uint32_t size, const void* const data)
     {
-        return LV2_WORKER_ERR_UNKNOWN;
+        DISTRHO_SAFE_ASSERT_RETURN(size == sizeof(DeviceAudio*), LV2_WORKER_ERR_UNKNOWN);
+        DISTRHO_SAFE_ASSERT_RETURN(bufferSize != 0, LV2_WORKER_ERR_UNKNOWN);
+
+        DeviceAudio* const newdev = *static_cast<DeviceAudio* const*>(data);
+        DeviceAudio* const olddev = dev;
+
+        dev = newdev;
+        maxRingBufferSize = newdev->ringbuffers[0].getSize() / kRingBufferDataFactor;
+
+        if (olddev == nullptr)
+            return LV2_WORKER_SUCCESS;
+
+        const WorkerDevice r = { kWorkerDestroyDevice, olddev };
+        return features.workerSchedule->schedule_work(features.workerSchedule->handle, sizeof(r), &r);
     }
 };
 
@@ -330,9 +379,7 @@ LV2_Handle lv2_instantiate_capture(const LV2_Descriptor*,
     if (PluginData* const p = lv2_instantiate(sampleRate, features))
     {
         p->playback = false;
-        if (p->testing())
-            return p;
-        delete p;
+        return p;
     }
     return nullptr;
 }
@@ -345,9 +392,7 @@ LV2_Handle lv2_instantiate_playback(const LV2_Descriptor*,
     if (PluginData* const p = lv2_instantiate(sampleRate, features))
     {
         p->playback = true;
-        if (p->testing())
-            return p;
-        delete p;
+        return p;
     }
     return nullptr;
 }
@@ -387,6 +432,7 @@ uint32_t lv2_options_set(const LV2_Handle handle, const LV2_Options_Option* cons
     return static_cast<PluginData*>(handle)->optionsSet(options);
 }
 
+#if 0 // ndef __MOD_DEVICES__
 LV2_State_Status lv2_state_save(const LV2_Handle handle,
                                 const LV2_State_Store_Function store,
                                 const LV2_State_Handle shandle,
@@ -404,6 +450,7 @@ LV2_State_Status lv2_state_retrieve(const LV2_Handle handle,
 {
     return static_cast<PluginData*>(handle)->stateRetrieve(retrieve, shandle, flags, features);
 }
+#endif
 
 LV2_Worker_Status lv2_work(const LV2_Handle handle,
                            const LV2_Worker_Respond_Function respond,
@@ -421,22 +468,31 @@ LV2_Worker_Status lv2_work_response(const LV2_Handle handle, const uint32_t size
 
 const void* lv2_extension_data(const char* const uri)
 {
-    static const LV2_Options_Interface options = {
-        lv2_options_get, lv2_options_set
-    };
-    static const LV2_State_Interface state = {
-        lv2_state_save, lv2_state_retrieve
-    };
-    static const LV2_Worker_Interface worker = {
-        lv2_work, lv2_work_response, nullptr
-    };
-
     if (std::strcmp(uri, LV2_OPTIONS__interface) == 0)
+    {
+        static const LV2_Options_Interface options = {
+            lv2_options_get, lv2_options_set
+        };
         return &options;
+    }
+
+   #if 0 // ndef __MOD_DEVICES__
     if (std::strcmp(uri, LV2_STATE__interface) == 0)
+    {
+        static const LV2_State_Interface state = {
+            lv2_state_save, lv2_state_retrieve
+        };
         return &state;
+    }
+   #endif
+
     if (std::strcmp(uri, LV2_WORKER__interface) == 0)
+    {
+        static const LV2_Worker_Interface worker = {
+            lv2_work, lv2_work_response, nullptr
+        };
         return &worker;
+    }
 
     return nullptr;
 }

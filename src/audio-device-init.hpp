@@ -105,7 +105,7 @@ struct DeviceAudio {
 // --------------------------------------------------------------------------------------------------------------------
 
 DeviceAudio* initDeviceAudio(const char* deviceID, bool playback, uint16_t bufferSize, uint32_t sampleRate);
-void runDeviceAudio(DeviceAudio* dev, float* buffers[]);
+bool runDeviceAudio(DeviceAudio* dev, float* buffers[]);
 void closeDeviceAudio(DeviceAudio* dev);
 
 #define DEBUGPRINT(...) { printf(__VA_ARGS__); puts(""); }

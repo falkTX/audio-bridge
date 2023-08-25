@@ -11,9 +11,14 @@
 @prefix units:   <http://lv2plug.in/ns/extensions/units#> .
 @prefix worker:  <http://lv2plug.in/ns/ext/worker#> .
 
-<https://falktx.com/plugins/audio-bridge#device>
+<https://falktx.com/plugins/audio-bridge#deviceid>
     a lv2:Parameter ;
-    rdfs:label "Device" ;
+    rdfs:label "Device Id" ;
+    rdfs:range atom:String .
+
+<https://falktx.com/plugins/audio-bridge#devicename>
+    a lv2:Parameter ;
+    rdfs:label "Device Name" ;
     rdfs:range atom:String .
 
 <https://falktx.com/plugins/audio-bridge#capture>
@@ -23,6 +28,7 @@
 
     lv2:requiredFeature bufsize:boundedBlockLength ,
                         bufsize:fixedBlockLength ,
+                        bufsize:powerOf2BlockLength ,
                         opts:options ,
                         <http://lv2plug.in/ns/ext/urid#map> ;
 
@@ -33,7 +39,8 @@
     opts:supportedOption bufsize:maxBlockLength ,
                          params:sampleRate ;
 
-    patch:writable <https://falktx.com/plugins/audio-bridge#device> ;
+    patch:readable <https://falktx.com/plugins/audio-bridge#deviceid> ,
+                   <https://falktx.com/plugins/audio-bridge#devicename> ;
 
     doap:developer [
         foaf:name "falkTX" ;
@@ -160,6 +167,7 @@
 
     lv2:requiredFeature bufsize:boundedBlockLength ,
                         bufsize:fixedBlockLength ,
+                        bufsize:powerOf2BlockLength ,
                         opts:options ,
                         <http://lv2plug.in/ns/ext/urid#map> ;
 
@@ -170,7 +178,8 @@
     opts:supportedOption bufsize:maxBlockLength ,
                          params:sampleRate ;
 
-    patch:writable <https://falktx.com/plugins/audio-bridge#device> ;
+    patch:readable <https://falktx.com/plugins/audio-bridge#deviceid> ,
+                   <https://falktx.com/plugins/audio-bridge#devicename> ;
 
     doap:developer [
         foaf:name "falkTX" ;

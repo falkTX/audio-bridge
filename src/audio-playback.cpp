@@ -182,7 +182,7 @@ static void* devicePlaybackThread(void* const  arg)
                 if (xrun_recovery(dev->pcm, err) < 0)
                 {
                     printf("playback | xrun_recovery error: %s\n", snd_strerror(err));
-                    exit(EXIT_FAILURE);
+                    goto end;
                 }
 
                 break;
@@ -265,6 +265,7 @@ end:
         delete[] buffers[c];
     delete[] buffers;
 
+    dev->thread = 0;
     return nullptr;
 }
 

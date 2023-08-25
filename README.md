@@ -19,7 +19,7 @@ A few things already work, while others are still in progress.
 - [ ] Parse parameter input on internal JACK client
 - [ ] Create barebones LV2 UI
 - [ ] Report available devices to LV2 UI
-- [ ] Dynamically switch devices in LV2 plugin
+- [x] Dynamically switch devices in LV2 plugin
 - [ ] Save and restore state in LV2 plugin
 - [x] SIMD (SSE+NEON) optimized resampler
 

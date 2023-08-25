@@ -450,7 +450,7 @@ error:
     return nullptr;
 }
 
-void runDeviceAudio(DeviceAudio* const dev, float* buffers[])
+bool runDeviceAudio(DeviceAudio* const dev, float* buffers[])
 {
     const uint32_t frame = dev->frame;
 
@@ -460,14 +460,20 @@ void runDeviceAudio(DeviceAudio* const dev, float* buffers[])
         runDeviceAudioPlayback(dev, buffers, frame);
 
     dev->frame += dev->bufferSize;
+
+    return dev->thread != 0;
 }
 
 void closeDeviceAudio(DeviceAudio* const dev)
 {
     const uint8_t channels = dev->hwstatus.channels;
-    dev->hwstatus.channels = 0;
-    sem_post(&dev->sem);
-    pthread_join(dev->thread, nullptr);
+
+    if (dev->thread != 0)
+    {
+        dev->hwstatus.channels = 0;
+        sem_post(&dev->sem);
+        pthread_join(dev->thread, nullptr);
+    }
 
     sem_destroy(&dev->sem);
     snd_pcm_close(dev->pcm);
