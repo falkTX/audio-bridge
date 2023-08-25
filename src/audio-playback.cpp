@@ -55,9 +55,6 @@ static void* devicePlaybackThread(void* const  arg)
     {
         const uint32_t frame = dev->frame;
 
-        if (loopCount == 5)
-            loopCount = 1;
-
         if (dev->hints & kDeviceInitializing)
         {
             // write silence until alsa buffers are full
@@ -79,14 +76,18 @@ static void* devicePlaybackThread(void* const  arg)
                 gain.setTargetValue(0.f);
                 gain.clearToTargetValue();
                 gain.setTargetValue(1.f);
+                loopCount = 1;
             }
             else
             {
-                --loopCount;
+                loopCount = 0;
                 deviceTimedWait(dev);
                 continue;
             }
         }
+
+        if (loopCount == 5)
+            loopCount = 1;
 
        #if 0
         // NOTE trick for when not using RT
