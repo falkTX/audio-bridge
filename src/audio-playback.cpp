@@ -92,11 +92,11 @@ static void* devicePlaybackThread(void* const  arg)
        #if 0
         // NOTE trick for when not using RT
         // sem_timedwait makes the scheduler put us at the end of the queue and we end up missing the audio timing
-        while (dev->ringbuffers[0].getReadableDataSize() == 0 && (dev->hints & kDeviceInitializing) == 0)
+        while (dev->ringbuffer->getReadableDataSize() == 0 && (dev->hints & kDeviceInitializing) == 0)
             sched_yield();
        #endif
 
-        if (dev->ringbuffers[0].getReadableDataSize() / sizeof(float) < bufferSizeOver4)
+        if (dev->ringbuffer->getNumReadableSamples() < bufferSizeOver4)
         {
             if (loopCount != 1)
             {
@@ -108,13 +108,10 @@ static void* devicePlaybackThread(void* const  arg)
             continue;
         }
 
-        for (uint8_t c=0; c<channels; ++c)
+        while (!dev->ringbuffer->read(buffers, bufferSizeOver4))
         {
-            while (!dev->ringbuffers[c].readCustomData(buffers[c], sizeof(float) * bufferSizeOver4))
-            {
-                DEBUGPRINT("%08u | playback | failed reading data", frame);
-                sched_yield();
-            }
+            DEBUGPRINT("%08u | playback | failed reading data", frame);
+            sched_yield();
         }
 
         if (dev->hwstatus.channels == 0)
@@ -233,7 +230,7 @@ static void* devicePlaybackThread(void* const  arg)
                     dev->timestamps.ratio = ((jackframes / alsaframes) + dev->timestamps.ratio * 511) / 512;
 
                     // sw ratio
-                    const uint32_t availtotal = avail + dev->ringbuffers[0].getReadableDataSize() / sizeof(float);
+                    const uint32_t availtotal = avail + dev->ringbuffer->getNumReadableSamples();
                     const double availratio = availtotal > bufferSizeOver4 ? 1.0001
                                             : availtotal < bufferSizeOver4 ? 0.9999 : 1;
                     dev->balance.ratio = (availratio + dev->balance.ratio * 511) / 512;
@@ -277,31 +274,20 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
         return;
     }
 
-    const uint8_t channels = dev->hwstatus.channels;
-    const uint16_t bufferSize = dev->bufferSize;
-
-    if (dev->ringbuffers[0].getWritableDataSize() < sizeof(float) * bufferSize)
+    if (dev->ringbuffer->getNumWritableSamples() < dev->bufferSize)
     {
         DEBUGPRINT("%08u | playback | buffer full, adding kDeviceInitializing", frame);
         dev->hints |= kDeviceInitializing;
-        for (uint8_t c=0; c<channels; ++c)
-            dev->ringbuffers[c].flush();
+        dev->ringbuffer->flush();
         return;
     }
 
-    const uint16_t bufferSizeOver4 = bufferSize / 4;
-    const uint16_t rbWriteSize = bufferSizeOver4 * sizeof(float);
-
-    for (uint8_t q=0; q<4; ++q)
+    while (!dev->ringbuffer->write(buffers, dev->bufferSize))
     {
-        for (int8_t c = channels; --c >= 0;)
-        {
-            while (!dev->ringbuffers[c].writeCustomData(buffers[c] + bufferSizeOver4 * q, rbWriteSize))
-                sched_yield();
-
-            dev->ringbuffers[c].commitWrite();
-        }
-
         sem_post(&dev->sem);
+        sched_yield();
+        sched_yield();
     }
+
+    sem_post(&dev->sem);
 }

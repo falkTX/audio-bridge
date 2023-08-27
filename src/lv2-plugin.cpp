@@ -18,7 +18,7 @@
 #include <cstring>
 
 static constexpr const uint8_t kMaxIO = 32;
-static constexpr const uint8_t kRingBufferDataFactor = sizeof(float) * 16;
+static constexpr const uint8_t kRingBufferDataFactor = 16;
 
 typedef std::vector<DeviceID>::const_reverse_iterator cri;
 
@@ -208,7 +208,7 @@ struct PluginData {
             *ports.status[5] = dev->timestamps.ratio;
             *ports.status[6] = dev->balance.ratio;
             *ports.status[7] = dev->timestamps.ratio * dev->balance.ratio;
-            *ports.status[8] = static_cast<float>(dev->ringbuffers[0].getReadableDataSize() / kRingBufferDataFactor)
+            *ports.status[8] = static_cast<float>(dev->ringbuffer->getNumReadableSamples() / kRingBufferDataFactor)
                              / static_cast<float>(maxRingBufferSize);
         }
         else
@@ -352,7 +352,7 @@ struct PluginData {
         DeviceAudio* const olddev = dev;
 
         dev = newdev;
-        maxRingBufferSize = newdev->ringbuffers[0].getSize() / kRingBufferDataFactor;
+        maxRingBufferSize = newdev->ringbuffer->getNumSamples() / kRingBufferDataFactor;
 
         if (olddev == nullptr)
             return LV2_WORKER_SUCCESS;

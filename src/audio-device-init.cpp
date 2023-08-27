@@ -407,13 +407,11 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         const size_t rawbufferlen = getSampleSizeFromHints(dev.hints) * dev.bufferSize * channels * 2;
         dev.buffers.raw = new int8_t[rawbufferlen];
         dev.buffers.f32 = new float*[channels];
-        dev.ringbuffers = new HeapRingBuffer[channels];
+        dev.ringbuffer = new AudioRingBuffer;
+        dev.ringbuffer->createBuffer(channels, dev.bufferSize * 32);
 
         for (uint8_t c=0; c<channels; ++c)
-        {
             dev.buffers.f32[c] = new float[dev.bufferSize * 2];
-            dev.ringbuffers[c].createBuffer(sizeof(float) * dev.bufferSize * 32);
-        }
 
         sem_init(&dev.sem, 0, 0);
 

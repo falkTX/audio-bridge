@@ -101,7 +101,7 @@ static void* deviceCaptureThread(void* const  arg)
 
             /*
             for (uint8_t c=0; c<channels; ++c)
-                dev->ringbuffers[c].clearData();
+                dev->ringbuffer->clearData();
             */
 
             DEBUGPRINT("%08u | capture | Read error %s\n", frame, snd_strerror(err));
@@ -149,8 +149,7 @@ static void* deviceCaptureThread(void* const  arg)
 
         while (frames != 0)
         {
-            const uint32_t rbavail = std::min<uint32_t>(frames,
-                                                        dev->ringbuffers[0].getWritableDataSize() / sizeof(float));
+            const uint32_t rbavail = std::min<uint32_t>(frames, dev->ringbuffer->getNumWritableSamples());
 
             if (rbavail == 0)
             {
@@ -158,15 +157,10 @@ static void* deviceCaptureThread(void* const  arg)
                 continue;
             }
 
-            for (int8_t c = channels; --c >= 0;)
+            while (!dev->ringbuffer->write(buffers, rbavail))
             {
-                while (!dev->ringbuffers[c].writeCustomData(buffers[c], sizeof(float) * rbavail))
-                {
-                    DEBUGPRINT("%08u | capture | failed writing data", frame);
-                    sched_yield();
-                }
-
-                dev->ringbuffers[c].commitWrite();
+                DEBUGPRINT("%08u | capture | failed writing data", frame);
+                sched_yield();
             }
 
             if (rbavail != frames)
@@ -192,7 +186,7 @@ static void* deviceCaptureThread(void* const  arg)
 
             if (dev->hints & kDeviceStarting)
             {
-                if (dev->ringbuffers[0].getReadableDataSize() / sizeof(float) >= bufferSize * 3)
+                if (dev->ringbuffer->getNumReadableSamples() >= bufferSize * 3)
                     dev->hints &= ~kDeviceStarting;
             }
             else
@@ -211,7 +205,7 @@ static void* deviceCaptureThread(void* const  arg)
                     dev->timestamps.ratio = ((jackframes / alsaframes) + dev->timestamps.ratio * 511) / 512;
 
                     // sw ratio
-                    const uint32_t availtotal = avail + dev->ringbuffers[0].getReadableDataSize() / sizeof(float);
+                    const uint32_t availtotal = avail + dev->ringbuffer->getNumReadableSamples();
                     const double availratio = availtotal > bufferSize * 3 ? 0.9999
                                             : availtotal < bufferSize * 3 ? 1.0001 : 1;
                     dev->balance.ratio = (availratio + dev->balance.ratio * 511) / 512;
@@ -251,30 +245,26 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
 {
     const uint8_t channels = dev->hwstatus.channels;
     const uint16_t bufferSize = dev->bufferSize;
-    const uint16_t bufferSizeOver4 = bufferSize / 4;
-    const uint16_t rbReadSize = bufferSizeOver4 * sizeof(float);
 
     if (dev->hints & kDeviceStarting)
         goto clear;
 
-    if (dev->ringbuffers[0].getReadableDataSize() < sizeof(float) * bufferSize)
+    if (dev->ringbuffer->getNumReadableSamples() < bufferSize)
     {
         DEBUGPRINT("%08u | capture | buffer empty, adding kDeviceInitializing", frame);
         dev->hints |= kDeviceInitializing|kDeviceStarting;
-        for (uint8_t c=0; c<channels; ++c)
-            dev->ringbuffers[c].flush();
+        dev->ringbuffer->flush();
         goto clear;
     }
 
-    for (uint8_t q=0; q<4; ++q)
+    while (!dev->ringbuffer->read(buffers, bufferSize))
     {
-        for (uint8_t c=0; c<channels; ++c)
-        {
-            while (!dev->ringbuffers[c].readCustomData(buffers[c] + bufferSizeOver4 * q, rbReadSize))
-                sched_yield();
-        }
         sem_post(&dev->sem);
+        sched_yield();
+        sched_yield();
     }
+
+    sem_post(&dev->sem);
 
     return;
 

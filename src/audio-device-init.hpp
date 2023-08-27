@@ -99,7 +99,7 @@ struct DeviceAudio {
 
     pthread_t thread;
     sem_t sem;
-    HeapRingBuffer* ringbuffers;
+    AudioRingBuffer* ringbuffer;
 };
 
 // --------------------------------------------------------------------------------------------------------------------
