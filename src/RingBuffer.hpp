@@ -217,7 +217,7 @@ public:
             if (! errorReading)
             {
                 errorReading = true;
-                d_stderr2("RingBuffer::tryRead(%p, %lu): failed, not enough space", samples, (ulong)samples);
+                d_stderr2("RingBuffer::tryRead(%p, %u): failed, not enough space", buffers, samples);
             }
             return false;
         }
@@ -273,7 +273,7 @@ public:
             if (! errorWriting)
             {
                 errorWriting = true;
-                d_stderr2("RingBuffer::tryWrite(%p, %lu): failed, not enough space", buffers, (ulong)samples);
+                d_stderr2("RingBuffer::tryWrite(%p, %u): failed, not enough space", buffers, samples);
             }
             return false;
         }
