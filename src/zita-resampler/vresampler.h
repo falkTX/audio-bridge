@@ -1,8 +1,8 @@
 // ----------------------------------------------------------------------------
 //
-//  Copyright (C) 2006-2020 Fons Adriaensen <fons@linuxaudio.org>
+//  Copyright (C) 2006-2023 Fons Adriaensen <fons@linuxaudio.org>
 //  Copyright (C) 2023 falkTX <falktx@falktx.com>
-//    
+//
 //  This program is free software; you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License as published by
 //  the Free Software Foundation; either version 3 of the License, or
@@ -30,28 +30,28 @@ class VResampler
 {
 public:
 
-    VResampler (void);
+    VResampler (void) noexcept;
     ~VResampler (void);
 
-    int  setup (double       ratio,
+    bool setup (double       ratio,
                 unsigned int nchan,
                 unsigned int hlen);
 
-    int  setup (double       ratio,
+    bool setup (double       ratio,
                 unsigned int nchan,
                 unsigned int hlen,
                 double       frel);
 
     void   clear (void);
-    int    reset (void);
-    int    nchan (void) const { return _nchan; }
-    int    inpsize (void) const;
-    double inpdist (void) const;
-    int    process (void);
-    
+    bool   reset (void) noexcept;
+    int    nchan (void) const noexcept { return _nchan; }
+    int    inpsize (void) const noexcept;
+    double inpdist (void) const noexcept;
+    bool   process (void);
+
     void set_phase (double p);
     void set_rrfilt (double t);
-    void set_rratio (double r);    
+    void set_rratio (double r);
 
     unsigned int         inp_count;
     unsigned int         out_count;

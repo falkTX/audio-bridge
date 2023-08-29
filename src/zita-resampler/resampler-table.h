@@ -1,7 +1,8 @@
 // ----------------------------------------------------------------------------
 //
-//  Copyright (C) 2006-2020 Fons Adriaensen <fons@linuxaudio.org>
-//    
+//  Copyright (C) 2006-2023 Fons Adriaensen <fons@linuxaudio.org>
+//  Copyright (C) 2023 falkTX <falktx@falktx.com>
+//
 //  This program is free software; you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License as published by
 //  the Free Software Foundation; either version 3 of the License, or
@@ -25,17 +26,13 @@
 #include <pthread.h>
 
 
-extern int zita_resampler_major_version (void);
-extern int zita_resampler_minor_version (void);
-
-
 class Resampler_mutex
 {
 private:
 
     friend class Resampler_table;
 
-    Resampler_mutex (void) { pthread_mutex_init (&_mutex, 0); }
+    Resampler_mutex (void) { pthread_mutex_init (&_mutex, nullptr); }
     ~Resampler_mutex (void) { pthread_mutex_destroy (&_mutex); }
     void lock (void) { pthread_mutex_lock (&_mutex); }
     void unlock (void) { pthread_mutex_unlock (&_mutex); }
@@ -46,10 +43,6 @@ private:
 
 class Resampler_table
 {
-public:
-
-    static void print_list (void);
-
 private:
 
     Resampler_table (double fr, unsigned int hl, unsigned int np);

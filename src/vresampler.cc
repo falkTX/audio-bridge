@@ -1,8 +1,8 @@
 // ----------------------------------------------------------------------------
 //
-//  Copyright (C) 2006-2022 Fons Adriaensen <fons@linuxaudio.org>
+//  Copyright (C) 2006-2023 Fons Adriaensen <fons@linuxaudio.org>
 //  Copyright (C) 2023 falkTX <falktx@falktx.com>
-//    
+//
 //  This program is free software; you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License as published by
 //  the Free Software Foundation; either version 3 of the License, or
@@ -36,7 +36,7 @@
 #include "zita-resampler/vresampler.h"
 
 
-VResampler::VResampler (void) :
+VResampler::VResampler (void) noexcept :
     _table (0),
     _nchan (0),
     _buff  (0),
@@ -53,18 +53,18 @@ VResampler::~VResampler (void)
 }
 
 
-int VResampler::setup (double       ratio,
-                       unsigned int nchan,
-                       unsigned int hlen)
+bool VResampler::setup (double       ratio,
+                        unsigned int nchan,
+                        unsigned int hlen)
 {
     return setup (ratio, nchan, hlen, 1.0 - 2.6 / hlen);
 }
 
 
-int VResampler::setup (double       ratio,
-                       unsigned int nchan,
-                       unsigned int hlen,
-                       double       frel)
+bool VResampler::setup (double       ratio,
+                        unsigned int nchan,
+                        unsigned int hlen,
+                        double       frel)
 {
     unsigned int       hl, mi, n;
     double             dp;
@@ -73,7 +73,7 @@ int VResampler::setup (double       ratio,
     if (!nchan || (hlen < 8) || (hlen > 96) || (64 * ratio < 1) || (ratio > 256))
     {
         clear ();
-        return 1;
+        return false;
     }
 
     dp = NPHASE / ratio;
@@ -111,7 +111,7 @@ int VResampler::setup (double       ratio,
         _wstep = 1;
         return reset ();
     }
-    else return 1;
+    else return false;
 }
 
 
@@ -127,7 +127,7 @@ void VResampler::clear (void)
     delete[] _c1;
     delete[] _c2;
    #endif
-    _buff  = 0;
+    _buff = 0;
     _c1 = 0;
     _c2 = 0;
     _table = 0;
@@ -163,23 +163,23 @@ void VResampler::set_rratio (double r)
 }
 
 
-double VResampler::inpdist (void) const
+double VResampler::inpdist (void) const noexcept
 {
     if (!_table) return 0;
     return (int)(_table->_hl + 1 - _nread) - _phase / _table->_np;
 }
 
 
-int VResampler::inpsize (void) const
+int VResampler::inpsize (void) const noexcept
 {
     if (!_table) return 0;
     return 2 * _table->_hl;
 }
 
 
-int VResampler::reset (void)
+bool VResampler::reset (void) noexcept
 {
-    if (!_table) return 1;
+    if (!_table) return false;
 
     inp_count = 0;
     out_count = 0;
@@ -192,20 +192,20 @@ int VResampler::reset (void)
     if (_table)
     {
         _nread = 2 * _table->_hl;
-        return 0;
+        return true;
     }
-    return 1;
+    return false;
 }
 
 
-int VResampler::process (void)
+bool VResampler::process (void)
 {
     int            nr, np, hl, nz, di, i, n;
     unsigned int   in, j, inp_i, outp_i;
     double         ph, dp, dd;
     float          a, b, *p1, *p2, *q1, *q2;
 
-    if (!_table) return 1;
+    if (!_table) return false;
 
     hl = _table->_hl;
     np = _table->_np;
@@ -275,38 +275,35 @@ int VResampler::process (void)
                 out_data[j][outp_i] = S [0] + S [1] + S [2] + S [3];
             }
            #elif defined(__ARM_NEON) || defined(__ARM_NEON__)
-            float32x4_t C1, C2, Q1, Q2, S, R;
-            C1 = vld1q_dup_f32 (&a);
-            C2 = vld1q_dup_f32 (&b);
-            for (i = 0; i < hl; i += 4)
+            // ARM64 version by Nicolas Belin <nbelin@baylibre.com>
+            float32x4_t *C1 = (float32x4_t *)_c1;
+            float32x4_t *C2 = (float32x4_t *)_c2;
+            float32x4_t S, T;
+            for (i = 0; i < (hl>>2); i++)
             {
-                Q1 = vld1q_f32 (q1 + i);
-                Q2 = vld1q_f32 (q1 + i + hl);
-                S = vaddq_f32 (vmulq_f32 (Q1, C1), vmulq_f32 (Q2, C2));
-                vst1q_f32 (_c1 + i, S);
-                Q1 = vld1q_f32 (q2 + i);
-                Q2 = vld1q_f32 (q2 + i - hl);
-                S = vaddq_f32 (vmulq_f32 (Q1, C1), vmulq_f32 (Q2, C2));
-                vst1q_f32 (_c2 + i, S);
+                T = vmulq_n_f32 (vld1q_f32 (q1 + hl), b);
+                C1 [i] = vmlaq_n_f32 (T, vld1q_f32 (q1), a);
+                T = vmulq_n_f32 (vld1q_f32 (q2 - hl), b);
+                C2 [i] = vmlaq_n_f32 (T, vld1q_f32 (q2), a);
+                q2 += 4;
+                q1 += 4;
             }
             for (j = 0; j < _nchan; j++)
             {
                 q1 = p1 + j * di;
-                q2 = p2 + j * di;
-                S = vdupq_n_f32 (0);
-                for (i = 0; i < hl; i += 4)
+                q2 = p2 + j * di - 4;
+                T = vrev64q_f32 (vld1q_f32 (q2));
+                S = vmulq_f32 (vextq_f32 (T, T, 2), C2 [0]);
+                S = vmlaq_f32 (S, vld1q_f32 (q1), C1 [0]);
+                for (i = 1; i < (hl>>2); i++)
                 {
-                    C1 = vld1q_f32(_c1 + i);
-                    Q1 = vld1q_f32 (q1);
                     q2 -= 4;
-                    S = vaddq_f32 (S, vmulq_f32 (C1, Q1));
-                    R = vrev64q_f32 (vld1q_f32 (_c2 + i));
-                    C2 = vextq_f32 (R, R, 2);
-                    Q2 = vld1q_f32 (q2);
                     q1 += 4;
-                    S = vaddq_f32 (S, vmulq_f32 (C2, Q2));
+                    T = vrev64q_f32 (vld1q_f32 (q2));
+                    S = vmlaq_f32 (S, vextq_f32 (T, T, 2), C2 [i]);
+                    S = vmlaq_f32 (S, vld1q_f32 (q1), C1 [i]);
                 }
-                out_data[j][outp_i] = S [0] + S [1] + S [2] + S [3];
+                out_data[j][outp_i] = vaddvq_f32 (S);
             }
            #else
             float s;
@@ -334,7 +331,6 @@ int VResampler::process (void)
         {
             for (j = 0; j < _nchan; j++) out_data[j][outp_i] = 0;
         }
-
         --out_count;
         ++outp_i;
 
@@ -370,6 +366,5 @@ int VResampler::process (void)
     _pstep = dp;
     _nzero = nz;
 
-    return 0;
+    return true;
 }
-

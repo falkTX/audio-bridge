@@ -1,8 +1,8 @@
 // ----------------------------------------------------------------------------
 //
-//  Copyright (C) 2006-2020 Fons Adriaensen <fons@linuxaudio.org>
+//  Copyright (C) 2006-2023 Fons Adriaensen <fons@linuxaudio.org>
 //  Copyright (C) 2023 falkTX <falktx@falktx.com>
-//    
+//
 //  This program is free software; you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License as published by
 //  the Free Software Foundation; either version 3 of the License, or
@@ -148,17 +148,3 @@ void Resampler_table::destroy (Resampler_table *T)
     }
     _mutex.unlock ();
 }
-
-
-void Resampler_table::print_list (void)
-{
-    Resampler_table *P;
-
-    printf ("Resampler table\n----\n");
-    for (P = _list; P; P = P->_next)
-    {
-        printf ("refc = %3d   fr = %10.6lf  hl = %4d  np = %4d\n", P->_refc, P->_fr, P->_hl, P->_np);
-    }
-    printf ("----\n\n");
-}
-
