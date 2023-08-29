@@ -137,8 +137,6 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
 static void deviceFailInitHints(DeviceAudio* const dev)
 {
     dev->hints |= kDeviceInitializing|kDeviceStarting;
-    dev->balance.mode = kBalanceNormal;
-    dev->balance.slowingDown = dev->balance.speedingUp = 0;
     dev->balance.ratio = 1.0;
     dev->timestamps.alsaStartTime = dev->timestamps.jackStartFrame = 0;
     dev->timestamps.ratio = 1.0;
@@ -331,18 +329,29 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         goto error;
     }
 
-    // SND_PCM_TSTAMP_NONE SND_PCM_TSTAMP_ENABLE (= SND_PCM_TSTAMP_MMAP)
-    if ((err = snd_pcm_sw_params_set_tstamp_mode(dev.pcm, swparams, SND_PCM_TSTAMP_MMAP)) != 0)
+    if (playback)
     {
-        DEBUGPRINT("snd_pcm_sw_params_set_tstamp_mode fail %s", snd_strerror(err));
-        goto error;
+        if ((err = snd_pcm_sw_params_set_tstamp_mode(dev.pcm, swparams, SND_PCM_TSTAMP_NONE)) != 0)
+        {
+            DEBUGPRINT("snd_pcm_sw_params_set_tstamp_mode fail %s", snd_strerror(err));
+            goto error;
+        }
     }
-
-    // SND_PCM_TSTAMP_TYPE_MONOTONIC
-    if ((err = snd_pcm_sw_params_set_tstamp_type(dev.pcm, swparams, SND_PCM_TSTAMP_TYPE_MONOTONIC_RAW)) != 0)
+    else
     {
-        DEBUGPRINT("snd_pcm_sw_params_set_tstamp_type fail %s", snd_strerror(err));
-        goto error;
+        // SND_PCM_TSTAMP_NONE SND_PCM_TSTAMP_ENABLE (= SND_PCM_TSTAMP_MMAP)
+        if ((err = snd_pcm_sw_params_set_tstamp_mode(dev.pcm, swparams, SND_PCM_TSTAMP_MMAP)) != 0)
+        {
+            DEBUGPRINT("snd_pcm_sw_params_set_tstamp_mode fail %s", snd_strerror(err));
+            goto error;
+        }
+
+        // SND_PCM_TSTAMP_TYPE_MONOTONIC
+        if ((err = snd_pcm_sw_params_set_tstamp_type(dev.pcm, swparams, SND_PCM_TSTAMP_TYPE_MONOTONIC_RAW)) != 0)
+        {
+            DEBUGPRINT("snd_pcm_sw_params_set_tstamp_type fail %s", snd_strerror(err));
+            goto error;
+        }
     }
 
     if ((err = snd_pcm_sw_params_set_start_threshold(dev.pcm, swparams, 0)) != 0)
@@ -357,12 +366,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         goto error;
     }
 
-    if (playback)
-        err = snd_pcm_sw_params_set_avail_min(dev.pcm, swparams, bufferSize * (dev.hwstatus.periods - 1));
-    else
-        err = snd_pcm_sw_params_set_avail_min(dev.pcm, swparams, 1);
-
-    if (err != 0)
+    if ((err = snd_pcm_sw_params_set_avail_min(dev.pcm, swparams, playback ? bufferSize * (dev.hwstatus.periods - 1) : 1)) != 0)
     {
         DEBUGPRINT("snd_pcm_sw_params_set_avail_min fail %s", snd_strerror(err));
         goto error;

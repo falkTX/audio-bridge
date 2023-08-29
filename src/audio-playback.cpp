@@ -72,7 +72,9 @@ static void* devicePlaybackThread(void* const  arg)
             if (restarted)
             {
                 DEBUGPRINT("%08u | playback | can write data, removing kDeviceInitializing", frame);
+                deviceFailInitHints(dev);
                 dev->hints &= ~kDeviceInitializing;
+                resampler->set_rratio(1.0);
                 gain.setTargetValue(0.f);
                 gain.clearToTargetValue();
                 gain.setTargetValue(1.f);
@@ -168,11 +170,10 @@ static void* devicePlaybackThread(void* const  arg)
             {
                 deviceFailInitHints(dev);
                 resampler->set_rratio(1.0);
-
-                // common setup
                 gain.setTargetValue(0.f);
                 gain.clearToTargetValue();
                 gain.setTargetValue(1.f);
+                loopCount = 0;
 
                 printf("%08u | playback | Write error: %s\n", frame, snd_strerror(err));
 
@@ -201,12 +202,11 @@ static void* devicePlaybackThread(void* const  arg)
             if (loopCount != 4 || ptr != dev->buffers.raw)
                 break;
 
-            snd_pcm_uframes_t avail;
-            snd_htimestamp_t ts;
+            const snd_pcm_sframes_t avail = snd_pcm_avail(dev->pcm);
 
-            if (snd_pcm_htimestamp(dev->pcm, &avail, &ts) != 0)
+            if (avail < 0)
             {
-                DEBUGPRINT("snd_pcm_htimestamp failed");
+                DEBUGPRINT("snd_pcm_avail failed");
                 break;
             }
 
@@ -216,36 +216,25 @@ static void* devicePlaybackThread(void* const  arg)
             }
             else
             {
-                if (dev->timestamps.alsaStartTime == 0)
+                // hw ratio
+                const double availratio = avail > bufferSize / 2 ? 1.00001 : 1;
+                dev->timestamps.ratio = (availratio + dev->timestamps.ratio * 511) / 512;
+
+                // sw ratio
+                const uint32_t rbavail = dev->ringbuffer->getNumReadableSamples();
+                const double rbavailratio = rbavail >= bufferSize ? 0.9999 : 1;
+                dev->balance.ratio = (rbavailratio + dev->balance.ratio * 511) / 512;
+
+                // combined ratio for dynamic resampling
+                resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
+
+                // TESTING DEBUG REMOVE ME
+                if ((frame % dev->sampleRate) == 0 || rbavail >= bufferSize * 2 || avail > 255)
                 {
-                    dev->timestamps.alsaStartTime = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
-                    dev->timestamps.jackStartFrame = frame;
-                }
-                else
-                {
-                    // hw ratio
-                    const uint64_t alsadiff = ts.tv_sec * 1000000000ULL + ts.tv_nsec - dev->timestamps.alsaStartTime;
-                    const double alsaframes = static_cast<double>(alsadiff * dev->sampleRate / 1000000000ULL);
-                    const double jackframes = static_cast<double>(frame - dev->timestamps.jackStartFrame);
-                    dev->timestamps.ratio = ((alsaframes / jackframes) + dev->timestamps.ratio * 511) / 512;
-
-                    // sw ratio
-                    const uint32_t availtotal = avail + dev->ringbuffer->getNumReadableSamples();
-                    const double availratio = availtotal > bufferSizeOver4 ? 1.0001
-                                            : availtotal < bufferSizeOver4 ? 0.9999 : 1;
-                    dev->balance.ratio = (availratio + dev->balance.ratio * 511) / 512;
-
-                    // combined ratio for dynamic resampling
-                    resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
-
-                    // TESTING DEBUG REMOVE ME
-                    if ((frame % dev->sampleRate) == 0 || avail > 255)
-                    {
-                        DEBUGPRINT("%08u | playback | %.09f = %.09f * %.09f | %3u %3ld",
-                                    frame, dev->timestamps.ratio * dev->balance.ratio,
-                                    dev->timestamps.ratio, dev->balance.ratio,
-                                    availtotal, avail);
-                    }
+                    DEBUGPRINT("%08u | playback | %.09f = %.09f * %.09f | %3u %3ld",
+                                frame, dev->timestamps.ratio * dev->balance.ratio,
+                                dev->timestamps.ratio, dev->balance.ratio,
+                                rbavail, avail);
                 }
             }
 

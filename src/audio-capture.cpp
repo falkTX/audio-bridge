@@ -202,13 +202,14 @@ static void* deviceCaptureThread(void* const  arg)
                     const uint64_t alsadiff = ts.tv_sec * 1000000000ULL + ts.tv_nsec - dev->timestamps.alsaStartTime;
                     const double alsaframes = static_cast<double>(alsadiff * dev->sampleRate / 1000000000ULL);
                     const double jackframes = static_cast<double>(frame - dev->timestamps.jackStartFrame);
-                    dev->timestamps.ratio = ((alsaframes / jackframes) + dev->timestamps.ratio * 511) / 512;
+                    const double diffratio = std::max(0.9999, std::min(1.0001, alsaframes / jackframes));
+                    dev->timestamps.ratio = (diffratio + dev->timestamps.ratio * 511) / 512;
 
                     // sw ratio
-                    const uint32_t availtotal = avail + dev->ringbuffer->getNumReadableSamples();
-                    const double availratio = availtotal > bufferSize * 2 ? 0.9999
-                                            : availtotal < bufferSize * 2 ? 1.0001 : 1;
-                    dev->balance.ratio = (availratio + dev->balance.ratio * 511) / 512;
+                    const uint32_t rbreadavail = dev->ringbuffer->getNumReadableSamples();
+                    const double rbavailratio = rbreadavail > bufferSize * 2 ? 0.9999
+                                              : rbreadavail < bufferSize * 1 ? 1.0001 : 1;
+                    dev->balance.ratio = (rbavailratio + dev->balance.ratio * 511) / 512;
 
                     // combined ratio for dynamic resampling
                     resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
@@ -219,7 +220,7 @@ static void* deviceCaptureThread(void* const  arg)
                         DEBUGPRINT("%08u | capture | %.09f = %.09f * %.09f | %3u %3ld",
                                     frame, dev->timestamps.ratio * dev->balance.ratio,
                                     dev->timestamps.ratio, dev->balance.ratio,
-                                    availtotal, avail);
+                                    rbreadavail, avail);
                     }
                 }
             }

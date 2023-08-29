@@ -40,36 +40,8 @@ uint8_t getSampleSizeFromHints(const uint8_t hints)
 
 // --------------------------------------------------------------------------------------------------------------------
 
-enum BalanceMode {
-    kBalanceNormal = 0,
-    kBalanceSlowingDown,
-    kBalanceSpeedingUp,
-};
-
-static inline
-const char* BalanceModeToStr(const uint8_t mode)
-{
-    switch (mode)
-    {
-    case kBalanceNormal:
-        return "kBalanceNormal";
-    case kBalanceSlowingDown:
-        return "kBalanceSlowingDown";
-    case kBalanceSpeedingUp:
-        return "kBalanceSpeedingUp";
-    }
-
-    return "";
-}
-
-// --------------------------------------------------------------------------------------------------------------------
-
 struct DeviceAudio {
     struct Balance {
-        uint8_t mode = kBalanceNormal;
-        uint8_t unused[3];
-        uint16_t slowingDown = 0;
-        uint16_t speedingUp = 0;
         double ratio = 1.0;
     } balance;
 
