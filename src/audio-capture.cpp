@@ -202,12 +202,12 @@ static void* deviceCaptureThread(void* const  arg)
                     const uint64_t alsadiff = ts.tv_sec * 1000000000ULL + ts.tv_nsec - dev->timestamps.alsaStartTime;
                     const double alsaframes = static_cast<double>(alsadiff * dev->sampleRate / 1000000000ULL);
                     const double jackframes = static_cast<double>(frame - dev->timestamps.jackStartFrame);
-                    dev->timestamps.ratio = ((jackframes / alsaframes) + dev->timestamps.ratio * 511) / 512;
+                    dev->timestamps.ratio = ((alsaframes / jackframes) + dev->timestamps.ratio * 511) / 512;
 
                     // sw ratio
                     const uint32_t availtotal = avail + dev->ringbuffer->getNumReadableSamples();
-                    const double availratio = availtotal > bufferSize * 3 ? 0.9999
-                                            : availtotal < bufferSize * 3 ? 1.0001 : 1;
+                    const double availratio = availtotal > bufferSize * 2 ? 0.9999
+                                            : availtotal < bufferSize * 2 ? 1.0001 : 1;
                     dev->balance.ratio = (availratio + dev->balance.ratio * 511) / 512;
 
                     // combined ratio for dynamic resampling

@@ -227,7 +227,7 @@ static void* devicePlaybackThread(void* const  arg)
                     const uint64_t alsadiff = ts.tv_sec * 1000000000ULL + ts.tv_nsec - dev->timestamps.alsaStartTime;
                     const double alsaframes = static_cast<double>(alsadiff * dev->sampleRate / 1000000000ULL);
                     const double jackframes = static_cast<double>(frame - dev->timestamps.jackStartFrame);
-                    dev->timestamps.ratio = ((jackframes / alsaframes) + dev->timestamps.ratio * 511) / 512;
+                    dev->timestamps.ratio = ((alsaframes / jackframes) + dev->timestamps.ratio * 511) / 512;
 
                     // sw ratio
                     const uint32_t availtotal = avail + dev->ringbuffer->getNumReadableSamples();
