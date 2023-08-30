@@ -202,7 +202,7 @@ static void* devicePlaybackThread(void* const  arg)
             if (loopCount != 4 || ptr != dev->buffers.raw)
                 break;
 
-            const snd_pcm_sframes_t avail = snd_pcm_avail(dev->pcm);
+            const snd_pcm_sframes_t avail = snd_pcm_avail_update(dev->pcm);
 
             if (avail < 0)
             {
@@ -217,7 +217,7 @@ static void* devicePlaybackThread(void* const  arg)
             else
             {
                 // hw ratio
-                const double availratio = avail > bufferSize / 2 ? 1.00001 : 1;
+                const double availratio = avail > bufferSize / 4 ? 1.0001 : 1;
                 dev->timestamps.ratio = (availratio + dev->timestamps.ratio * 511) / 512;
 
                 // sw ratio
@@ -229,7 +229,7 @@ static void* devicePlaybackThread(void* const  arg)
                 resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
 
                 // TESTING DEBUG REMOVE ME
-                if ((frame % dev->sampleRate) == 0 || rbavail >= bufferSize * 2 || avail > 255)
+                if (avail > 255 || (d_isNotEqual(rbavailratio, 1.0) && (frame % dev->sampleRate) == 0))
                 {
                     DEBUGPRINT("%08u | playback | %.09f = %.09f * %.09f | %3u %3ld",
                                 frame, dev->timestamps.ratio * dev->balance.ratio,

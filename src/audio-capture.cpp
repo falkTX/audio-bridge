@@ -215,7 +215,7 @@ static void* deviceCaptureThread(void* const  arg)
                     resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
 
                     // TESTING DEBUG REMOVE ME
-                    if ((frame % dev->sampleRate) == 0 || avail > 255)
+                    if (avail > 255 || (d_isNotEqual(rbavailratio, 1.0) && (frame % dev->sampleRate) == 0))
                     {
                         DEBUGPRINT("%08u | capture | %.09f = %.09f * %.09f | %3u %3ld",
                                     frame, dev->timestamps.ratio * dev->balance.ratio,
