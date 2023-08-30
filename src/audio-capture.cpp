@@ -57,12 +57,12 @@ static void* deviceCaptureThread(void* const  arg)
 
         if (dev->hints & kDeviceInitializing)
         {
-            // read until alsa buffers are empty
+            // try read until we get audio
             bool restarted = false;
-            while ((err = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSize)) > 0)
+            if (snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, 1) > 0)
                 restarted = true;
 
-            if (err != -EAGAIN)
+            if (err < 0 && err != -EAGAIN)
             {
                 printf("%08u | capture | initial read error: %s\n", frame, snd_strerror(err));
                 goto end;
@@ -70,6 +70,12 @@ static void* deviceCaptureThread(void* const  arg)
 
             if (restarted)
             {
+                while (snd_pcm_avail_update(dev->pcm) < bufferSize * 2)
+                {
+                    DEBUGPRINT("%08u | capture | can read data, waiting for enough samples", frame);
+                    deviceTimedWait(dev);
+                }
+
                 DEBUGPRINT("%08u | capture | can read data, removing kDeviceInitializing", frame);
                 dev->hints &= ~kDeviceInitializing;
                 gain.setTargetValue(0.f);
@@ -78,19 +84,19 @@ static void* deviceCaptureThread(void* const  arg)
             }
             else
             {
-                deviceTimedWait(dev);
+                sem_wait(&dev->sem);
                 continue;
             }
         }
 
-        err = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSizeOver4);
+        err = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSize);
 
         if (dev->hwstatus.channels == 0)
             break;
 
         if (err == -EAGAIN)
         {
-            deviceTimedWait(dev);
+            sem_wait(&dev->sem);
             continue;
         }
 
@@ -114,6 +120,12 @@ static void* deviceCaptureThread(void* const  arg)
             }
 
             break;
+        }
+
+        while (snd_pcm_avail_update(dev->pcm) < bufferSize)
+        {
+            // DEBUGPRINT("%08u | capture | waiting for enough samples", frame);
+            sem_wait(&dev->sem);
         }
 
         switch (hints & kDeviceSampleHints)
@@ -153,7 +165,7 @@ static void* deviceCaptureThread(void* const  arg)
 
             if (rbavail == 0)
             {
-                deviceTimedWait(dev);
+                sem_wait(&dev->sem);
                 continue;
             }
 
@@ -171,7 +183,11 @@ static void* deviceCaptureThread(void* const  arg)
             }
 
             if (lastframe == frame)
+            {
+            // sem_wait(&dev->sem);
+                deviceTimedWait(dev);
                 break;
+            }
 
             lastframe = frame;
 
@@ -186,8 +202,11 @@ static void* deviceCaptureThread(void* const  arg)
 
             if (dev->hints & kDeviceStarting)
             {
-                if (avail + bufferSizeOver4 + dev->ringbuffer->getNumReadableSamples() >= bufferSize * 2)
+                if (avail >= bufferSize * 2 && dev->ringbuffer->getNumWritableSamples() >= bufferSize * 2)
+                {
+                    DEBUGPRINT("%08u | capture | has enough samples, removing kDeviceStarting", frame);
                     dev->hints &= ~kDeviceStarting;
+                }
             }
             else
             {
@@ -199,23 +218,28 @@ static void* deviceCaptureThread(void* const  arg)
                 else
                 {
                     // hw ratio
-                    const uint64_t alsadiff = ts.tv_sec * 1000000000ULL + ts.tv_nsec - dev->timestamps.alsaStartTime;
-                    const double alsaframes = static_cast<double>(alsadiff * dev->sampleRate / 1000000000ULL);
-                    const double jackframes = static_cast<double>(frame - dev->timestamps.jackStartFrame);
-                    const double diffratio = std::max(0.9999, std::min(1.0001, alsaframes / jackframes));
-                    dev->timestamps.ratio = (diffratio + dev->timestamps.ratio * 511) / 512;
+                    // const uint64_t alsadiff = ts.tv_sec * 1000000000ULL + ts.tv_nsec - dev->timestamps.alsaStartTime;
+                    // const double alsaframes = static_cast<double>(alsadiff * dev->sampleRate / 1000000000ULL);
+                    // const double jackframes = static_cast<double>(frame - dev->timestamps.jackStartFrame);
+                    // const double diffratio = std::max(1.0, std::min(1.0001, alsaframes / jackframes)) / dev->balance.ratio;
+                    // dev->timestamps.ratio = (diffratio + dev->timestamps.ratio * 511) / 512;
+                    // const double availratio = avail >= bufferSizeOver4 ? 1.0001 : 1;
+                    // dev->timestamps.ratio = (availratio + dev->timestamps.ratio * 511) / 512;
+
+                    // const double availratio = avail < bufferSize * 2 ? 1.0001 : 1;
+                    // dev->timestamps.ratio = (availratio + dev->timestamps.ratio * 511) / 512;
 
                     // sw ratio
                     const uint32_t rbreadavail = dev->ringbuffer->getNumReadableSamples();
-                    const double rbavailratio = rbreadavail > bufferSize * 2 ? 0.9999
-                                              : rbreadavail < bufferSize * 1 ? 1.0001 : 1;
+                    const double rbavailratio = rbreadavail > bufferSize * 4 ? 0.9999 : 1;
+                                              // : rbreadavail < bufferSize * 2.5 ? 1.001 : 1;
                     dev->balance.ratio = (rbavailratio + dev->balance.ratio * 511) / 512;
 
                     // combined ratio for dynamic resampling
                     resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
 
                     // TESTING DEBUG REMOVE ME
-                    if (avail > 255 || (d_isNotEqual(rbavailratio, 1.0) && (frame % dev->sampleRate) == 0))
+                    if (/*avail > 255 || (d_isNotEqual(rbavailratio, 1.0)) ||*/ (frame % dev->sampleRate) == 0)
                     {
                         DEBUGPRINT("%08u | capture | %.09f = %.09f * %.09f | %3u %3ld",
                                     frame, dev->timestamps.ratio * dev->balance.ratio,
@@ -225,6 +249,7 @@ static void* deviceCaptureThread(void* const  arg)
                 }
             }
 
+            deviceTimedWait(dev);
             break;
         }
     }
@@ -252,10 +277,30 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
 
     if (dev->ringbuffer->getNumReadableSamples() < bufferSize)
     {
-        DEBUGPRINT("%08u | capture | buffer empty, adding kDeviceInitializing", frame);
-        dev->hints |= kDeviceInitializing|kDeviceStarting;
-        dev->ringbuffer->flush();
-        goto clear;
+        DEBUGPRINT("%08u | capture | buffer empty, trying a wait!", frame);
+
+        for (int i=0; i < 5000; ++i)
+        {
+            sem_post(&dev->sem);
+            sched_yield();
+            sched_yield();
+            sched_yield();
+            sched_yield();
+        
+            if (dev->ringbuffer->getNumReadableSamples() >= bufferSize)
+            {
+                DEBUGPRINT("%08u | capture | buffer empty, but recovered at %d attempt", frame, i);
+                break;
+            }
+        }
+
+        if (dev->ringbuffer->getNumReadableSamples() < bufferSize)
+        {
+            DEBUGPRINT("%08u | capture | buffer empty, adding kDeviceInitializing", frame);
+            dev->hints |= kDeviceInitializing|kDeviceStarting;
+            dev->ringbuffer->flush();
+            goto clear;
+        }
     }
 
     while (!dev->ringbuffer->read(buffers, bufferSize))

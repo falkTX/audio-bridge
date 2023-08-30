@@ -217,7 +217,7 @@ static void* devicePlaybackThread(void* const  arg)
             else
             {
                 // hw ratio
-                const double availratio = avail > bufferSize / 4 ? 1.0001 : 1;
+                const double availratio = avail > bufferSizeOver4 ? 1.0001 : 1;
                 dev->timestamps.ratio = (availratio + dev->timestamps.ratio * 511) / 512;
 
                 // sw ratio
