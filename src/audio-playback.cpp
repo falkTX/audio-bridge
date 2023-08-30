@@ -266,7 +266,7 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
     if (dev->ringbuffer->getNumWritableSamples() < dev->bufferSize)
     {
         DEBUGPRINT("%08u | playback | buffer full, adding kDeviceInitializing", frame);
-        dev->hints |= kDeviceInitializing;
+        dev->hints |= kDeviceInitializing|kDeviceStarting;
         dev->ringbuffer->flush();
         return;
     }

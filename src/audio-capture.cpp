@@ -186,7 +186,7 @@ static void* deviceCaptureThread(void* const  arg)
 
             if (dev->hints & kDeviceStarting)
             {
-                if (dev->ringbuffer->getNumReadableSamples() >= bufferSize * 3)
+                if (avail + bufferSizeOver4 + dev->ringbuffer->getNumReadableSamples() >= bufferSize * 2)
                     dev->hints &= ~kDeviceStarting;
             }
             else
