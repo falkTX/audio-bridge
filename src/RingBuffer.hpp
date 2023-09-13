@@ -185,7 +185,7 @@ public:
     {
         const uint32_t wrap = buffer.tail > buffer.head ? 0 : buffer.samples;
 
-        return wrap + buffer.tail - buffer.head;
+        return wrap + buffer.tail - buffer.head - 1;
     }
 
     // ----------------------------------------------------------------------------------------------------------------
@@ -268,7 +268,7 @@ public:
         const uint32_t tail = buffer.tail;
         const uint32_t wrap = tail > head ? 0 : buffer.samples;
 
-        if (samples > wrap + tail - head)
+        if (samples >= wrap + tail - head)
         {
             if (! errorWriting)
             {
