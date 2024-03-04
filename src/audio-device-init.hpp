@@ -3,14 +3,12 @@
 
 #pragma once
 
-//#define ALSA_PCM_NEW_HW_PARAMS_API
-//#define ALSA_PCM_NEW_SW_PARAMS_API
-#include <alsa/asoundlib.h>
-#include <jack/ringbuffer.h>
+#include <cstdint>
 #include <pthread.h>
-#include <semaphore.h>
 
+#include "AudioDevice.hpp"
 #include "RingBuffer.hpp"
+#include "Semaphore.hpp"
 #include "ValueSmoother.hpp"
 
 #include "zita-resampler/vresampler.h"
@@ -58,7 +56,7 @@ struct DeviceAudio {
         uint16_t bufferSize;
     } hwstatus;
 
-    snd_pcm_t* pcm;
+    d_audio_device pcm;
     uint32_t frame;
     uint32_t sampleRate;
     uint16_t bufferSize;
@@ -70,7 +68,7 @@ struct DeviceAudio {
     } buffers;
 
     pthread_t thread;
-    sem_t sem;
+    d_semaphore sem;
     AudioRingBuffer* ringbuffer;
 };
 

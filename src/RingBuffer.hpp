@@ -19,6 +19,7 @@
 
 // #include "../DistrhoUtils.hpp"
 
+#include <cstdarg>
 #include <cstdio>
 #include <cstring>
 
@@ -40,6 +41,8 @@
 #define DISTRHO_SAFE_EXCEPTION_BREAK(msg)       catch(...) { d_safe_exception(msg, __FILE__, __LINE__); break; }
 #define DISTRHO_SAFE_EXCEPTION_CONTINUE(msg)    catch(...) { d_safe_exception(msg, __FILE__, __LINE__); continue; }
 #define DISTRHO_SAFE_EXCEPTION_RETURN(msg, ret) catch(...) { d_safe_exception(msg, __FILE__, __LINE__); return ret; }
+
+typedef unsigned int uint;
 
 // --------------------------------------------------------------------------------------------------------------------
 

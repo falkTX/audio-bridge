@@ -208,7 +208,7 @@ void yield()
    #if defined(__SSE2_MATH__)
     _mm_pause();
    #elif defined(__aarch64__) || (defined(__arm__) && !defined(__SOFTFP__))
-    __asm__ __volatile__("isb");
+    __asm__ __volatile__("yield" ::: "memory");
    #else
     sched_yield();
    #endif

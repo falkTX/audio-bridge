@@ -29,6 +29,8 @@ static void* deviceCaptureThread(void* const  arg)
     VResampler* const resampler = new VResampler;
     resampler->setup(1.0, channels, 8);
 
+#if defined(__APPLE__)
+#else
     snd_pcm_sframes_t err;
     float xgain;
 
@@ -228,6 +230,7 @@ static void* deviceCaptureThread(void* const  arg)
             break;
         }
     }
+#endif
 
 end:
     DEBUGPRINT("%08u | capture | audio thread closed", dev->frame);
@@ -260,17 +263,17 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
 
     while (!dev->ringbuffer->read(buffers, bufferSize))
     {
-        sem_post(&dev->sem);
+        semaphore_post(&dev->sem);
         sched_yield();
         sched_yield();
     }
 
-    sem_post(&dev->sem);
+    semaphore_post(&dev->sem);
 
     return;
 
 clear:
-    sem_post(&dev->sem);
+    semaphore_post(&dev->sem);
 
     for (uint8_t c=0; c<channels; ++c)
         std::memset(buffers[c], 0, sizeof(float) * bufferSize);

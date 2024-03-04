@@ -23,9 +23,14 @@ set_property(GLOBAL PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
 
-pkg_check_modules(ALSA IMPORTED_TARGET REQUIRED alsa)
 pkg_check_modules(LV2 IMPORTED_TARGET REQUIRED lv2)
 pkg_check_modules(JACK IMPORTED_TARGET REQUIRED jack)
+
+if(APPLE)
+elseif(LINUX)
+  pkg_check_modules(ALSA IMPORTED_TARGET REQUIRED alsa)
+  set(AUDIO_BRIDGE_LIBS PkgConfig::ALSA)
+endif()
 
 #######################################################################################################################
 # Utilities
@@ -52,7 +57,7 @@ function(set_common_target_properties TARGET)
   target_link_libraries(${TARGET}
     PRIVATE
       ${CMAKE_THREAD_LIBS_INIT}
-      PkgConfig::ALSA
+      ${AUDIO_BRIDGE_LIBS}
   )
 endfunction()
 
@@ -75,7 +80,6 @@ set_target_properties(audio-bridge
 target_link_libraries(audio-bridge
   PRIVATE
     PkgConfig::LV2
-    PkgConfig::JACK
 )
 
 target_sources(audio-bridge
@@ -90,55 +94,55 @@ target_sources(audio-bridge
 #######################################################################################################################
 # Setup JACK standalone target
 
-add_executable(jack-audio-bridge)
+# add_executable(jack-audio-bridge)
 
-set_common_target_properties(jack-audio-bridge)
+# set_common_target_properties(jack-audio-bridge)
 
-target_link_libraries(jack-audio-bridge
-  PRIVATE
-    PkgConfig::JACK
-)
+# target_link_libraries(jack-audio-bridge
+#   PRIVATE
+#     PkgConfig::JACK
+# )
 
-target_sources(jack-audio-bridge
-  PRIVATE
-    src/audio-device-discovery.cpp
-    src/audio-device-init.cpp
-    src/jack-client.cpp
-    src/resampler-table.cc
-    src/vresampler.cc
-)
+# target_sources(jack-audio-bridge
+#   PRIVATE
+#     src/audio-device-discovery.cpp
+#     src/audio-device-init.cpp
+#     src/jack-client.cpp
+#     src/resampler-table.cc
+#     src/vresampler.cc
+# )
 
 #######################################################################################################################
 # Setup JACK internal client target
 
-add_library(jack-int-audio-bridge SHARED)
+# add_library(jack-int-audio-bridge SHARED)
 
-set_common_target_properties(jack-int-audio-bridge)
+# set_common_target_properties(jack-int-audio-bridge)
 
-set_target_properties(jack-int-audio-bridge
-  PROPERTIES
-    OUTPUT_NAME "jack-audio-bridge"
-    PREFIX ""
-)
+# set_target_properties(jack-int-audio-bridge
+#   PROPERTIES
+#     OUTPUT_NAME "jack-audio-bridge"
+#     PREFIX ""
+# )
 
-target_compile_definitions(jack-int-audio-bridge
-  PRIVATE
-    AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
-)
+# target_compile_definitions(jack-int-audio-bridge
+#   PRIVATE
+#     AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
+# )
 
-target_link_libraries(jack-int-audio-bridge
-  PRIVATE
-    PkgConfig::JACK
-)
+# target_link_libraries(jack-int-audio-bridge
+#   PRIVATE
+#     PkgConfig::JACK
+# )
 
-target_sources(jack-int-audio-bridge
-  PRIVATE
-    src/audio-device-discovery.cpp
-    src/audio-device-init.cpp
-    src/jack-client.cpp
-    src/resampler-table.cc
-    src/vresampler.cc
-)
+# target_sources(jack-int-audio-bridge
+#   PRIVATE
+#     src/audio-device-discovery.cpp
+#     src/audio-device-init.cpp
+#     src/jack-client.cpp
+#     src/resampler-table.cc
+#     src/vresampler.cc
+# )
 
 #######################################################################################################################
 # Setup tests

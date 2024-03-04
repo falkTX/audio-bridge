@@ -28,6 +28,8 @@ static void* devicePlaybackThread(void* const  arg)
     VResampler* const resampler = new VResampler;
     resampler->setup(1.0, channels, 8);
 
+#if defined(__APPLE__)
+#else
     snd_pcm_sframes_t err;
     float xgain;
 
@@ -241,6 +243,7 @@ static void* devicePlaybackThread(void* const  arg)
             break;
         }
     }
+#endif
 
 end:
     DEBUGPRINT("%08u | capture | audio thread closed", dev->frame);
@@ -259,7 +262,7 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
 {
     if (dev->hints & kDeviceInitializing)
     {
-        sem_post(&dev->sem);
+        semaphore_post(&dev->sem);
         return;
     }
 
@@ -273,10 +276,10 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
 
     while (!dev->ringbuffer->write(buffers, dev->bufferSize))
     {
-        sem_post(&dev->sem);
+        semaphore_post(&dev->sem);
         sched_yield();
         sched_yield();
     }
 
-    sem_post(&dev->sem);
+    semaphore_post(&dev->sem);
 }

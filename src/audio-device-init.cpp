@@ -17,11 +17,10 @@ static void runDeviceAudioPlayback(DeviceAudio* dev, float* buffers[], uint32_t 
 static void* deviceCaptureThread(void* arg);
 static void* devicePlaybackThread(void* arg);
 
-// TODO cleanup, see what is needed
-static int xrun_recovery(snd_pcm_t *handle, int err);
-
 // --------------------------------------------------------------------------------------------------------------------
 
+#if defined(__APPLE__)
+#else
 static constexpr const snd_pcm_format_t kFormatsToTry[] = {
     SND_PCM_FORMAT_S32,
     SND_PCM_FORMAT_S24_3LE,
@@ -30,9 +29,12 @@ static constexpr const snd_pcm_format_t kFormatsToTry[] = {
 };
 
 static constexpr const unsigned kPeriodsToTry[] = { 3, 4 };
+#endif
 
 // --------------------------------------------------------------------------------------------------------------------
 
+#if defined(__APPLE__)
+#else
 static const char* SND_PCM_FORMAT_STRING(const snd_pcm_format_t format)
 {
     switch (format)
@@ -133,6 +135,9 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
 
     return err;
 }
+#endif
+
+// --------------------------------------------------------------------------------------------------------------------
 
 static void deviceFailInitHints(DeviceAudio* const dev)
 {
@@ -144,20 +149,11 @@ static void deviceFailInitHints(DeviceAudio* const dev)
 
 static void deviceTimedWait(DeviceAudio* const dev)
 {
-    if (sem_trywait(&dev->sem) == 0)
+    if (semaphore_trywait(&dev->sem) == 0)
         return;
 
     const uint32_t periodTimeOver4 = (std::max(1, dev->bufferSize / 4) * 1000000) / dev->sampleRate * 1000;
-
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    ts.tv_nsec += periodTimeOver4;
-    if (ts.tv_nsec >= 1000000000LL)
-    {
-        ++ts.tv_sec;
-        ts.tv_nsec -= 1000000000LL;
-    }
-    sem_timedwait(&dev->sem, &ts);
+    semaphore_timedwait(&dev->sem, periodTimeOver4);
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -173,6 +169,8 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     dev.bufferSize = bufferSize;
     dev.hints = kDeviceInitializing|kDeviceStarting|(playback ? 0 : kDeviceCapture);
 
+#if defined(__APPLE__)
+#else
     const snd_pcm_stream_t mode = playback ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE;
 
     // SND_PCM_ASYNC
@@ -405,6 +403,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     snd_pcm_hw_params_get_buffer_size(params, &ulongParam);
     DEBUGPRINT("buffer size %lu | %u", ulongParam, dev.bufferSize * dev.hwstatus.periods);
     dev.hwstatus.bufferSize = ulongParam;
+#endif
 
     {
         const uint8_t channels = dev.hwstatus.channels;
@@ -417,7 +416,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         for (uint8_t c=0; c<channels; ++c)
             dev.buffers.f32[c] = new float[dev.bufferSize * 2];
 
-        sem_init(&dev.sem, 0, 0);
+        semaphore_init(&dev.sem, 0);
 
         DeviceAudio* const devptr = new DeviceAudio;
         std::memcpy(devptr, &dev, sizeof(dev));
@@ -448,7 +447,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     }
 
 error:
-    snd_pcm_close(dev.pcm);
+    audio_device_close(&dev.pcm);
     return nullptr;
 }
 
@@ -473,12 +472,12 @@ void closeDeviceAudio(DeviceAudio* const dev)
     if (dev->thread != 0)
     {
         dev->hwstatus.channels = 0;
-        sem_post(&dev->sem);
+        semaphore_post(&dev->sem);
         pthread_join(dev->thread, nullptr);
     }
 
-    sem_destroy(&dev->sem);
-    snd_pcm_close(dev->pcm);
+    semaphore_destroy(&dev->sem);
+    audio_device_close(&dev->pcm);
 
     for (uint8_t c=0; c<channels; ++c)
         delete[] dev->buffers.f32[c];

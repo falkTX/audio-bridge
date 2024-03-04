@@ -3,14 +3,20 @@
 
 #include "audio-device-discovery.hpp"
 
+#if defined(__APPLE__)
+#else
 //#define ALSA_PCM_NEW_HW_PARAMS_API
 //#define ALSA_PCM_NEW_SW_PARAMS_API
-#include <alsa/asoundlib.h>
+ #include <alsa/asoundlib.h>
+#endif
+
 #include <map>
 #include <cstring>
 
 #define DEBUGPRINT(...) printf(__VA_ARGS__); puts("");
 
+#if defined(__APPLE__)
+#else
 static int nextPowerOfTwo(int size) noexcept
 {
     // http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
@@ -112,6 +118,7 @@ static bool fillDeviceProperties(snd_pcm_t* const pcm,
 
     return false;
 }
+#endif
 
 static bool isdigit(const char* const s)
 {
@@ -132,6 +139,8 @@ static bool isdigit(const char* const s)
 
 bool enumerateSoundcards(std::vector<DeviceID>& inputs, std::vector<DeviceID>& outputs)
 {
+   #if defined(__APPLE__)
+   #else
     snd_ctl_t* ctl = nullptr;
     snd_ctl_card_info_t* cardinfo = nullptr;
     snd_ctl_card_info_alloca(&cardinfo);
@@ -246,6 +255,7 @@ bool enumerateSoundcards(std::vector<DeviceID>& inputs, std::vector<DeviceID>& o
         snd_ctl_close(ctl);
    #endif
     }
+   #endif
 
     return inputs.size() + outputs.size() != 0;
 }
@@ -262,10 +272,12 @@ bool getDeviceProperties(const std::string& deviceID,
     if (deviceID.empty())
         return false;
 
+    bool ok = true;
+
+   #if defined(__APPLE__)
+   #else
     snd_pcm_info_t* info;
     snd_pcm_info_alloca(&info);
-
-    bool ok = true;
 
     if (checkOutput)
     {
@@ -298,11 +310,15 @@ bool getDeviceProperties(const std::string& deviceID,
             DEBUGPRINT("snd_pcm_open capture fail");
         }
     }
+   #endif
 
     return ok;
 }
 
 void cleanup()
 {
+   #if defined(__APPLE__)
+   #else
     snd_config_update_free_global();
+   #endif
 }
