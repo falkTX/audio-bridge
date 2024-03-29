@@ -12,7 +12,7 @@ static void* devicePlaybackThread(void* const  arg)
     const uint8_t channels = dev->hwstatus.channels;
     const uint8_t sampleSize = getSampleSizeFromHints(hints);
     const uint16_t bufferSize = dev->bufferSize;
-    const uint16_t bufferSizeOver4 = bufferSize / 4;
+//     const uint16_t bufferSizeOver4 = bufferSize / 4;
 
     float** buffers = new float*[channels];
     for (uint8_t c=0; c<channels; ++c)
@@ -31,6 +31,19 @@ static void* devicePlaybackThread(void* const  arg)
     snd_pcm_sframes_t err;
     float xgain;
 
+    snd_pcm_status_t* status;
+    snd_pcm_status_malloc(&status);
+    std::memset(status, 0, snd_pcm_status_sizeof());
+
+    auto restart = [&dev, &resampler, &gain]()
+    {
+        deviceFailInitHints(dev);
+        resampler->set_rratio(1.0);
+        gain.setTargetValue(0.f);
+        gain.clearToTargetValue();
+        gain.setTargetValue(1.f);
+    };
+
     // wait for audio thread to post
     {
         struct timespec ts;
@@ -44,24 +57,24 @@ static void* devicePlaybackThread(void* const  arg)
         }
     }
 
-    if (dev->hwstatus.channels == 0)
-        goto end;
+//     if (dev->hwstatus.channels == 0)
+//         goto end;
 
-    // write silence until alsa buffers are full
-    std::memset(dev->buffers.raw, 0, bufferSize * channels * sampleSize);
-    while ((err = snd_pcm_mmap_writei(dev->pcm, dev->buffers.raw, bufferSize)) > 0);
+//     // write silence until alsa buffers are full
+//     std::memset(dev->buffers.raw, 0, sampleSize * bufferSize * channels * 2);
+//     while ((err = snd_pcm_mmap_writei(dev->pcm, dev->buffers.raw, bufferSize)) > 0);
 
-    for (uint8_t loopCount = 1; dev->hwstatus.channels != 0; ++loopCount)
+    while (dev->hwstatus.channels != 0)
     {
         const uint32_t frame = dev->frame;
 
         if (dev->hints & kDeviceInitializing)
         {
             // write silence until alsa buffers are full
-            bool restarted = false;
-            std::memset(dev->buffers.raw, 0, bufferSize * channels * sampleSize);
+            bool started = false;
+            std::memset(dev->buffers.raw, 0, sampleSize * bufferSize * channels);
             while ((err = snd_pcm_mmap_writei(dev->pcm, dev->buffers.raw, bufferSize)) > 0)
-                restarted = true;
+                started = true;
 
             if (err != -EAGAIN)
             {
@@ -69,63 +82,43 @@ static void* devicePlaybackThread(void* const  arg)
                 goto end;
             }
 
-            if (restarted)
+            if (started)
             {
                 DEBUGPRINT("%08u | playback | can write data, removing kDeviceInitializing", frame);
-                deviceFailInitHints(dev);
+                restart();
                 dev->hints &= ~kDeviceInitializing;
-                resampler->set_rratio(1.0);
-                gain.setTargetValue(0.f);
-                gain.clearToTargetValue();
-                gain.setTargetValue(1.f);
-                loopCount = 1;
             }
             else
             {
-                loopCount = 0;
                 deviceTimedWait(dev);
                 continue;
             }
         }
 
-        if (loopCount == 5)
-            loopCount = 1;
-
-       #if 0
-        // NOTE trick for when not using RT
-        // sem_timedwait makes the scheduler put us at the end of the queue and we end up missing the audio timing
-        while (dev->ringbuffer->getReadableDataSize() == 0 && (dev->hints & kDeviceInitializing) == 0)
-            sched_yield();
-       #endif
-
-        if (dev->ringbuffer->getNumReadableSamples() < bufferSizeOver4)
+        if (dev->ringbuffer->getNumReadableSamples() < bufferSize)
         {
-            if (loopCount != 1)
-            {
-                DEBUGPRINT("%08u | playback | WARNING | long wait outside loopCount 1, %u", frame, loopCount);
-            }
-
-            --loopCount;
             deviceTimedWait(dev);
             continue;
         }
 
-        while (!dev->ringbuffer->read(buffers, bufferSizeOver4))
+        while (!dev->ringbuffer->read(buffers, bufferSize))
         {
-            DEBUGPRINT("%08u | playback | failed reading data", frame);
+            DEBUGPRINT("%08u | playback | WARNING | failed reading data", frame);
             sched_yield();
         }
 
         if (dev->hwstatus.channels == 0)
             break;
 
-        resampler->inp_count = bufferSizeOver4;
-        resampler->out_count = bufferSize;
+        resampler->set_rratio(dev->balance.ratio);
+
+        resampler->inp_count = bufferSize;
+        resampler->out_count = bufferSize * 2;
         resampler->inp_data = buffers;
         resampler->out_data = dev->buffers.f32;
         resampler->process();
 
-        uint16_t frames = bufferSize - resampler->out_count;
+        uint16_t frames = bufferSize * 2 - resampler->out_count;
 
         for (uint16_t i=0; i<frames; ++i)
         {
@@ -153,6 +146,9 @@ static void* devicePlaybackThread(void* const  arg)
             break;
         }
 
+        if (dev->hwstatus.channels == 0)
+            break;
+
         int8_t* ptr = dev->buffers.raw;
 
         while (frames != 0)
@@ -160,20 +156,15 @@ static void* devicePlaybackThread(void* const  arg)
             err = snd_pcm_mmap_writei(dev->pcm, ptr, frames);
             // DEBUGPRINT("write %d of %u", err, frames);
 
-            if (err == -EAGAIN)
-            {
-                deviceTimedWait(dev);
-                continue;
-            }
-
             if (err < 0)
             {
-                deviceFailInitHints(dev);
-                resampler->set_rratio(1.0);
-                gain.setTargetValue(0.f);
-                gain.clearToTargetValue();
-                gain.setTargetValue(1.f);
-                loopCount = 0;
+                if (err == -EAGAIN)
+                {
+                    deviceTimedWait(dev);
+                    continue;
+                }
+
+                restart();
 
                 printf("%08u | playback | Write error: %s\n", frame, snd_strerror(err));
 
@@ -184,6 +175,19 @@ static void* devicePlaybackThread(void* const  arg)
                 }
 
                 break;
+            }
+
+            if (snd_pcm_status(dev->pcm, status) == 0)
+            {
+                pthread_mutex_lock(&dev->statuslock);
+                snd_pcm_status_copy(dev->status, status);
+                pthread_mutex_unlock(&dev->statuslock);
+            }
+
+            if (dev->hints & kDeviceStarting)
+            {
+                DEBUGPRINT("%08u | playback | wrote data, removing kDeviceStarting", frame);
+                dev->hints &= ~kDeviceStarting;
             }
 
             // FIXME check against snd_pcm_sw_params_set_avail_min ??
@@ -199,51 +203,14 @@ static void* devicePlaybackThread(void* const  arg)
                 continue;
             }
 
-            if (loopCount != 4 || ptr != dev->buffers.raw)
-                break;
-
-            const snd_pcm_sframes_t avail = snd_pcm_avail_update(dev->pcm);
-
-            if (avail < 0)
-            {
-                DEBUGPRINT("snd_pcm_avail failed");
-                break;
-            }
-
-            if (dev->hints & kDeviceStarting)
-            {
-                dev->hints &= ~kDeviceStarting;
-            }
-            else
-            {
-                // hw ratio
-                const double availratio = avail > bufferSize / 4 ? 1.0001 : 1;
-                dev->timestamps.ratio = (availratio + dev->timestamps.ratio * 511) / 512;
-
-                // sw ratio
-                const uint32_t rbavail = dev->ringbuffer->getNumReadableSamples();
-                const double rbavailratio = rbavail >= bufferSize ? 0.9999 : 1;
-                dev->balance.ratio = (rbavailratio + dev->balance.ratio * 511) / 512;
-
-                // combined ratio for dynamic resampling
-                resampler->set_rratio(dev->timestamps.ratio * dev->balance.ratio);
-
-                // TESTING DEBUG REMOVE ME
-                if (avail > 255 || (d_isNotEqual(rbavailratio, 1.0) && (frame % dev->sampleRate) == 0))
-                {
-                    DEBUGPRINT("%08u | playback | %.09f = %.09f * %.09f | %3u %3ld",
-                                frame, dev->timestamps.ratio * dev->balance.ratio,
-                                dev->timestamps.ratio, dev->balance.ratio,
-                                rbavail, avail);
-                }
-            }
-
             break;
         }
     }
 
 end:
-    DEBUGPRINT("%08u | capture | audio thread closed", dev->frame);
+    DEBUGPRINT("%08u | playback | audio thread closed", dev->frame);
+
+    snd_pcm_status_free(status);
 
     delete resampler;
 
@@ -255,28 +222,68 @@ end:
     return nullptr;
 }
 
+static void setDeviceTimings(DeviceAudio* const dev, const uint32_t frame)
+{
+    if (dev->hints & kDeviceStarting)
+        return;
+    if (pthread_mutex_trylock(&dev->statuslock) != 0)
+        return;
+
+    snd_pcm_status_copy(dev->statusRT, dev->status);
+    pthread_mutex_unlock(&dev->statuslock);
+
+    dev->balance.distance = snd_pcm_status_get_delay(dev->statusRT);
+
+    // give it 5s of processing before trying to adjust speed
+    if (dev->framesDone < dev->sampleRate * 5)
+        return;
+
+    snd_timestamp_t ts;
+    snd_pcm_status_get_tstamp(dev->statusRT, &ts);
+
+    if (dev->timestamps.jackStartFrame == 0)
+    {
+        dev->timestamps.alsaStartTime = ts.tv_sec * 1000000ULL + ts.tv_usec;
+        dev->timestamps.jackStartFrame = frame;
+    }
+    else
+    {
+        const uint64_t alsaTime = ts.tv_sec * 1000000ULL + ts.tv_usec;
+        DISTRHO_SAFE_ASSERT_RETURN(alsaTime > dev->timestamps.alsaStartTime,);
+
+        const double alsaDiff = static_cast<double>(alsaTime - dev->timestamps.alsaStartTime)
+                              * dev->sampleRate
+                              * 0.000001;
+        const uint32_t procDiff = frame - dev->timestamps.jackStartFrame;
+
+        const double ratio = alsaDiff / procDiff;
+        dev->balance.ratio = (ratio + dev->balance.ratio * 511) / 512;
+    }
+}
+
 static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], const uint32_t frame)
 {
     if (dev->hints & kDeviceInitializing)
     {
+        dev->balance.distance = 0;
+        dev->framesDone = 0;
         sem_post(&dev->sem);
         return;
     }
 
+    setDeviceTimings(dev, frame);
+
     if (dev->ringbuffer->getNumWritableSamples() < dev->bufferSize)
     {
-        DEBUGPRINT("%08u | playback | buffer full, adding kDeviceInitializing", frame);
+        DEBUGPRINT("%08u | playback | ringbuffer full, adding kDeviceInitializing|kDeviceStarting", frame);
         dev->hints |= kDeviceInitializing|kDeviceStarting;
         dev->ringbuffer->flush();
         return;
     }
 
-    while (!dev->ringbuffer->write(buffers, dev->bufferSize))
-    {
-        sem_post(&dev->sem);
-        sched_yield();
-        sched_yield();
-    }
+    DISTRHO_SAFE_ASSERT_RETURN(dev->ringbuffer->write(buffers, dev->bufferSize),);
 
     sem_post(&dev->sem);
+
+    dev->framesDone += dev->bufferSize;
 }

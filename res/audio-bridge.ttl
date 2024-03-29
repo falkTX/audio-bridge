@@ -86,6 +86,7 @@
         lv2:default 0 ;
         lv2:minimum 0 ;
         lv2:maximum 3 ;
+        lv2:portProperty lv2:integer ;
     ], [
         a lv2:OutputPort, lv2:ControlPort;
         lv2:index 5;
@@ -94,6 +95,7 @@
         lv2:default 2 ;
         lv2:minimum 1 ;
         lv2:maximum 64 ;
+        lv2:portProperty lv2:integer ;
     ], [
         a lv2:OutputPort, lv2:ControlPort;
         lv2:index 6;
@@ -102,6 +104,7 @@
         lv2:default 3 ;
         lv2:minimum 1 ;
         lv2:maximum 4 ;
+        lv2:portProperty lv2:integer ;
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
         lv2:index 7;
@@ -110,6 +113,7 @@
         lv2:default 1 ;
         lv2:minimum 1 ;
         lv2:maximum 16384 ;
+        lv2:portProperty lv2:integer ;
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
         lv2:index 8;
@@ -118,14 +122,16 @@
         lv2:default 1 ;
         lv2:minimum 1 ;
         lv2:maximum 65536 ;
+        lv2:portProperty lv2:integer ;
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
         lv2:index 9;
-        lv2:symbol "hwratio";
-        lv2:name "HW ratio";
-        lv2:default 1.0 ;
-        lv2:minimum 0.5 ;
-        lv2:maximum 1.5 ;
+        lv2:symbol "distance";
+        lv2:name "Distance";
+        lv2:default 0 ;
+        lv2:minimum -16384 ;
+        lv2:maximum 16384 ;
+        lv2:portProperty lv2:integer ;
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
         lv2:index 10;
@@ -272,11 +278,12 @@ Currently limited to 2 audio ports and a single device, which is automatically c
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
         lv2:index 9;
-        lv2:symbol "hwratio";
-        lv2:name "HW ratio";
-        lv2:default 1.0 ;
-        lv2:minimum 0.5 ;
-        lv2:maximum 1.5 ;
+        lv2:symbol "distance";
+        lv2:name "Distance";
+        lv2:default 0 ;
+        lv2:minimum -16384 ;
+        lv2:maximum 16384 ;
+        lv2:portProperty lv2:integer ;
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
         lv2:index 10;

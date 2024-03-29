@@ -140,6 +140,7 @@ static void deviceFailInitHints(DeviceAudio* const dev)
     dev->balance.ratio = 1.0;
     dev->timestamps.alsaStartTime = dev->timestamps.jackStartFrame = 0;
     dev->timestamps.ratio = 1.0;
+    dev->framesDone = 0;
 }
 
 static void deviceTimedWait(DeviceAudio* const dev)
@@ -147,7 +148,7 @@ static void deviceTimedWait(DeviceAudio* const dev)
     if (sem_trywait(&dev->sem) == 0)
         return;
 
-    const uint32_t periodTimeOver4 = (std::max(1, dev->bufferSize / 4) * 1000000) / dev->sampleRate * 1000;
+    const uint32_t periodTimeOver4 = (std::max(1, dev->bufferSize / 1) * 1000000) / dev->sampleRate * 1000;
 
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
@@ -329,46 +330,54 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         goto error;
     }
 
+    // SND_PCM_TSTAMP_NONE SND_PCM_TSTAMP_ENABLE (= SND_PCM_TSTAMP_MMAP)
+    if ((err = snd_pcm_sw_params_set_tstamp_mode(dev.pcm, swparams, SND_PCM_TSTAMP_MMAP)) != 0)
+    {
+        DEBUGPRINT("snd_pcm_sw_params_set_tstamp_mode fail %s", snd_strerror(err));
+        goto error;
+    }
+
+    // SND_PCM_TSTAMP_TYPE_MONOTONIC
+    if ((err = snd_pcm_sw_params_set_tstamp_type(dev.pcm, swparams, SND_PCM_TSTAMP_TYPE_MONOTONIC_RAW)) != 0)
+    {
+        DEBUGPRINT("snd_pcm_sw_params_set_tstamp_type fail %s", snd_strerror(err));
+        goto error;
+    }
+
     if (playback)
     {
-        if ((err = snd_pcm_sw_params_set_tstamp_mode(dev.pcm, swparams, SND_PCM_TSTAMP_NONE)) != 0)
+        // unused in playback?
+        if ((err = snd_pcm_sw_params_set_avail_min(dev.pcm, swparams, 0)) != 0)
         {
-            DEBUGPRINT("snd_pcm_sw_params_set_tstamp_mode fail %s", snd_strerror(err));
+            DEBUGPRINT("snd_pcm_sw_params_set_avail_min fail %s", snd_strerror(err));
+            goto error;
+        }
+
+        // how many samples we need to write until audio hw starts
+        if ((err = snd_pcm_sw_params_set_start_threshold(dev.pcm, swparams, bufferSize)) != 0)
+        {
+            DEBUGPRINT("snd_pcm_sw_params_set_start_threshold fail %s", snd_strerror(err));
             goto error;
         }
     }
     else
     {
-        // SND_PCM_TSTAMP_NONE SND_PCM_TSTAMP_ENABLE (= SND_PCM_TSTAMP_MMAP)
-        if ((err = snd_pcm_sw_params_set_tstamp_mode(dev.pcm, swparams, SND_PCM_TSTAMP_MMAP)) != 0)
+        if ((err = snd_pcm_sw_params_set_avail_min(dev.pcm, swparams, 1)) != 0)
         {
-            DEBUGPRINT("snd_pcm_sw_params_set_tstamp_mode fail %s", snd_strerror(err));
+            DEBUGPRINT("snd_pcm_sw_params_set_avail_min fail %s", snd_strerror(err));
             goto error;
         }
 
-        // SND_PCM_TSTAMP_TYPE_MONOTONIC
-        if ((err = snd_pcm_sw_params_set_tstamp_type(dev.pcm, swparams, SND_PCM_TSTAMP_TYPE_MONOTONIC_RAW)) != 0)
+        if ((err = snd_pcm_sw_params_set_start_threshold(dev.pcm, swparams, 0)) != 0)
         {
-            DEBUGPRINT("snd_pcm_sw_params_set_tstamp_type fail %s", snd_strerror(err));
+            DEBUGPRINT("snd_pcm_sw_params_set_start_threshold fail %s", snd_strerror(err));
             goto error;
         }
-    }
-
-    if ((err = snd_pcm_sw_params_set_start_threshold(dev.pcm, swparams, 0)) != 0)
-    {
-        DEBUGPRINT("snd_pcm_sw_params_set_start_threshold fail %s", snd_strerror(err));
-        goto error;
     }
 
     if ((err = snd_pcm_sw_params_set_stop_threshold(dev.pcm, swparams, (snd_pcm_uframes_t)-1)) != 0)
     {
         DEBUGPRINT("snd_pcm_sw_params_set_stop_threshold fail %s", snd_strerror(err));
-        goto error;
-    }
-
-    if ((err = snd_pcm_sw_params_set_avail_min(dev.pcm, swparams, playback ? bufferSize * (dev.hwstatus.periods - 1) : 1)) != 0)
-    {
-        DEBUGPRINT("snd_pcm_sw_params_set_avail_min fail %s", snd_strerror(err));
         goto error;
     }
 
@@ -409,15 +418,27 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     {
         const uint8_t channels = dev.hwstatus.channels;
         const size_t rawbufferlen = getSampleSizeFromHints(dev.hints) * dev.bufferSize * channels * 2;
+
         dev.buffers.raw = new int8_t[rawbufferlen];
         dev.buffers.f32 = new float*[channels];
-        dev.ringbuffer = new AudioRingBuffer;
-        dev.ringbuffer->createBuffer(channels, dev.bufferSize * 32);
 
         for (uint8_t c=0; c<channels; ++c)
             dev.buffers.f32[c] = new float[dev.bufferSize * 2];
 
+        dev.ringbuffer = new AudioRingBuffer;
+        dev.ringbuffer->createBuffer(channels, dev.bufferSize * 32);
+
         sem_init(&dev.sem, 0, 0);
+
+        snd_pcm_status_malloc(&dev.status);
+        snd_pcm_status_malloc(&dev.statusRT);
+        std::memset(dev.status, 0, snd_pcm_status_sizeof());
+
+        pthread_mutexattr_t mutexattr;
+        pthread_mutexattr_init(&mutexattr);
+        pthread_mutexattr_setprotocol(&mutexattr, PTHREAD_PRIO_INHERIT);
+        pthread_mutex_init(&dev.statuslock, &mutexattr);
+        pthread_mutexattr_destroy(&mutexattr);
 
         DeviceAudio* const devptr = new DeviceAudio;
         std::memcpy(devptr, &dev, sizeof(dev));
@@ -478,6 +499,9 @@ void closeDeviceAudio(DeviceAudio* const dev)
     }
 
     sem_destroy(&dev->sem);
+    pthread_mutex_destroy(&dev->statuslock);
+    snd_pcm_status_free(dev->status);
+    snd_pcm_status_free(dev->statusRT);
     snd_pcm_close(dev->pcm);
 
     for (uint8_t c=0; c<channels; ++c)

@@ -43,6 +43,7 @@ uint8_t getSampleSizeFromHints(const uint8_t hints)
 struct DeviceAudio {
     struct Balance {
         double ratio = 1.0;
+        int32_t distance = 0;
     } balance;
 
     struct TimeStamps {
@@ -58,8 +59,13 @@ struct DeviceAudio {
         uint16_t bufferSize;
     } hwstatus;
 
+    snd_pcm_status_t* status;
+    snd_pcm_status_t* statusRT;
+    pthread_mutex_t statuslock;
+
     snd_pcm_t* pcm;
     uint32_t frame;
+    uint32_t framesDone;
     uint32_t sampleRate;
     uint16_t bufferSize;
     uint8_t hints;
