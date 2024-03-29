@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2021-2023 Filipe Coelho <falktx@falktx.com>
+// SPDX-FileCopyrightText: 2021-2024 Filipe Coelho <falktx@falktx.com>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #pragma once
@@ -199,18 +199,6 @@ void init()
     uint32_t flags;
     __asm__ __volatile__("vmrs %0, fpscr" : "=r" (flags));
     __asm__ __volatile__("vmsr fpscr, %0" :: "r" (flags | 0x1000000));
-   #endif
-}
-
-static inline
-void yield()
-{
-   #if defined(__SSE2_MATH__)
-    _mm_pause();
-   #elif defined(__aarch64__) || (defined(__arm__) && !defined(__SOFTFP__))
-    __asm__ __volatile__("isb");
-   #else
-    sched_yield();
    #endif
 }
 

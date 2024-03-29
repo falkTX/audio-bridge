@@ -5,21 +5,10 @@
 @prefix lv2:     <http://lv2plug.in/ns/lv2core#> .
 @prefix opts:    <http://lv2plug.in/ns/ext/options#> .
 @prefix params:  <http://lv2plug.in/ns/ext/parameters#> .
-@prefix patch:   <http://lv2plug.in/ns/ext/patch#> .
 @prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix state:   <http://lv2plug.in/ns/ext/state#> .
 @prefix units:   <http://lv2plug.in/ns/extensions/units#> .
 @prefix worker:  <http://lv2plug.in/ns/ext/worker#> .
-
-<https://falktx.com/plugins/audio-bridge#deviceid>
-    a lv2:Parameter ;
-    rdfs:label "Device Id" ;
-    rdfs:range atom:String .
-
-<https://falktx.com/plugins/audio-bridge#devicename>
-    a lv2:Parameter ;
-    rdfs:label "Device Name" ;
-    rdfs:range atom:String .
 
 <https://falktx.com/plugins/audio-bridge#capture>
     a doap:Project, lv2:UtilityPlugin, lv2:Plugin ;
@@ -28,7 +17,6 @@
 
     lv2:requiredFeature bufsize:boundedBlockLength ,
                         bufsize:fixedBlockLength ,
-                        bufsize:powerOf2BlockLength ,
                         opts:options ,
                         <http://lv2plug.in/ns/ext/urid#map> ;
 
@@ -38,9 +26,6 @@
 
     opts:supportedOption bufsize:maxBlockLength ,
                          params:sampleRate ;
-
-    patch:readable <https://falktx.com/plugins/audio-bridge#deviceid> ,
-                   <https://falktx.com/plugins/audio-bridge#devicename> ;
 
     doap:developer [
         foaf:name "falkTX" ;
@@ -62,25 +47,9 @@
         lv2:index 1 ;
         lv2:symbol "out2" ;
         lv2:name "Audio Output 2" ;
-    ] , [
-        a lv2:InputPort, atom:AtomPort;
-        lv2:index 2;
-        atom:bufferType atom:Sequence;
-        atom:supports patch:Message;
-        lv2:designation lv2:control;
-        lv2:symbol "control";
-        lv2:name "Control";
-    ], [
-        a lv2:OutputPort, atom:AtomPort;
-        lv2:index 3;
-        atom:bufferType atom:Sequence;
-        atom:supports patch:Message;
-        lv2:designation lv2:control;
-        lv2:symbol "notify";
-        lv2:name "Notify";
     ], [
         a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 4;
+        lv2:index 2;
         lv2:symbol "status";
         lv2:name "Status";
         lv2:default 0 ;
@@ -89,7 +58,7 @@
         lv2:portProperty lv2:integer ;
     ], [
         a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 5;
+        lv2:index 3;
         lv2:symbol "channels";
         lv2:name "Num channels";
         lv2:default 2 ;
@@ -98,7 +67,7 @@
         lv2:portProperty lv2:integer ;
     ], [
         a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 6;
+        lv2:index 4;
         lv2:symbol "periods";
         lv2:name "Num periods";
         lv2:default 3 ;
@@ -107,7 +76,7 @@
         lv2:portProperty lv2:integer ;
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 7;
+        lv2:index 5;
         lv2:symbol "periodsize";
         lv2:name "Period size";
         lv2:default 1 ;
@@ -116,7 +85,7 @@
         lv2:portProperty lv2:integer ;
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 8;
+        lv2:index 6;
         lv2:symbol "buffersize";
         lv2:name "Buffer size";
         lv2:default 1 ;
@@ -125,7 +94,7 @@
         lv2:portProperty lv2:integer ;
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 9;
+        lv2:index 7;
         lv2:symbol "distance";
         lv2:name "Distance";
         lv2:default 0 ;
@@ -134,28 +103,20 @@
         lv2:portProperty lv2:integer ;
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 10;
-        lv2:symbol "swratio";
-        lv2:name "SW ratio";
-        lv2:default 1.0 ;
-        lv2:minimum 0.5 ;
-        lv2:maximum 1.5 ;
-    ] , [
-        a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 11;
+        lv2:index 8;
         lv2:symbol "ratio";
-        lv2:name "Final ratio";
+        lv2:name "Ratio";
         lv2:default 1.0 ;
         lv2:minimum 0.5 ;
         lv2:maximum 1.5 ;
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 12;
+        lv2:index 9;
         lv2:symbol "bufferfill";
         lv2:name "Buffer fill";
         lv2:default 0.0 ;
         lv2:minimum 0.0 ;
-        lv2:maximum 1.0 ;
+        lv2:maximum 100.0 ;
         units:unit units:pc ;
     ] ;
 
@@ -180,7 +141,6 @@ Currently limited to 2 audio ports and a single device, which is automatically c
 
     lv2:requiredFeature bufsize:boundedBlockLength ,
                         bufsize:fixedBlockLength ,
-                        bufsize:powerOf2BlockLength ,
                         opts:options ,
                         <http://lv2plug.in/ns/ext/urid#map> ;
 
@@ -190,9 +150,6 @@ Currently limited to 2 audio ports and a single device, which is automatically c
 
     opts:supportedOption bufsize:maxBlockLength ,
                          params:sampleRate ;
-
-    patch:readable <https://falktx.com/plugins/audio-bridge#deviceid> ,
-                   <https://falktx.com/plugins/audio-bridge#devicename> ;
 
     doap:developer [
         foaf:name "falkTX" ;
@@ -214,25 +171,9 @@ Currently limited to 2 audio ports and a single device, which is automatically c
         lv2:index 1 ;
         lv2:symbol "in2" ;
         lv2:name "Audio Input 2" ;
-    ] , [
-        a lv2:InputPort, atom:AtomPort;
-        lv2:index 2;
-        atom:bufferType atom:Sequence;
-        atom:supports patch:Message;
-        lv2:designation lv2:control;
-        lv2:symbol "control";
-        lv2:name "Control";
-    ], [
-        a lv2:OutputPort, atom:AtomPort;
-        lv2:index 3;
-        atom:bufferType atom:Sequence;
-        atom:supports patch:Message;
-        lv2:designation lv2:control;
-        lv2:symbol "notify";
-        lv2:name "Notify";
     ], [
         a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 4;
+        lv2:index 2;
         lv2:symbol "status";
         lv2:name "Status";
         lv2:default 0 ;
@@ -241,7 +182,7 @@ Currently limited to 2 audio ports and a single device, which is automatically c
         lv2:portProperty lv2:integer ;
     ], [
         a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 5;
+        lv2:index 3;
         lv2:symbol "channels";
         lv2:name "Num channels";
         lv2:default 2 ;
@@ -250,7 +191,7 @@ Currently limited to 2 audio ports and a single device, which is automatically c
         lv2:portProperty lv2:integer ;
     ], [
         a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 6;
+        lv2:index 4;
         lv2:symbol "periods";
         lv2:name "Num periods";
         lv2:default 3 ;
@@ -259,7 +200,7 @@ Currently limited to 2 audio ports and a single device, which is automatically c
         lv2:portProperty lv2:integer ;
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 7;
+        lv2:index 5;
         lv2:symbol "periodsize";
         lv2:name "Period size";
         lv2:default 1 ;
@@ -268,7 +209,7 @@ Currently limited to 2 audio ports and a single device, which is automatically c
         lv2:portProperty lv2:integer ;
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 8;
+        lv2:index 6;
         lv2:symbol "buffersize";
         lv2:name "Buffer size";
         lv2:default 1 ;
@@ -277,7 +218,7 @@ Currently limited to 2 audio ports and a single device, which is automatically c
         lv2:portProperty lv2:integer ;
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 9;
+        lv2:index 7;
         lv2:symbol "distance";
         lv2:name "Distance";
         lv2:default 0 ;
@@ -286,28 +227,20 @@ Currently limited to 2 audio ports and a single device, which is automatically c
         lv2:portProperty lv2:integer ;
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 10;
-        lv2:symbol "swratio";
-        lv2:name "SW ratio";
-        lv2:default 1.0 ;
-        lv2:minimum 0.5 ;
-        lv2:maximum 1.5 ;
-    ] , [
-        a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 11;
+        lv2:index 8;
         lv2:symbol "ratio";
-        lv2:name "Final ratio";
+        lv2:name "Ratio";
         lv2:default 1.0 ;
         lv2:minimum 0.5 ;
         lv2:maximum 1.5 ;
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
-        lv2:index 12;
+        lv2:index 9;
         lv2:symbol "bufferfill";
         lv2:name "Buffer fill";
         lv2:default 0.0 ;
         lv2:minimum 0.0 ;
-        lv2:maximum 1.0 ;
+        lv2:maximum 100.0 ;
         units:unit units:pc ;
     ] ;
 

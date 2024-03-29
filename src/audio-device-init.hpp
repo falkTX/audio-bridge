@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2021-2023 Filipe Coelho <falktx@falktx.com>
+// SPDX-FileCopyrightText: 2021-2024 Filipe Coelho <falktx@falktx.com>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #pragma once
@@ -6,7 +6,6 @@
 //#define ALSA_PCM_NEW_HW_PARAMS_API
 //#define ALSA_PCM_NEW_SW_PARAMS_API
 #include <alsa/asoundlib.h>
-#include <jack/ringbuffer.h>
 #include <pthread.h>
 #include <semaphore.h>
 
@@ -58,6 +57,8 @@ struct DeviceAudio {
         uint16_t periodSize;
         uint16_t bufferSize;
     } hwstatus;
+
+    char* deviceID;
 
     snd_pcm_status_t* status;
     snd_pcm_status_t* statusRT;

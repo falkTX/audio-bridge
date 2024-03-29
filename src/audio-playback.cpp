@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2021-2023 Filipe Coelho <falktx@falktx.com>
+// SPDX-FileCopyrightText: 2021-2024 Filipe Coelho <falktx@falktx.com>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "audio-device-init.hpp"
@@ -12,7 +12,6 @@ static void* devicePlaybackThread(void* const  arg)
     const uint8_t channels = dev->hwstatus.channels;
     const uint8_t sampleSize = getSampleSizeFromHints(hints);
     const uint16_t bufferSize = dev->bufferSize;
-//     const uint16_t bufferSizeOver4 = bufferSize / 4;
 
     float** buffers = new float*[channels];
     for (uint8_t c=0; c<channels; ++c)
@@ -57,13 +56,6 @@ static void* devicePlaybackThread(void* const  arg)
         }
     }
 
-//     if (dev->hwstatus.channels == 0)
-//         goto end;
-
-//     // write silence until alsa buffers are full
-//     std::memset(dev->buffers.raw, 0, sampleSize * bufferSize * channels * 2);
-//     while ((err = snd_pcm_mmap_writei(dev->pcm, dev->buffers.raw, bufferSize)) > 0);
-
     while (dev->hwstatus.channels != 0)
     {
         const uint32_t frame = dev->frame;
@@ -72,8 +64,8 @@ static void* devicePlaybackThread(void* const  arg)
         {
             // write silence until alsa buffers are full
             bool started = false;
-            std::memset(dev->buffers.raw, 0, sampleSize * bufferSize * channels);
-            while ((err = snd_pcm_mmap_writei(dev->pcm, dev->buffers.raw, bufferSize)) > 0)
+            std::memset(dev->buffers.raw, 0, sampleSize * bufferSize * channels * 2);
+            while ((err = snd_pcm_mmap_writei(dev->pcm, dev->buffers.raw, bufferSize * 2)) > 0)
                 started = true;
 
             if (err != -EAGAIN)
@@ -193,11 +185,11 @@ static void* devicePlaybackThread(void* const  arg)
             // FIXME check against snd_pcm_sw_params_set_avail_min ??
             if (static_cast<uint16_t>(err) != frames)
             {
-                ptr += err * channels * sampleSize;
-                frames -= err;
-
                 DEBUGPRINT("%08u | playback | Incomplete write %ld of %u, %u left",
                            frame, err, bufferSize, frames);
+
+                ptr += err * channels * sampleSize;
+                frames -= err;
 
                 deviceTimedWait(dev);
                 continue;
@@ -222,47 +214,10 @@ end:
     return nullptr;
 }
 
-static void setDeviceTimings(DeviceAudio* const dev, const uint32_t frame)
-{
-    if (dev->hints & kDeviceStarting)
-        return;
-    if (pthread_mutex_trylock(&dev->statuslock) != 0)
-        return;
-
-    snd_pcm_status_copy(dev->statusRT, dev->status);
-    pthread_mutex_unlock(&dev->statuslock);
-
-    dev->balance.distance = snd_pcm_status_get_delay(dev->statusRT);
-
-    // give it 5s of processing before trying to adjust speed
-    if (dev->framesDone < dev->sampleRate * 5)
-        return;
-
-    snd_timestamp_t ts;
-    snd_pcm_status_get_tstamp(dev->statusRT, &ts);
-
-    if (dev->timestamps.jackStartFrame == 0)
-    {
-        dev->timestamps.alsaStartTime = ts.tv_sec * 1000000ULL + ts.tv_usec;
-        dev->timestamps.jackStartFrame = frame;
-    }
-    else
-    {
-        const uint64_t alsaTime = ts.tv_sec * 1000000ULL + ts.tv_usec;
-        DISTRHO_SAFE_ASSERT_RETURN(alsaTime > dev->timestamps.alsaStartTime,);
-
-        const double alsaDiff = static_cast<double>(alsaTime - dev->timestamps.alsaStartTime)
-                              * dev->sampleRate
-                              * 0.000001;
-        const uint32_t procDiff = frame - dev->timestamps.jackStartFrame;
-
-        const double ratio = alsaDiff / procDiff;
-        dev->balance.ratio = (ratio + dev->balance.ratio * 511) / 512;
-    }
-}
-
 static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], const uint32_t frame)
 {
+    const uint16_t bufferSize = dev->bufferSize;
+
     if (dev->hints & kDeviceInitializing)
     {
         dev->balance.distance = 0;
@@ -271,9 +226,7 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
         return;
     }
 
-    setDeviceTimings(dev, frame);
-
-    if (dev->ringbuffer->getNumWritableSamples() < dev->bufferSize)
+    if (dev->ringbuffer->getNumWritableSamples() < bufferSize)
     {
         DEBUGPRINT("%08u | playback | ringbuffer full, adding kDeviceInitializing|kDeviceStarting", frame);
         dev->hints |= kDeviceInitializing|kDeviceStarting;
@@ -281,9 +234,10 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
         return;
     }
 
-    DISTRHO_SAFE_ASSERT_RETURN(dev->ringbuffer->write(buffers, dev->bufferSize),);
+    DISTRHO_SAFE_ASSERT_RETURN(dev->ringbuffer->write(buffers, bufferSize),);
 
     sem_post(&dev->sem);
 
-    dev->framesDone += dev->bufferSize;
+    dev->framesDone += bufferSize;
+    setDeviceTimings(dev, frame);
 }

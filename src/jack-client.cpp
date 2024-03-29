@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2021-2023 Filipe Coelho <falktx@falktx.com>
+// SPDX-FileCopyrightText: 2021-2024 Filipe Coelho <falktx@falktx.com>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "audio-device-discovery.hpp"
@@ -23,6 +23,7 @@ struct ClientData {
     jack_port_t** ports = {};
     uint8_t channels = 0;
     bool playback = false;
+    bool active = true;
     bool running = true;
 
    #ifdef AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
@@ -67,6 +68,7 @@ struct ClientData {
     {
         const uint16_t bufferSize = jack_get_buffer_size(client);
         const uint32_t sampleRate = jack_get_sample_rate(client);
+        bool needsToInitialise = true;
 
         while (running)
         {
@@ -76,13 +78,24 @@ struct ClientData {
 
                 if (dev != nullptr)
                 {
-                    channels = dev->hwstatus.channels;
+                    active = true;
 
-                    if (playback)
-                        activate_playback(this);
-                    else
-                        activate_capture(this);
+                    if (needsToInitialise)
+                    {
+                        needsToInitialise = false;
+                        channels = dev->hwstatus.channels;
+
+                        if (playback)
+                            activate_playback(this);
+                        else
+                            activate_capture(this);
+                    }
                 }
+            }
+            else if (! active)
+            {
+                closeDeviceAudio(dev);
+                dev = nullptr;
             }
 
             usleep(250000); // 250ms
@@ -98,15 +111,20 @@ static int jack_process(const unsigned frames, void* const arg)
     for (uint8_t c = 0; c < d->channels; ++c)
         d->buffers[c] = static_cast<float*>(jack_port_get_buffer(d->ports[c], frames));
 
-    if (d->dev != nullptr)
+    if (d->dev != nullptr && d->active)
     {
-        runDeviceAudio(d->dev, d->buffers);
+        if (runDeviceAudio(d->dev, d->buffers))
+            return 0;
+
+        d->active = false;
     }
-    else if (!d->playback)
+
+    if (!d->playback)
     {
         for (uint8_t c = 0; c < d->channels; ++c)
             std::memset(d->buffers[c], 0, sizeof(float)*frames);
     }
+
     return 0;
 }
 

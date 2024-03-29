@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2021-2023 Filipe Coelho <falktx@falktx.com>
+// SPDX-FileCopyrightText: 2021-2024 Filipe Coelho <falktx@falktx.com>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "audio-device-init.hpp"
@@ -148,11 +148,11 @@ static void deviceTimedWait(DeviceAudio* const dev)
     if (sem_trywait(&dev->sem) == 0)
         return;
 
-    const uint32_t periodTimeOver4 = (std::max(1, dev->bufferSize / 1) * 1000000) / dev->sampleRate * 1000;
+    const uint32_t periodTime = (dev->bufferSize * 1000000) / dev->sampleRate * 1000;
 
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
-    ts.tv_nsec += periodTimeOver4;
+    ts.tv_nsec += periodTime;
     if (ts.tv_nsec >= 1000000000LL)
     {
         ++ts.tv_sec;
@@ -415,6 +415,8 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     DEBUGPRINT("buffer size %lu | %u", ulongParam, dev.bufferSize * dev.hwstatus.periods);
     dev.hwstatus.bufferSize = ulongParam;
 
+    dev.deviceID = strdup(deviceID);
+
     {
         const uint8_t channels = dev.hwstatus.channels;
         const size_t rawbufferlen = getSampleSizeFromHints(dev.hints) * dev.bufferSize * channels * 2;
@@ -426,7 +428,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
             dev.buffers.f32[c] = new float[dev.bufferSize * 2];
 
         dev.ringbuffer = new AudioRingBuffer;
-        dev.ringbuffer->createBuffer(channels, dev.bufferSize * 32);
+        dev.ringbuffer->createBuffer(channels, dev.bufferSize * (playback ? 4 : 32));
 
         sem_init(&dev.sem, 0, 0);
 
@@ -496,13 +498,15 @@ void closeDeviceAudio(DeviceAudio* const dev)
         dev->hwstatus.channels = 0;
         sem_post(&dev->sem);
         pthread_join(dev->thread, nullptr);
+        snd_pcm_close(dev->pcm);
     }
 
     sem_destroy(&dev->sem);
     pthread_mutex_destroy(&dev->statuslock);
     snd_pcm_status_free(dev->status);
     snd_pcm_status_free(dev->statusRT);
-    snd_pcm_close(dev->pcm);
+
+    std::free(dev->deviceID);
 
     for (uint8_t c=0; c<channels; ++c)
         delete[] dev->buffers.f32[c];
@@ -510,6 +514,47 @@ void closeDeviceAudio(DeviceAudio* const dev)
     delete[] dev->buffers.raw;
 
     delete dev;
+}
+
+// --------------------------------------------------------------------------------------------------------------------
+
+static void setDeviceTimings(DeviceAudio* const dev, const uint32_t frame)
+{
+    if (dev->hints & kDeviceStarting)
+        return;
+    if (pthread_mutex_trylock(&dev->statuslock) != 0)
+        return;
+
+    snd_pcm_status_copy(dev->statusRT, dev->status);
+    pthread_mutex_unlock(&dev->statuslock);
+
+    dev->balance.distance = snd_pcm_status_get_delay(dev->statusRT);
+
+    // give it 30s of processing before trying to adjust speed
+    if (dev->framesDone < dev->sampleRate * 3)
+        return;
+
+    snd_timestamp_t ts;
+    snd_pcm_status_get_tstamp(dev->statusRT, &ts);
+
+    if (dev->timestamps.jackStartFrame == 0)
+    {
+        dev->timestamps.alsaStartTime = ts.tv_sec * 1000000ULL + ts.tv_usec;
+        dev->timestamps.jackStartFrame = frame;
+    }
+    else
+    {
+        const uint64_t alsaTime = ts.tv_sec * 1000000ULL + ts.tv_usec;
+        DISTRHO_SAFE_ASSERT_RETURN(alsaTime >= dev->timestamps.alsaStartTime,);
+
+        const double alsaDiff = static_cast<double>(alsaTime - dev->timestamps.alsaStartTime)
+                              * dev->sampleRate
+                              * 0.000001;
+        const uint32_t procDiff = frame - dev->timestamps.jackStartFrame;
+
+        const double ratio = alsaDiff / procDiff;
+        dev->balance.ratio = std::max(0.5, std::min(1.5, (ratio + dev->balance.ratio * 511) / 512));
+    }
 }
 
 // --------------------------------------------------------------------------------------------------------------------
