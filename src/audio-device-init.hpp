@@ -48,14 +48,13 @@ struct DeviceAudio {
     struct TimeStamps {
         uint64_t alsaStartTime = 0;
         uint32_t jackStartFrame = 0;
-        double ratio = 1.0;
     } timestamps;
 
     struct HWStatus {
         uint8_t channels;
         uint8_t periods;
         uint16_t periodSize;
-        uint16_t bufferSize;
+        uint16_t fullBufferSize;
     } hwstatus;
 
     char* deviceID;

@@ -230,7 +230,6 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
         DEBUGPRINT("%08u | capture | buffer empty, adding kDeviceInitializing", frame);
         dev->hints |= kDeviceInitializing|kDeviceStarting;
         dev->ringbuffer->flush();
-        sem_post(&dev->sem);
         return;
     }
 

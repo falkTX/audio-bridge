@@ -140,7 +140,7 @@ struct PluginData {
             *controlports[1] = dev->hwstatus.channels;
             *controlports[2] = dev->hwstatus.periods;
             *controlports[3] = dev->hwstatus.periodSize;
-            *controlports[4] = dev->hwstatus.bufferSize;
+            *controlports[4] = dev->hwstatus.fullBufferSize;
             *controlports[5] = dev->balance.distance;
             *controlports[6] = dev->balance.ratio;
             *controlports[7] = static_cast<float>(dev->ringbuffer->getNumReadableSamples() / kRingBufferDataFactor)

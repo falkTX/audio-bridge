@@ -139,7 +139,6 @@ static void deviceFailInitHints(DeviceAudio* const dev)
     dev->hints |= kDeviceInitializing|kDeviceStarting;
     dev->balance.ratio = 1.0;
     dev->timestamps.alsaStartTime = dev->timestamps.jackStartFrame = 0;
-    dev->timestamps.ratio = 1.0;
     dev->framesDone = 0;
 }
 
@@ -413,7 +412,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
 
     snd_pcm_hw_params_get_buffer_size(params, &ulongParam);
     DEBUGPRINT("buffer size %lu | %u", ulongParam, dev.bufferSize * dev.hwstatus.periods);
-    dev.hwstatus.bufferSize = ulongParam;
+    dev.hwstatus.fullBufferSize = ulongParam;
 
     dev.deviceID = strdup(deviceID);
 
