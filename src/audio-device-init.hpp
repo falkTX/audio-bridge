@@ -14,6 +14,8 @@
 
 #include "zita-resampler/vresampler.h"
 
+#define USB_GADGET_MODE
+
 // --------------------------------------------------------------------------------------------------------------------
 
 // how many seconds to wait until start trying to compensate for clock drift
@@ -76,9 +78,11 @@ struct DeviceAudio {
 
     char* deviceID;
 
-    snd_pcm_status_t* status;
     snd_pcm_status_t* statusRT;
+   #ifndef USB_GADGET_MODE
+    snd_pcm_status_t* status;
     pthread_mutex_t statuslock;
+   #endif
 
     snd_pcm_t* pcm;
     uint32_t frame;
@@ -92,8 +96,11 @@ struct DeviceAudio {
         float** f32;
     } buffers;
 
+   #ifndef USB_GADGET_MODE
     pthread_t thread;
     sem_t sem;
+   #endif
+
     AudioRingBuffer* ringbuffer;
 };
 

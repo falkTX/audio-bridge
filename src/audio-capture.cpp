@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#ifndef USB_GADGET_MODE
 static void* deviceCaptureThread(void* const  arg)
 {
     DeviceAudio* const dev = static_cast<DeviceAudio*>(arg);
@@ -241,3 +242,101 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
     dev->framesDone += bufferSize;
     setDeviceTimings(dev, frame);
 }
+#else
+static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], const uint32_t frame)
+{
+    const uint8_t hints = dev->hints;
+    const uint8_t channels = dev->hwstatus.channels;
+    const uint16_t bufferSize = dev->bufferSize;
+    snd_pcm_sframes_t err;
+
+    if (hints & kDeviceInitializing)
+    {
+        // read until alsa buffers are empty
+        bool started = false;
+        while ((err = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSize * 2)) > 0)
+            started = true;
+
+        if (err != -EAGAIN)
+        {
+            printf("%08u | capture | initial read error: %s\n", frame, snd_strerror(err));
+            goto error;
+        }
+
+        if (started)
+        {
+            DEBUGPRINT("%08u | capture | can read data, removing kDeviceInitializing", frame);
+            dev->hints &= ~kDeviceInitializing;
+        }
+
+        goto end;
+    }
+
+    err = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSize * 2);
+
+    if (err == 0 || err == -EAGAIN)
+    {
+        if (hints & kDeviceStarting)
+            goto end;
+
+        DEBUGPRINT("%08u | capture | snd_pcm_mmap_readi got no new data", frame);
+        goto error;
+    }
+
+    if (err < 0)
+    {
+        DEBUGPRINT("%08u | capture | Read error %s, adding kDeviceInitializing", frame, snd_strerror(err));
+        goto error;
+    }
+
+    switch (hints & kDeviceSampleHints)
+    {
+    case kDeviceSample16:
+        int2float::s16(dev->buffers.f32, dev->buffers.raw, channels, err);
+        break;
+    case kDeviceSample24:
+        int2float::s24(dev->buffers.f32, dev->buffers.raw, channels, err);
+        break;
+    case kDeviceSample24LE3:
+        int2float::s24le3(dev->buffers.f32, dev->buffers.raw, channels, err);
+        break;
+    case kDeviceSample32:
+        int2float::s32(dev->buffers.f32, dev->buffers.raw, channels, err);
+        break;
+    }
+
+    if (! dev->ringbuffer->write(dev->buffers.f32, err))
+    {
+        DEBUGPRINT("%08u | capture | failed writing data, adding kDeviceInitializing", frame);
+        goto error;
+    }
+
+    if (hints & kDeviceStarting)
+    {
+        if (dev->ringbuffer->getNumReadableSamples() > bufferSize * AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS)
+        {
+            DEBUGPRINT("%08u | capture | wrote enough data, removing kDeviceStarting", frame);
+            dev->hints &= ~kDeviceStarting;
+        }
+    }
+    else
+    {
+        if (! dev->ringbuffer->read(buffers, bufferSize))
+        {
+            DEBUGPRINT("%08u | capture | failed reading data, adding kDeviceInitializing", frame);
+            deviceFailInitHints(dev);
+        }
+    }
+
+    dev->framesDone += bufferSize;
+    setDeviceTimings(dev, frame);
+    return;
+
+error:
+    deviceFailInitHints(dev);
+
+end:
+    for (uint8_t c=0; c < dev->hwstatus.channels; ++c)
+        std::memset(buffers[c], 0, sizeof(float) * bufferSize);
+}
+#endif // USB_GADGET_MODE
