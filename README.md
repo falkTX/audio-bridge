@@ -3,30 +3,13 @@
 This project allows to bridge audio from a running [JACK](https://jackaudio.org/) instance into ALSA and vice-versa.  
 It is similar to other projects such as `alsa_in/out` and `zita-a2j/j2a`, but those lacked the exact combination of factors needed to get some hardware running without big pauses or resyncs so this project was made.
 
-It provides a regular JACK command-line tool, an internal JACK client and an LV2 plugin.  
+Audio-Bridge provides a regular JACK command-line tool, an internal JACK client and an LV2 plugin.  
 Due to it targetting ALSA it will only run on Linux or systems where ALSA emulation is in place.
-
-## Progress
-
-A few things already work, while others are still in progress.
-
-- [x] Audio card discovery
-- [x] Capture and playback of 16/24/32-bit audio
-- [x] Dynamic resampling for clock sync (WIP final tweaks)
-- [x] JACK client for capture and playback
-- [x] LV2 plugin for capture and playback (WIP stereo only)
-- [ ] Parse command-line input on JACK CLI tool
-- [ ] Parse parameter input on internal JACK client
-- [ ] Create barebones LV2 UI
-- [ ] Report available devices to LV2 UI
-- [x] Dynamically switch devices in LV2 plugin
-- [ ] Save and restore state in LV2 plugin
-- [x] SIMD (SSE+NEON) optimized resampler
 
 ## Usage
 
-For now the tool simply will try to connect to the last available soundcard in playback mode.  
-A 1st optional argument can be given for choosing the soundcard, a 2nd one as "capture" for switching to capture mode.
+Audio-Bridge will simply try to connect to the last available soundcard in playback mode.  
+For the JACK CLI variant a 1st optional argument can be given for choosing the soundcard, a 2nd one as "capture" for switching to capture mode.
 
 Quickly building and running can be done like so:
 
@@ -34,19 +17,22 @@ Quickly building and running can be done like so:
 cmake -S . -B build && cmake --build build && ./build/jack-audio-bridge hw:ALSA_HW_NAME playback
 ```
 
-There is no way to specify amount of channels, so things are hardcoded to stereo at the moment.
+The JACK variants will wait until the specified soundcard is available an then register the client and ports,
+so that the JACK port count can match the ALSA side.
 
-The LV2 plugin will simply use the last available soundcard, without any controls or state.
+The LV2 plugin is always stereo and will simply use the last available soundcard without any user-visible controls.  
+Once it is saved in a DAW/Host it will keep that soundcard in the state for connecting to it again next time.
 
 ## Support
 
-There is no support whatsoever for this tool, if it works for you that's great, if not then go look elsewhere for alternative solutions or just stick with [PipeWire](https://pipewire.org/).
+There is no support whatsoever for this tool, if it works for you that's great,
+if not then go look elsewhere for alternative solutions or just stick with [PipeWire](https://pipewire.org/).
 
 It is not meant to be a general user tool, just something that works for a few tested/verified use-cases.
 
 ## License
 
-Copyright (C) 2021-2023 falkTX
+Copyright (C) 2021-2024 falkTX
 
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 

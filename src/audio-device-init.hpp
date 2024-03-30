@@ -16,6 +16,23 @@
 
 // --------------------------------------------------------------------------------------------------------------------
 
+// how many seconds to wait until start trying to compensate for clock drift
+#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY 30
+
+// how many steps to use for smoothing the clock-drift compensation filter
+#define AUDIO_BRIDGE_CLOCK_FILTER_STEPS 8192
+
+// how many audio buffer-size capture blocks to store until rolling starts
+#define AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS 2
+
+// how many audio buffer-size blocks to keep in the capture ringbuffer
+#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 32
+
+// how many audio buffer-size blocks to keep in the playback ringbuffer
+#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 4
+
+// --------------------------------------------------------------------------------------------------------------------
+
 enum DeviceHints {
     kDeviceCapture = 0x1,
     kDeviceInitializing = 0x2,

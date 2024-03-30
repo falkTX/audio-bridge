@@ -159,7 +159,7 @@ static void* deviceCaptureThread(void* const  arg)
                 buffers[c][i] *= xgain;
         }
 
-        while (frames != 0)
+        while (dev->hwstatus.channels != 0 && frames != 0)
         {
             const uint32_t rbavail = std::min<uint32_t>(frames, dev->ringbuffer->getNumWritableSamples());
 
@@ -175,9 +175,10 @@ static void* deviceCaptureThread(void* const  arg)
                 sched_yield();
             }
 
-            if ((dev->hints & kDeviceStarting) != 0 && dev->ringbuffer->getNumReadableSamples() > bufferSize * 2)
+            if ((dev->hints & kDeviceStarting) != 0
+                && dev->ringbuffer->getNumReadableSamples() > bufferSize * AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS)
             {
-                DEBUGPRINT("%08u | capture | wrote bufferSize * 2 amount of data, removing kDeviceStarting", frame);
+                DEBUGPRINT("%08u | capture | wrote enough data, removing kDeviceStarting", frame);
                 dev->hints &= ~kDeviceStarting;
             }
 

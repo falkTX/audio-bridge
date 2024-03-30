@@ -138,12 +138,9 @@ static void* devicePlaybackThread(void* const  arg)
             break;
         }
 
-        if (dev->hwstatus.channels == 0)
-            break;
-
         int8_t* ptr = dev->buffers.raw;
 
-        while (frames != 0)
+        while (dev->hwstatus.channels != 0 && frames != 0)
         {
             err = snd_pcm_mmap_writei(dev->pcm, ptr, frames);
             // DEBUGPRINT("write %d of %u", err, frames);
@@ -185,8 +182,7 @@ static void* devicePlaybackThread(void* const  arg)
             // FIXME check against snd_pcm_sw_params_set_avail_min ??
             if (static_cast<uint16_t>(err) != frames)
             {
-                DEBUGPRINT("%08u | playback | Incomplete write %ld of %u, %u left",
-                           frame, err, bufferSize, frames);
+                DEBUGPRINT("%08u | playback | Incomplete write %ld of %u", frame, err, frames);
 
                 ptr += err * channels * sampleSize;
                 frames -= err;

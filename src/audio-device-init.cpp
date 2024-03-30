@@ -427,7 +427,8 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
             dev.buffers.f32[c] = new float[dev.bufferSize * 2];
 
         dev.ringbuffer = new AudioRingBuffer;
-        dev.ringbuffer->createBuffer(channels, dev.bufferSize * (playback ? 4 : 32));
+        dev.ringbuffer->createBuffer(channels, dev.bufferSize * (playback ? AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS
+                                                                          : AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS));
 
         sem_init(&dev.sem, 0, 0);
 
@@ -529,8 +530,8 @@ static void setDeviceTimings(DeviceAudio* const dev, const uint32_t frame)
 
     dev->balance.distance = snd_pcm_status_get_delay(dev->statusRT);
 
-    // give it 30s of processing before trying to adjust speed
-    if (dev->framesDone < dev->sampleRate * 3)
+    // give it some time for processing before trying to adjust speed
+    if (dev->framesDone < dev->sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY)
         return;
 
     snd_timestamp_t ts;
@@ -551,8 +552,10 @@ static void setDeviceTimings(DeviceAudio* const dev, const uint32_t frame)
                               * 0.000001;
         const uint32_t procDiff = frame - dev->timestamps.jackStartFrame;
 
-        const double ratio = alsaDiff / procDiff;
-        dev->balance.ratio = std::max(0.5, std::min(1.5, (ratio + dev->balance.ratio * 511) / 512));
+        const double ratio = dev->hints & kDeviceCapture ? procDiff / alsaDiff : alsaDiff / procDiff;
+        dev->balance.ratio = std::max(0.5, std::min(1.5,
+            (ratio + dev->balance.ratio * (AUDIO_BRIDGE_CLOCK_FILTER_STEPS - 1)) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS
+        ));
     }
 }
 
