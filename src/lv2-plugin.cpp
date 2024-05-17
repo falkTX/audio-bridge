@@ -476,6 +476,7 @@ const void* lv2_extension_data(const char* const uri)
     return nullptr;
 }
 
+LV2_SYMBOL_EXPORT
 const LV2_Descriptor* lv2_descriptor(const uint32_t index)
 {
     static const LV2_Descriptor descriptor_capture = {

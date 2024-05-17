@@ -249,6 +249,9 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
     const uint8_t channels = dev->hwstatus.channels;
     const uint16_t bufferSize = dev->bufferSize;
     snd_pcm_sframes_t err;
+    float rbuffers1[bufferSize * 2];
+    float rbuffers2[bufferSize * 2];
+    float* rbuffers[2] = { rbuffers1, rbuffers2 };
 
     if (hints & kDeviceInitializing)
     {
@@ -305,7 +308,32 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
         break;
     }
 
-    if (! dev->ringbuffer->write(dev->buffers.f32, err))
+    if (dev->framesDone >= dev->sampleRate * 2)
+    {
+        const double rbratio = (
+                                static_cast<double>(dev->ringbuffer->getNumReadableSamples() / 16.0) /
+                                static_cast<double>(dev->ringbuffer->getNumSamples() / 16.0)
+                                / 0.125 + AUDIO_BRIDGE_CLOCK_FILTER_STEPS - 1
+                               ) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS;
+
+        const double balratio = std::max(0.9, std::min(1.1,
+            ((2.0 - rbratio) + dev->balance.ratio * (AUDIO_BRIDGE_CLOCK_FILTER_STEPS - 1)) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS
+        ));
+
+        if (std::abs(dev->balance.ratio - balratio) > 0.000000002)
+        {
+            dev->balance.ratio = balratio;
+            dev->resampler->set_rratio(balratio);
+        }
+    }
+
+    dev->resampler->inp_count = err;
+    dev->resampler->out_count = bufferSize * 2;
+    dev->resampler->inp_data = dev->buffers.f32;
+    dev->resampler->out_data = rbuffers;
+    dev->resampler->process();
+
+    if (! dev->ringbuffer->write(rbuffers, bufferSize * 2 - dev->resampler->out_count))
     {
         DEBUGPRINT("%08u | capture | failed writing data, adding kDeviceInitializing", frame);
         goto error;

@@ -3,6 +3,7 @@
 @prefix doap:    <http://usefulinc.com/ns/doap#> .
 @prefix foaf:    <http://xmlns.com/foaf/0.1/> .
 @prefix lv2:     <http://lv2plug.in/ns/lv2core#> .
+@prefix modgui:  <http://moddevices.com/ns/modgui#> .
 @prefix opts:    <http://lv2plug.in/ns/ext/options#> .
 @prefix params:  <http://lv2plug.in/ns/ext/parameters#> .
 @prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
@@ -132,7 +133,31 @@ Currently limited to 2 audio ports and a single device, which is automatically c
 
     lv2:symbol "capture" ;
     lv2:microVersion 0 ;
-    lv2:minorVersion 0 .
+    lv2:minorVersion 0 ;
+
+    modgui:gui [
+        modgui:resourcesDirectory <modgui> ;
+        modgui:iconTemplate <modgui/icon.html> ;
+        modgui:stylesheet <modgui/stylesheet.css> ;
+        modgui:screenshot <modgui/screenshot.png> ;
+        modgui:thumbnail <modgui/thumbnail.png> ;
+        modgui:javascript <modgui/script.js> ;
+        modgui:brand "falkTX" ;
+        modgui:label "Audio Capture" ;
+        modgui:monitoredOutputs [
+            lv2:symbol "periods"
+        ] , [
+            lv2:symbol "periodsize"
+        ] , [
+            lv2:symbol "buffersize"
+        ] , [
+            lv2:symbol "distance"
+        ] , [
+            lv2:symbol "ratio"
+        ] , [
+            lv2:symbol "bufferfill"
+        ] ;
+    ] .
 
 <https://falktx.com/plugins/audio-bridge#playback>
     a doap:Project, lv2:UtilityPlugin, lv2:Plugin ;
@@ -256,4 +281,28 @@ Currently limited to 2 audio ports and a single device, which is automatically c
 
     lv2:symbol "playback" ;
     lv2:microVersion 0 ;
-    lv2:minorVersion 0 .
+    lv2:minorVersion 0 ;
+
+    modgui:gui [
+        modgui:resourcesDirectory <modgui> ;
+        modgui:iconTemplate <modgui/icon.html> ;
+        modgui:stylesheet <modgui/stylesheet.css> ;
+        modgui:screenshot <modgui/screenshot.png> ;
+        modgui:thumbnail <modgui/thumbnail.png> ;
+        modgui:javascript <modgui/script.js> ;
+        modgui:brand "falkTX" ;
+        modgui:label "Audio Playback" ;
+        modgui:monitoredOutputs [
+            lv2:symbol "periods"
+        ] , [
+            lv2:symbol "periodsize"
+        ] , [
+            lv2:symbol "buffersize"
+        ] , [
+            lv2:symbol "distance"
+        ] , [
+            lv2:symbol "ratio"
+        ] , [
+            lv2:symbol "bufferfill"
+        ] ;
+    ] .

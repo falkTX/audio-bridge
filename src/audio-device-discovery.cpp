@@ -115,19 +115,18 @@ static bool fillDeviceProperties(snd_pcm_t* const pcm,
 
 static bool isdigit(const char* const s)
 {
-    const size_t len = strlen(s);
-
-    if (len == 0)
-        return false;
-
-    for (size_t i=0; i<len; ++i)
+    if (const size_t len = std::strlen(s))
     {
-        if (std::isdigit(s[i]))
-            continue;
-        return false;
+        for (size_t i=0; i<len; ++i)
+        {
+            if (! std::isdigit(s[i]))
+                return false;
+        }
+
+        return true;
     }
 
-    return true;
+    return false;
 }
 
 bool enumerateSoundcards(std::vector<DeviceID>& inputs, std::vector<DeviceID>& outputs)
@@ -137,15 +136,15 @@ bool enumerateSoundcards(std::vector<DeviceID>& inputs, std::vector<DeviceID>& o
     snd_ctl_card_info_alloca(&cardinfo);
 
     int card = -1;
-    char hwcard[32];
-    char reserve[32];
+    char hwcard[32] = {};
+    char reserve[32] = {};
 
     while (inputs.size() + outputs.size() <= 64)
     {
         if (snd_card_next(&card) != 0 || card < 0)
             break;
 
-        snprintf(hwcard, sizeof(hwcard), "hw:%i", card);
+        std::snprintf(hwcard, sizeof(hwcard) - 1, "hw:%i", card);
 
         if (snd_ctl_open(&ctl, hwcard, SND_CTL_NONBLOCK) < 0)
             continue;
@@ -171,9 +170,9 @@ bool enumerateSoundcards(std::vector<DeviceID>& inputs, std::vector<DeviceID>& o
 //             }
 //            #endif
 
-            if (cardId == nullptr || ::isdigit(cardId))
+            if (cardId == nullptr || isdigit(cardId))
             {
-                snprintf(reserve, sizeof(reserve), "%i", card);
+                std::snprintf(reserve, sizeof(reserve) - 1, "%i", card);
                 cardId = reserve;
             }
 

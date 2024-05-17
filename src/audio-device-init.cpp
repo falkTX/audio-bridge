@@ -441,7 +441,10 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
 
         snd_pcm_status_malloc(&dev.statusRT);
 
-       #ifndef USB_GADGET_MODE
+       #ifdef USB_GADGET_MODE
+        dev.resampler = new VResampler;
+        dev.resampler->setup(1.0, channels, 8);
+       #else
         snd_pcm_status_malloc(&dev.status);
         std::memset(dev.status, 0, snd_pcm_status_sizeof());
 
@@ -561,33 +564,33 @@ static void setDeviceTimings(DeviceAudio* const dev, const uint32_t frame)
 
     dev->balance.distance = snd_pcm_status_get_delay(dev->statusRT);
 
-    // give it some time for processing before trying to adjust speed
-    if (dev->framesDone < dev->sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY)
-        return;
+//     // give it some time for processing before trying to adjust speed
+//     if (dev->framesDone < dev->sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY)
+//         return;
 
-    snd_timestamp_t ts;
-    snd_pcm_status_get_tstamp(dev->statusRT, &ts);
-
-    if (dev->timestamps.jackStartFrame == 0)
-    {
-        dev->timestamps.alsaStartTime = ts.tv_sec * 1000000ULL + ts.tv_usec;
-        dev->timestamps.jackStartFrame = frame;
-    }
-    else
-    {
-        const uint64_t alsaTime = ts.tv_sec * 1000000ULL + ts.tv_usec;
-        DISTRHO_SAFE_ASSERT_RETURN(alsaTime >= dev->timestamps.alsaStartTime,);
-
-        const double alsaDiff = static_cast<double>(alsaTime - dev->timestamps.alsaStartTime)
-                              * dev->sampleRate
-                              * 0.000001;
-        const uint32_t procDiff = frame - dev->timestamps.jackStartFrame;
-
-        const double ratio = dev->hints & kDeviceCapture ? procDiff / alsaDiff : alsaDiff / procDiff;
-        dev->balance.ratio = std::max(0.5, std::min(1.5,
-            (ratio + dev->balance.ratio * (AUDIO_BRIDGE_CLOCK_FILTER_STEPS - 1)) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS
-        ));
-    }
+//     snd_timestamp_t ts;
+//     snd_pcm_status_get_tstamp(dev->statusRT, &ts);
+// 
+//     if (dev->timestamps.jackStartFrame == 0)
+//     {
+//         dev->timestamps.alsaStartTime = ts.tv_sec * 1000000ULL + ts.tv_usec;
+//         dev->timestamps.jackStartFrame = frame;
+//     }
+//     else
+//     {
+//         const uint64_t alsaTime = ts.tv_sec * 1000000ULL + ts.tv_usec;
+//         DISTRHO_SAFE_ASSERT_RETURN(alsaTime >= dev->timestamps.alsaStartTime,);
+// 
+//         const double alsaDiff = static_cast<double>(alsaTime - dev->timestamps.alsaStartTime)
+//                               * dev->sampleRate
+//                               * 0.000001;
+//         const uint32_t procDiff = frame - dev->timestamps.jackStartFrame;
+// 
+//         const double ratio = dev->hints & kDeviceCapture ? procDiff / alsaDiff : alsaDiff / procDiff;
+//         dev->balance.ratio = std::max(0.5, std::min(1.5,
+//             (ratio + dev->balance.ratio * (AUDIO_BRIDGE_CLOCK_FILTER_STEPS - 1)) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS
+//         ));
+//     }
 }
 
 // --------------------------------------------------------------------------------------------------------------------

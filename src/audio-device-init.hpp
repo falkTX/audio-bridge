@@ -25,7 +25,7 @@
 #define AUDIO_BRIDGE_CLOCK_FILTER_STEPS 8192
 
 // how many audio buffer-size capture blocks to store until rolling starts
-#define AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS 2
+#define AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS 3
 
 // how many audio buffer-size blocks to keep in the capture ringbuffer
 #define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 32
@@ -96,7 +96,9 @@ struct DeviceAudio {
         float** f32;
     } buffers;
 
-   #ifndef USB_GADGET_MODE
+   #ifdef USB_GADGET_MODE
+    VResampler* resampler;
+   #else
     pthread_t thread;
     sem_t sem;
    #endif
