@@ -203,6 +203,15 @@ end:
     return nullptr;
 }
 
+static inline
+void clearCaptureBuffers(DeviceAudio* const dev, float* buffers[])
+{
+    const uint16_t bufferSize = dev->bufferSize;
+
+    for (uint8_t c=0; c < dev->hwstatus.channels; ++c)
+        std::memset(buffers[c], 0, sizeof(float) * bufferSize);
+}
+
 static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], const uint32_t frame)
 {
     const uint16_t bufferSize = dev->bufferSize;
@@ -211,10 +220,8 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
 
     if (dev->hints & kDeviceStarting)
     {
-        for (uint8_t c=0; c < dev->hwstatus.channels; ++c)
-            std::memset(buffers[c], 0, sizeof(float) * bufferSize);
-
-        dev->balance.distance = 0;
+        clearCaptureBuffers(dev, buffers);
+        dev->balance.ratio = 1.0;
         dev->framesDone = 0;
         return;
     }
@@ -222,22 +229,13 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
     if (dev->ringbuffer->getNumReadableSamples() < bufferSize)
     {
         DEBUGPRINT("%08u | capture | buffer empty, adding kDeviceInitializing", frame);
-        for (uint8_t c=0; c < dev->hwstatus.channels; ++c)
-            std::memset(buffers[c], 0, sizeof(float) * bufferSize);
-
-        dev->hints |= kDeviceInitializing|kDeviceStarting;
-        dev->ringbuffer->flush();
+        clearCaptureBuffers(dev, buffers);
+        deviceFailInitHints(dev);
         return;
     }
 
-    if (dev->ringbuffer->read(buffers, bufferSize))
-    {
-        dev->framesDone += bufferSize;
-        setDeviceTimings(dev);
-    }
-    else
-    {
-        for (uint8_t c=0; c < dev->hwstatus.channels; ++c)
-            std::memset(buffers[c], 0, sizeof(float) * bufferSize);
-    }
+    DISTRHO_SAFE_ASSERT_RETURN(dev->ringbuffer->read(buffers, bufferSize), clearCaptureBuffers(dev, buffers));
+
+    dev->framesDone += bufferSize;
+    setDeviceTimings(dev);
 }

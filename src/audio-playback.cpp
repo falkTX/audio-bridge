@@ -201,25 +201,23 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
 {
     const uint16_t bufferSize = dev->bufferSize;
 
+    sem_post(&dev->sem);
+
     if (dev->hints & kDeviceInitializing)
     {
-        dev->balance.distance = 0;
+        dev->balance.ratio = 1.0;
         dev->framesDone = 0;
-        sem_post(&dev->sem);
         return;
     }
 
     if (dev->ringbuffer->getNumWritableSamples() < bufferSize)
     {
         DEBUGPRINT("%08u | playback | ringbuffer full, adding kDeviceInitializing|kDeviceStarting", frame);
-        dev->hints |= kDeviceInitializing|kDeviceStarting;
-        dev->ringbuffer->flush();
+        deviceFailInitHints(dev);
         return;
     }
 
     DISTRHO_SAFE_ASSERT_RETURN(dev->ringbuffer->write(buffers, bufferSize),);
-
-    sem_post(&dev->sem);
 
     dev->framesDone += bufferSize;
     setDeviceTimings(dev);

@@ -138,7 +138,6 @@ static void deviceFailInitHints(DeviceAudio* const dev)
 {
     dev->hints |= kDeviceInitializing|kDeviceStarting;
     dev->balance.ratio = 1.0;
-    dev->timestamps.alsaStartTime = dev->timestamps.jackStartFrame = 0;
     dev->framesDone = 0;
     dev->ringbuffer->flush();
 }

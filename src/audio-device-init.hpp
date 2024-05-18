@@ -61,13 +61,7 @@ uint8_t getSampleSizeFromHints(const uint8_t hints)
 struct DeviceAudio {
     struct Balance {
         double ratio = 1.0;
-        int32_t distance = 0;
     } balance;
-
-    struct TimeStamps {
-        uint64_t alsaStartTime = 0;
-        uint32_t jackStartFrame = 0;
-    } timestamps;
 
     struct HWStatus {
         uint8_t channels;
