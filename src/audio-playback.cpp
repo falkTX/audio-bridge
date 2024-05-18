@@ -30,10 +30,6 @@ static void* devicePlaybackThread(void* const  arg)
     snd_pcm_sframes_t err;
     float xgain;
 
-    snd_pcm_status_t* status;
-    snd_pcm_status_malloc(&status);
-    std::memset(status, 0, snd_pcm_status_sizeof());
-
     auto restart = [&dev, &resampler, &gain]()
     {
         deviceFailInitHints(dev);
@@ -166,13 +162,6 @@ static void* devicePlaybackThread(void* const  arg)
                 break;
             }
 
-            if (snd_pcm_status(dev->pcm, status) == 0)
-            {
-                pthread_mutex_lock(&dev->statuslock);
-                snd_pcm_status_copy(dev->status, status);
-                pthread_mutex_unlock(&dev->statuslock);
-            }
-
             if (dev->hints & kDeviceStarting)
             {
                 DEBUGPRINT("%08u | playback | wrote data, removing kDeviceStarting", frame);
@@ -197,8 +186,6 @@ static void* devicePlaybackThread(void* const  arg)
 
 end:
     DEBUGPRINT("%08u | playback | audio thread closed", dev->frame);
-
-    snd_pcm_status_free(status);
 
     delete resampler;
 
@@ -235,5 +222,5 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
     sem_post(&dev->sem);
 
     dev->framesDone += bufferSize;
-    setDeviceTimings(dev, frame);
+    setDeviceTimings(dev);
 }

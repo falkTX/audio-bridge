@@ -1,8 +1,16 @@
 function (event) {
+    function status2str(status) {
+        switch (status) {
+        case 1: return 'Initializing';
+        case 2: return 'Starting';
+        case 3: return 'Running';
+        default: return '-';
+        }
+    }
     function handle_event (symbol, value) {
         switch (symbol) {
-            case 'distance':
-                event.icon.find ('[mod-port-symbol=distance]').text ('' + value + ' samples');
+            case 'status':
+                event.icon.find ('[mod-port-symbol=status]').text (status2str (parseInt (value)));
                 break;
             case 'bufferfill':
                 event.icon.find ('[mod-port-symbol=bufferfill]').text ('' + value.toFixed(2) + ' %');

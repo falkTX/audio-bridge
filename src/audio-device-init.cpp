@@ -11,18 +11,14 @@
 
 // private
 static void deviceFailInitHints(DeviceAudio* dev);
-#ifndef USB_GADGET_MODE
 static void deviceTimedWait(DeviceAudio* dev);
 static void* deviceCaptureThread(void* arg);
 static void* devicePlaybackThread(void* arg);
 static void runDeviceAudioPlayback(DeviceAudio* dev, float* buffers[], uint32_t frame);
-#endif
 static void runDeviceAudioCapture(DeviceAudio* dev, float* buffers[], uint32_t frame);
 
-#ifndef USB_GADGET_MODE
 // TODO cleanup, see what is needed
 static int xrun_recovery(snd_pcm_t *handle, int err);
-#endif
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -102,7 +98,6 @@ static const char* SND_PCM_FORMAT_STRING(const snd_pcm_format_t format)
 
 // --------------------------------------------------------------------------------------------------------------------
 
-#ifndef USB_GADGET_MODE
 // TODO cleanup, see what is needed
 static int xrun_recovery(snd_pcm_t *handle, int err)
 {
@@ -138,7 +133,6 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
 
     return err;
 }
-#endif
 
 static void deviceFailInitHints(DeviceAudio* const dev)
 {
@@ -149,7 +143,6 @@ static void deviceFailInitHints(DeviceAudio* const dev)
     dev->ringbuffer->flush();
 }
 
-#ifndef USB_GADGET_MODE
 static void deviceTimedWait(DeviceAudio* const dev)
 {
     if (sem_trywait(&dev->sem) == 0)
@@ -167,7 +160,6 @@ static void deviceTimedWait(DeviceAudio* const dev)
     }
     sem_timedwait(&dev->sem, &ts);
 }
-#endif
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -427,6 +419,8 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
 
     {
         const uint8_t channels = dev.hwstatus.channels;
+        const uint8_t blocks = (playback ? AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS
+                                         : AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS);
         const size_t rawbufferlen = getSampleSizeFromHints(dev.hints) * dev.bufferSize * channels * 2;
 
         dev.buffers.raw = new int8_t[rawbufferlen];
@@ -436,31 +430,14 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
             dev.buffers.f32[c] = new float[dev.bufferSize * 2];
 
         dev.ringbuffer = new AudioRingBuffer;
-        dev.ringbuffer->createBuffer(channels, dev.bufferSize * (playback ? AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS
-                                                                          : AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS));
+        dev.ringbuffer->createBuffer(channels, dev.bufferSize * blocks);
 
-        snd_pcm_status_malloc(&dev.statusRT);
-
-       #ifdef USB_GADGET_MODE
-        dev.resampler = new VResampler;
-        dev.resampler->setup(1.0, channels, 8);
-       #else
-        snd_pcm_status_malloc(&dev.status);
-        std::memset(dev.status, 0, snd_pcm_status_sizeof());
-
-        pthread_mutexattr_t mutexattr;
-        pthread_mutexattr_init(&mutexattr);
-        pthread_mutexattr_setprotocol(&mutexattr, PTHREAD_PRIO_INHERIT);
-        pthread_mutex_init(&dev.statuslock, &mutexattr);
-        pthread_mutexattr_destroy(&mutexattr);
-
-        sem_init(&dev.sem, 0, 0);
-       #endif
+        dev.rbFillTarget = static_cast<double>(AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS) / blocks;
+        dev.rbTotalNumSamples = dev.bufferSize * blocks / kRingBufferDataFactor;
 
         DeviceAudio* const devptr = new DeviceAudio;
         std::memcpy(devptr, &dev, sizeof(dev));
 
-       #ifndef USB_GADGET_MODE
         void* (*threadCall)(void*) = playback ? devicePlaybackThread : deviceCaptureThread;
 
         pthread_attr_t attr;
@@ -482,7 +459,6 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
             }
         }
         pthread_attr_destroy(&attr);
-       #endif
 
         return devptr;
     }
@@ -498,26 +474,18 @@ bool runDeviceAudio(DeviceAudio* const dev, float* buffers[])
 
     if (dev->hints & kDeviceCapture)
         runDeviceAudioCapture(dev, buffers, frame);
-   #ifndef USB_GADGET_MODE
     else
         runDeviceAudioPlayback(dev, buffers, frame);
-   #endif
 
     dev->frame += dev->bufferSize;
 
-   #ifndef USB_GADGET_MODE
     return dev->thread != 0;
-   #else
-    // TODO
-    return true;
-   #endif
 }
 
 void closeDeviceAudio(DeviceAudio* const dev)
 {
     const uint8_t channels = dev->hwstatus.channels;
 
-   #ifndef USB_GADGET_MODE
     if (dev->thread != 0)
     {
         dev->hwstatus.channels = 0;
@@ -527,13 +495,6 @@ void closeDeviceAudio(DeviceAudio* const dev)
     }
 
     sem_destroy(&dev->sem);
-    pthread_mutex_destroy(&dev->statuslock);
-    snd_pcm_status_free(dev->status);
-   #else
-    snd_pcm_close(dev->pcm);
-   #endif
-
-    snd_pcm_status_free(dev->statusRT);
 
     std::free(dev->deviceID);
 
@@ -547,57 +508,29 @@ void closeDeviceAudio(DeviceAudio* const dev)
 
 // --------------------------------------------------------------------------------------------------------------------
 
-static void setDeviceTimings(DeviceAudio* const dev, const uint32_t frame)
+static void setDeviceTimings(DeviceAudio* const dev)
 {
     if (dev->hints & kDeviceStarting)
         return;
-
-   #ifndef USB_GADGET_MODE
-    if (pthread_mutex_trylock(&dev->statuslock) != 0)
+    if (dev->framesDone < dev->sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY)
         return;
 
-    snd_pcm_status_copy(dev->statusRT, dev->status);
-    pthread_mutex_unlock(&dev->statuslock);
-   #else
-    snd_pcm_status(dev->pcm, dev->statusRT);
-   #endif
+    const double rbratio = 2.0 - (
+        dev->ringbuffer->getNumReadableSamples() / kRingBufferDataFactor / dev->rbTotalNumSamples / dev->rbFillTarget
+        + AUDIO_BRIDGE_CLOCK_FILTER_STEPS - 1
+    ) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS;
 
-    dev->balance.distance = snd_pcm_status_get_delay(dev->statusRT);
+    const double balratio = std::max(0.9, std::min(1.1,
+        (rbratio + dev->balance.ratio * (AUDIO_BRIDGE_CLOCK_FILTER_STEPS - 1)) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS
+    ));
 
-//     // give it some time for processing before trying to adjust speed
-//     if (dev->framesDone < dev->sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY)
-//         return;
-
-//     snd_timestamp_t ts;
-//     snd_pcm_status_get_tstamp(dev->statusRT, &ts);
-// 
-//     if (dev->timestamps.jackStartFrame == 0)
-//     {
-//         dev->timestamps.alsaStartTime = ts.tv_sec * 1000000ULL + ts.tv_usec;
-//         dev->timestamps.jackStartFrame = frame;
-//     }
-//     else
-//     {
-//         const uint64_t alsaTime = ts.tv_sec * 1000000ULL + ts.tv_usec;
-//         DISTRHO_SAFE_ASSERT_RETURN(alsaTime >= dev->timestamps.alsaStartTime,);
-// 
-//         const double alsaDiff = static_cast<double>(alsaTime - dev->timestamps.alsaStartTime)
-//                               * dev->sampleRate
-//                               * 0.000001;
-//         const uint32_t procDiff = frame - dev->timestamps.jackStartFrame;
-// 
-//         const double ratio = dev->hints & kDeviceCapture ? procDiff / alsaDiff : alsaDiff / procDiff;
-//         dev->balance.ratio = std::max(0.5, std::min(1.5,
-//             (ratio + dev->balance.ratio * (AUDIO_BRIDGE_CLOCK_FILTER_STEPS - 1)) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS
-//         ));
-//     }
+    if (std::abs(dev->balance.ratio - balratio) > 0.000000002)
+        dev->balance.ratio = balratio;
 }
 
 // --------------------------------------------------------------------------------------------------------------------
 
 #include "audio-capture.cpp"
-#ifndef USB_GADGET_MODE
 #include "audio-playback.cpp"
-#endif
 
 // --------------------------------------------------------------------------------------------------------------------

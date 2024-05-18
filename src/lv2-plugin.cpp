@@ -18,7 +18,6 @@
 #include <cstring>
 
 static constexpr const uint8_t kMaxIO = 32;
-static constexpr const uint8_t kRingBufferDataFactor = 16;
 
 typedef std::vector<DeviceID>::const_reverse_iterator cri;
 
@@ -40,6 +39,7 @@ struct PluginData {
     uint32_t maxRingBufferSize = 0;
     bool playback = false;
     bool activated = false;
+    bool firstActivate = false;
     uint32_t numSamplesUntilWorkerIdle = 0;
    #ifndef __MOD_DEVICES__
     char* deviceID = nullptr;
@@ -93,7 +93,7 @@ struct PluginData {
 
     void activate()
     {
-        activated = true;
+        activated = firstActivate = true;
     }
 
     void deactivate()
@@ -136,19 +136,23 @@ struct PluginData {
         if (dev != nullptr)
         {
             const uint8_t hints = dev->hints;
-            *controlports[0] = hints & kDeviceInitializing ? 1.f : hints & kDeviceStarting ? 2.f : 3.f;
-            *controlports[1] = dev->hwstatus.channels;
-            *controlports[2] = dev->hwstatus.periods;
-            *controlports[3] = dev->hwstatus.periodSize;
-            *controlports[4] = dev->hwstatus.fullBufferSize;
-            *controlports[5] = dev->balance.distance;
-            *controlports[6] = dev->balance.ratio;
-            *controlports[7] = static_cast<float>(dev->ringbuffer->getNumReadableSamples() / kRingBufferDataFactor)
-                             / static_cast<float>(maxRingBufferSize) * 100.f;
+            *controlports[1] = hints & kDeviceInitializing ? 1.f : hints & kDeviceStarting ? 2.f : 3.f;
+            *controlports[2] = dev->hwstatus.channels;
+            *controlports[3] = dev->hwstatus.periods;
+            *controlports[4] = dev->hwstatus.periodSize;
+            *controlports[5] = dev->hwstatus.fullBufferSize;
+
+            if (*controlports[0] > 0.5f || firstActivate)
+            {
+                firstActivate = false;
+                *controlports[6] = dev->balance.ratio;
+                *controlports[7] = static_cast<float>(dev->ringbuffer->getNumReadableSamples() / kRingBufferDataFactor)
+                                 / static_cast<float>(maxRingBufferSize) * 100.f;
+            }
         }
         else
         {
-            *controlports[0] = *controlports[1] = *controlports[2] = *controlports[3] = 0.f;
+            *controlports[1] = *controlports[2] = *controlports[3] = 0.f;
             *controlports[4] = *controlports[5] = *controlports[6] = *controlports[7] = 0.f;
 
             if (!playback)

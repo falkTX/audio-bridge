@@ -14,21 +14,19 @@
 
 #include "zita-resampler/vresampler.h"
 
-#define USB_GADGET_MODE
-
 // --------------------------------------------------------------------------------------------------------------------
 
 // how many seconds to wait until start trying to compensate for clock drift
-#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY 30
+#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY 5
 
 // how many steps to use for smoothing the clock-drift compensation filter
 #define AUDIO_BRIDGE_CLOCK_FILTER_STEPS 8192
 
 // how many audio buffer-size capture blocks to store until rolling starts
-#define AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS 3
+#define AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS 2
 
 // how many audio buffer-size blocks to keep in the capture ringbuffer
-#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 32
+#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 8
 
 // how many audio buffer-size blocks to keep in the playback ringbuffer
 #define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 4
@@ -45,6 +43,8 @@ enum DeviceHints {
     kDeviceSample32 = 0x80,
     kDeviceSampleHints = kDeviceSample16|kDeviceSample24|kDeviceSample24LE3|kDeviceSample32
 };
+
+static constexpr const uint8_t kRingBufferDataFactor = 32;
 
 static inline constexpr
 uint8_t getSampleSizeFromHints(const uint8_t hints)
@@ -78,12 +78,6 @@ struct DeviceAudio {
 
     char* deviceID;
 
-    snd_pcm_status_t* statusRT;
-   #ifndef USB_GADGET_MODE
-    snd_pcm_status_t* status;
-    pthread_mutex_t statuslock;
-   #endif
-
     snd_pcm_t* pcm;
     uint32_t frame;
     uint32_t framesDone;
@@ -96,14 +90,12 @@ struct DeviceAudio {
         float** f32;
     } buffers;
 
-   #ifdef USB_GADGET_MODE
-    VResampler* resampler;
-   #else
     pthread_t thread;
     sem_t sem;
-   #endif
 
     AudioRingBuffer* ringbuffer;
+    double rbFillTarget;
+    double rbTotalNumSamples;
 };
 
 // --------------------------------------------------------------------------------------------------------------------
