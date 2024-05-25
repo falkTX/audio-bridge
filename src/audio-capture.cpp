@@ -23,22 +23,23 @@ static void* deviceCaptureThread(void* const  arg)
     // smooth initial volume to prevent clicks on start
     ExponentialValueSmoother gain;
     gain.setSampleRate(dev->sampleRate);
-    gain.setTimeConstant(3.f);
+    gain.setTimeConstant(0.5f);
 
     VResampler* const resampler = new VResampler;
     resampler->setup(1.0, channels, 8);
 
     snd_pcm_sframes_t err;
     float xgain;
-    double oldratio = 0.0;
+    double rbRatio = 0.0;
+    bool enabled = true;
 
-    auto restart = [&dev, &resampler, &gain]()
+    auto restart = [&dev, &resampler, &gain, &enabled]()
     {
         deviceFailInitHints(dev);
-        resampler->set_rratio(1.0);
         gain.setTargetValue(0.f);
         gain.clearToTargetValue();
-        gain.setTargetValue(1.f);
+        if (enabled)
+            gain.setTargetValue(1.f);
     };
 
     // wait for audio thread to post
@@ -73,7 +74,7 @@ static void* deviceCaptureThread(void* const  arg)
 
             if (started)
             {
-                DEBUGPRINT("%08u | capture | can read data, removing kDeviceInitializing", frame);
+                DEBUGPRINT("%08u | capture | can read data? removing kDeviceInitializing", frame);
                 restart();
                 dev->hints &= ~kDeviceInitializing;
             }
@@ -81,6 +82,27 @@ static void* deviceCaptureThread(void* const  arg)
             {
                 deviceTimedWait(dev);
                 continue;
+            }
+        }
+
+        if (dev->hints & kDeviceStarting)
+        {
+            // try reading a single sample to see if device is running
+            err = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, 1);
+
+            switch (err)
+            {
+            case 1:
+                DEBUGPRINT("%08u | capture | can read data, removing kDeviceStarting", frame);
+                dev->hints &= ~kDeviceStarting;
+                snd_pcm_rewind(dev->pcm, 1);
+                break;
+            case -EAGAIN:
+                deviceTimedWait(dev);
+                continue;
+            default:
+                printf("%08u | capture | initial read error: %s\n", frame, snd_strerror(err));
+                goto end;
             }
         }
 
@@ -132,10 +154,16 @@ static void* deviceCaptureThread(void* const  arg)
             break;
         }
 
-        if (dev->balance.ratio != oldratio)
+        if (enabled != dev->enabled)
         {
-            oldratio = dev->balance.ratio;
-            resampler->set_rratio(oldratio);
+            enabled = dev->enabled;
+            gain.setTargetValue(enabled ? 1.f : 0.f);
+        }
+
+        if (rbRatio != dev->rbRatio)
+        {
+            rbRatio = dev->rbRatio;
+            resampler->set_rratio(rbRatio);
         }
 
         resampler->inp_count = err;
@@ -169,11 +197,11 @@ static void* deviceCaptureThread(void* const  arg)
                 sched_yield();
             }
 
-            if ((dev->hints & kDeviceStarting) != 0
+            if ((dev->hints & kDeviceBuffering) != 0
                 && dev->ringbuffer->getNumReadableSamples() > bufferSize * AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS)
             {
-                DEBUGPRINT("%08u | capture | wrote enough data, removing kDeviceStarting", frame);
-                dev->hints &= ~kDeviceStarting;
+                DEBUGPRINT("%08u | capture | wrote enough data, removing kDeviceBuffering", frame);
+                dev->hints &= ~kDeviceBuffering;
             }
 
             if (rbavail != frames)
@@ -218,17 +246,17 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
 
     sem_post(&dev->sem);
 
-    if (dev->hints & kDeviceStarting)
+    if (dev->hints & kDeviceBuffering)
     {
         clearCaptureBuffers(dev, buffers);
-        dev->balance.ratio = 1.0;
         dev->framesDone = 0;
+        dev->rbRatio = 1.0;
         return;
     }
 
     if (dev->ringbuffer->getNumReadableSamples() < bufferSize)
     {
-        DEBUGPRINT("%08u | capture | buffer empty, adding kDeviceInitializing", frame);
+        DEBUGPRINT("%08u | capture | buffer empty, adding kDeviceInitializing|kDeviceStarting|kDeviceBuffering", frame);
         clearCaptureBuffers(dev, buffers);
         deviceFailInitHints(dev);
         return;

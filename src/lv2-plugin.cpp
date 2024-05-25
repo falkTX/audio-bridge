@@ -9,10 +9,11 @@
 #include <lv2/atom/atom.h>
 #include <lv2/buf-size/buf-size.h>
 #include <lv2/options/options.h>
-#include <lv2/patch/patch.h>
-#include <lv2/state/state.h>
 #include <lv2/urid/urid.h>
 #include <lv2/worker/worker.h>
+#ifndef __MOD_DEVICES__
+#include <lv2/state/state.h>
+#endif
 
 #include <cmath>
 #include <cstring>
@@ -23,8 +24,23 @@ typedef std::vector<DeviceID>::const_reverse_iterator cri;
 
 enum {
     kWorkerLoadLastAvailableDevice = 1,
+   #ifndef __MOD_DEVICES__
     kWorkerLoadDeviceWithKnownId,
+   #endif
     kWorkerDestroyDevice
+};
+
+enum {
+    kControlEnabled = 0,
+    kControlStats,
+    kControlStatus,
+    kControlNumChannels,
+    kControlNumPeriods,
+    kControlPeriodSize,
+    kControlBufferSize,
+    kControlRatio,
+    kControlBufferFill,
+    kControlCount,
 };
 
 struct WorkerDevice {
@@ -39,7 +55,6 @@ struct PluginData {
     uint32_t maxRingBufferSize = 0;
     bool playback = false;
     bool activated = false;
-    bool firstActivate = false;
     uint32_t numSamplesUntilWorkerIdle = 0;
    #ifndef __MOD_DEVICES__
     char* deviceID = nullptr;
@@ -59,19 +74,24 @@ struct PluginData {
         float* dummy;
     } buffers = {};
 
-    float* controlports[9] = {};
+    float* controlports[kControlCount] = {};
 
     struct URIs {
-        const LV2_URID deviceid;
         const LV2_URID atom_Int;
-        const LV2_URID atom_String;
         const LV2_URID bufsize_maxBlockLength;
+       #ifndef __MOD_DEVICES__
+        const LV2_URID atom_String;
+        const LV2_URID deviceid;
+       #endif
 
         URIs(const LV2_URID_Map* const uridMap)
-            : deviceid(uridMap->map(uridMap->handle,"https://falktx.com/plugins/audio-bridge#deviceid")),
-              atom_Int(uridMap->map(uridMap->handle, LV2_ATOM__Int)),
-              atom_String(uridMap->map(uridMap->handle, LV2_ATOM__String)),
-              bufsize_maxBlockLength(uridMap->map(uridMap->handle, LV2_BUF_SIZE__maxBlockLength)) {}
+            : atom_Int(uridMap->map(uridMap->handle, LV2_ATOM__Int)),
+              bufsize_maxBlockLength(uridMap->map(uridMap->handle, LV2_BUF_SIZE__maxBlockLength))
+           #ifndef __MOD_DEVICES__
+            , deviceid(uridMap->map(uridMap->handle,"https://falktx.com/plugins/audio-bridge#deviceid")),
+            , atom_String(uridMap->map(uridMap->handle, LV2_ATOM__String))
+           #endif
+        {}
     } uris;
 
     PluginData(const uint32_t sampleRate_, const LV2_Feature* const* const featuresPtr)
@@ -85,6 +105,8 @@ struct PluginData {
 
     ~PluginData()
     {
+        DISTRHO_SAFE_ASSERT(! activated);
+
         if (dev != nullptr)
             closeDeviceAudio(dev);
 
@@ -93,7 +115,7 @@ struct PluginData {
 
     void activate()
     {
-        activated = firstActivate = true;
+        activated = true;
     }
 
     void deactivate()
@@ -105,18 +127,10 @@ struct PluginData {
     {
         switch (index)
         {
-        case 0:
-        case 1:
+        case 0 ... 1:
             buffers.pointers[index] = static_cast<float*>(data);
             break;
-        case 2:
-        case 3:
-        case 4:
-        case 5:
-        case 6:
-        case 7:
-        case 8:
-        case 9:
+        case 2 ... kControlCount + 2:
             controlports[index - 2] = static_cast<float*>(data);
             break;
         }
@@ -136,24 +150,34 @@ struct PluginData {
         if (dev != nullptr)
         {
             const uint8_t hints = dev->hints;
-            *controlports[1] = hints & kDeviceInitializing ? 1.f : hints & kDeviceStarting ? 2.f : 3.f;
-            *controlports[2] = dev->hwstatus.channels;
-            *controlports[3] = dev->hwstatus.periods;
-            *controlports[4] = dev->hwstatus.periodSize;
-            *controlports[5] = dev->hwstatus.fullBufferSize;
+            *controlports[kControlStatus] = hints & kDeviceInitializing ? 1.f
+                                          : hints & kDeviceStarting ? 2.f
+                                          : hints & kDeviceBuffering ? 3.f
+                                          : 4.f;
+            *controlports[kControlNumChannels] = dev->hwstatus.channels;
+            *controlports[kControlNumPeriods] = dev->hwstatus.periods;
+            *controlports[kControlPeriodSize] = dev->hwstatus.periodSize;
+            *controlports[kControlBufferSize] = dev->hwstatus.fullBufferSize;
 
-            if (*controlports[0] > 0.5f || firstActivate)
+            if (*controlports[kControlStats] > 0.5f)
             {
-                firstActivate = false;
-                *controlports[6] = dev->balance.ratio;
-                *controlports[7] = static_cast<float>(dev->ringbuffer->getNumReadableSamples() / kRingBufferDataFactor)
-                                 / static_cast<float>(maxRingBufferSize) * 100.f;
+                *controlports[kControlRatio] = dev->rbRatio;
+                *controlports[kControlBufferFill] = static_cast<float>(dev->ringbuffer->getNumReadableSamples() / kRingBufferDataFactor)
+                                                  / static_cast<float>(maxRingBufferSize) * 100.f;
             }
+            else
+            {
+                *controlports[kControlRatio] = *controlports[kControlBufferFill] = 0.f;
+            }
+
+            dev->enabled = *controlports[kControlEnabled] > 0.5f;
         }
         else
         {
-            *controlports[1] = *controlports[2] = *controlports[3] = 0.f;
-            *controlports[4] = *controlports[5] = *controlports[6] = *controlports[7] = 0.f;
+            *controlports[kControlStatus] = 0.f;
+            *controlports[kControlNumChannels] = *controlports[kControlNumPeriods] = 0.f;
+            *controlports[kControlPeriodSize] = *controlports[kControlBufferSize] = 0.f;
+            *controlports[kControlRatio] = *controlports[kControlBufferFill] = 0.f;
 
             if (!playback)
             {
@@ -183,14 +207,8 @@ struct PluginData {
         {
             if (options[i].key == uris.bufsize_maxBlockLength && options[i].type == uris.atom_Int)
             {
-                if (activated)
-                {
-                    // TODO stop audio until pending worker
-                }
-                else
-                {
-                    setBufferSize(*static_cast<const int32_t*>(options[i].value));
-                }
+                DISTRHO_SAFE_ASSERT(! activated);
+                setBufferSize(*static_cast<const int32_t*>(options[i].value));
                 break;
             }
         }
@@ -256,7 +274,7 @@ struct PluginData {
         DISTRHO_SAFE_ASSERT_RETURN(msg != nullptr, LV2_STATE_ERR_NO_SPACE);
 
         *static_cast<uint32_t*>(msg) = kWorkerLoadDeviceWithKnownId;
-        std::memcpy(static_cast<uint8_t*>(msg) + sizeof(uint32_t), data, size);
+        std::memcpy(static_cast<uint32_t*>(msg) + 1, data, size);
 
         features.workerSchedule->schedule_work(features.workerSchedule->handle, sizeof(uint32_t) + size, msg);
 
@@ -272,7 +290,6 @@ struct PluginData {
                            const void* const data)
     {
         DISTRHO_SAFE_ASSERT_RETURN(size >= sizeof(uint32_t), LV2_WORKER_ERR_UNKNOWN);
-        DISTRHO_SAFE_ASSERT_RETURN(bufferSize != 0, LV2_WORKER_ERR_UNKNOWN);
 
         const uint32_t* const udata = static_cast<const uint32_t*>(data);
 
@@ -305,6 +322,7 @@ struct PluginData {
             respond(handle, sizeof(devptr), &devptr);
             break;
         }
+       #ifndef __MOD_DEVICES__
         case kWorkerLoadDeviceWithKnownId:
         {
             const char* const nextDeviceID = reinterpret_cast<const char*>(udata + 1);
@@ -314,6 +332,7 @@ struct PluginData {
             respond(handle, sizeof(devptr), &devptr);
             break;
         }
+       #endif
         case kWorkerDestroyDevice:
         {
             const WorkerDevice* const r = static_cast<const WorkerDevice*>(data);
@@ -328,7 +347,6 @@ struct PluginData {
     LV2_Worker_Status workResponse(const uint32_t size, const void* const data)
     {
         DISTRHO_SAFE_ASSERT_RETURN(size == sizeof(DeviceAudio*), LV2_WORKER_ERR_UNKNOWN);
-        DISTRHO_SAFE_ASSERT_RETURN(bufferSize != 0, LV2_WORKER_ERR_UNKNOWN);
 
         DeviceAudio* const newdev = *static_cast<DeviceAudio* const*>(data);
         DeviceAudio* const olddev = dev;
@@ -351,7 +369,11 @@ PluginData* lv2_instantiate(const double sampleRate, const LV2_Feature* const* c
         return nullptr;
 
     PluginData* const p = new PluginData(sampleRate, features);
-    return p;
+    if (p->bufferSize != 0)
+        return p;
+
+    delete p;
+    return nullptr;
 }
 
 LV2_Handle lv2_instantiate_capture(const LV2_Descriptor*,

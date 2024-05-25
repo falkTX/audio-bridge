@@ -32,7 +32,8 @@
 #endif
 
 /* Define DISTRHO_SAFE_ASSERT* */
-#define DISTRHO_SAFE_ASSERT_RETURN(cond, ret)   if (unlikely(!(cond))) { d_safe_assert(#cond, __FILE__, __LINE__); return ret; }
+#define DISTRHO_SAFE_ASSERT(cond)                           if (unlikely(!(cond))) { d_safe_assert(#cond, __FILE__, __LINE__); }
+#define DISTRHO_SAFE_ASSERT_RETURN(cond, ret)               if (unlikely(!(cond))) { d_safe_assert(#cond, __FILE__, __LINE__); return ret; }
 #define DISTRHO_SAFE_ASSERT_UINT2_RETURN(cond, v1, v2, ret) if (unlikely(!(cond))) { d_safe_assert_uint2(#cond, __FILE__, __LINE__, static_cast<uint>(v1), static_cast<uint>(v2)); return ret; }
 
 /* Define DISTRHO_SAFE_EXCEPTION */

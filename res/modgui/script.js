@@ -1,10 +1,11 @@
 function (event) {
     function status2str(status) {
         switch (status) {
-        case 1: return 'Initializing';
+        case 1: return 'Stopped';
         case 2: return 'Starting';
-        case 3: return 'Running';
-        default: return '-';
+        case 3: return 'Buffering';
+        case 4: return 'Running';
+        default: return 'Unavailable';
         }
     }
     function handle_event (symbol, value) {

@@ -136,9 +136,9 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
 
 static void deviceFailInitHints(DeviceAudio* const dev)
 {
-    dev->hints |= kDeviceInitializing|kDeviceStarting;
-    dev->balance.ratio = 1.0;
+    dev->hints |= kDeviceInitializing|kDeviceStarting|kDeviceBuffering;
     dev->framesDone = 0;
+    dev->rbRatio = 1.0;
     dev->ringbuffer->flush();
 }
 
@@ -171,7 +171,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     DeviceAudio dev = {};
     dev.sampleRate = sampleRate;
     dev.bufferSize = bufferSize;
-    dev.hints = kDeviceInitializing|kDeviceStarting|(playback ? 0 : kDeviceCapture);
+    dev.hints = kDeviceInitializing|kDeviceStarting|kDeviceBuffering|(playback ? 0 : kDeviceCapture);
 
     const snd_pcm_stream_t mode = playback ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE;
 
@@ -415,6 +415,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
     dev.hwstatus.fullBufferSize = ulongParam;
 
     dev.deviceID = strdup(deviceID);
+    dev.enabled = true;
 
     {
         const uint8_t channels = dev.hwstatus.channels;
@@ -431,8 +432,10 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         dev.ringbuffer = new AudioRingBuffer;
         dev.ringbuffer->createBuffer(channels, dev.bufferSize * blocks);
 
-        dev.rbFillTarget = static_cast<double>(AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS) / blocks;
+        dev.rbFillTarget = static_cast<double>(playback ? 1 : AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS) / blocks;
         dev.rbTotalNumSamples = dev.bufferSize * blocks / kRingBufferDataFactor;
+        dev.rbRatio = 1.0;
+        printf("target is %f\n", dev.rbFillTarget);
 
         DeviceAudio* const devptr = new DeviceAudio;
         std::memcpy(devptr, &dev, sizeof(dev));
@@ -509,7 +512,7 @@ void closeDeviceAudio(DeviceAudio* const dev)
 
 static void setDeviceTimings(DeviceAudio* const dev)
 {
-    if (dev->hints & kDeviceStarting)
+    if (dev->hints & kDeviceBuffering)
         return;
     if (dev->framesDone < dev->sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY)
         return;
@@ -520,11 +523,11 @@ static void setDeviceTimings(DeviceAudio* const dev)
     ) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS;
 
     const double balratio = std::max(0.9, std::min(1.1,
-        (rbratio + dev->balance.ratio * (AUDIO_BRIDGE_CLOCK_FILTER_STEPS - 1)) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS
+        (rbratio + dev->rbRatio * (AUDIO_BRIDGE_CLOCK_FILTER_STEPS - 1)) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS
     ));
 
-    if (std::abs(dev->balance.ratio - balratio) > 0.000000002)
-        dev->balance.ratio = balratio;
+    if (std::abs(dev->rbRatio - balratio) > 0.000000002)
+        dev->rbRatio = balratio;
 }
 
 // --------------------------------------------------------------------------------------------------------------------

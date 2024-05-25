@@ -22,21 +22,23 @@ static void* devicePlaybackThread(void* const  arg)
     // smooth initial volume to prevent clicks on start
     ExponentialValueSmoother gain;
     gain.setSampleRate(dev->sampleRate);
-    gain.setTimeConstant(3.f);
+    gain.setTimeConstant(0.5f);
 
     VResampler* const resampler = new VResampler;
     resampler->setup(1.0, channels, 8);
 
     snd_pcm_sframes_t err;
     float xgain;
+    double rbRatio = 0.0;
+    bool enabled = true;
 
-    auto restart = [&dev, &resampler, &gain]()
+    auto restart = [&dev, &resampler, &gain, &enabled]()
     {
         deviceFailInitHints(dev);
-        resampler->set_rratio(1.0);
         gain.setTargetValue(0.f);
         gain.clearToTargetValue();
-        gain.setTargetValue(1.f);
+        if (enabled)
+            gain.setTargetValue(1.f);
     };
 
     // wait for audio thread to post
@@ -72,7 +74,7 @@ static void* devicePlaybackThread(void* const  arg)
 
             if (started)
             {
-                DEBUGPRINT("%08u | playback | can write data, removing kDeviceInitializing", frame);
+                DEBUGPRINT("%08u | playback | can write data? removing kDeviceInitializing", frame);
                 restart();
                 dev->hints &= ~kDeviceInitializing;
             }
@@ -80,6 +82,28 @@ static void* devicePlaybackThread(void* const  arg)
             {
                 deviceTimedWait(dev);
                 continue;
+            }
+        }
+
+        if (dev->hints & kDeviceStarting)
+        {
+            // try writing a single sample to see if device is running
+            std::memset(dev->buffers.raw, 0, sampleSize * channels);
+            err = snd_pcm_mmap_writei(dev->pcm, dev->buffers.raw, 1);
+
+            switch (err)
+            {
+            case 1:
+                DEBUGPRINT("%08u | playback | wrote data, removing kDeviceStarting", frame);
+                dev->hints &= ~kDeviceStarting;
+                snd_pcm_rewind(dev->pcm, 1);
+                break;
+            case -EAGAIN:
+                deviceTimedWait(dev);
+                continue;
+            default:
+                printf("%08u | playback | initial write error: %s\n", frame, snd_strerror(err));
+                goto end;
             }
         }
 
@@ -98,7 +122,17 @@ static void* devicePlaybackThread(void* const  arg)
         if (dev->hwstatus.channels == 0)
             break;
 
-        resampler->set_rratio(dev->balance.ratio);
+        if (enabled != dev->enabled)
+        {
+            enabled = dev->enabled;
+            gain.setTargetValue(enabled ? 1.f : 0.f);
+        }
+
+        if (rbRatio != dev->rbRatio)
+        {
+            rbRatio = dev->rbRatio;
+            resampler->set_rratio(rbRatio);
+        }
 
         resampler->inp_count = bufferSize;
         resampler->out_count = bufferSize * 2;
@@ -162,10 +196,10 @@ static void* devicePlaybackThread(void* const  arg)
                 break;
             }
 
-            if (dev->hints & kDeviceStarting)
+            if (dev->hints & kDeviceBuffering)
             {
-                DEBUGPRINT("%08u | playback | wrote data, removing kDeviceStarting", frame);
-                dev->hints &= ~kDeviceStarting;
+                DEBUGPRINT("%08u | playback | wrote data, removing kDeviceBuffering", frame);
+                dev->hints &= ~kDeviceBuffering;
             }
 
             // FIXME check against snd_pcm_sw_params_set_avail_min ??
@@ -203,16 +237,16 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
 
     sem_post(&dev->sem);
 
-    if (dev->hints & kDeviceInitializing)
+    if (dev->hints & kDeviceStarting)
     {
-        dev->balance.ratio = 1.0;
         dev->framesDone = 0;
+        dev->rbRatio = 1.0;
         return;
     }
 
     if (dev->ringbuffer->getNumWritableSamples() < bufferSize)
     {
-        DEBUGPRINT("%08u | playback | ringbuffer full, adding kDeviceInitializing|kDeviceStarting", frame);
+        DEBUGPRINT("%08u | playback | ringbuffer full, adding kDeviceInitializing|kDeviceStarting|kDeviceBuffering", frame);
         deviceFailInitHints(dev);
         return;
     }

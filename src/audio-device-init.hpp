@@ -23,6 +23,7 @@
 #define AUDIO_BRIDGE_CLOCK_FILTER_STEPS 8192
 
 // how many audio buffer-size capture blocks to store until rolling starts
+// must be > 0
 #define AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS 2
 
 // how many audio buffer-size blocks to keep in the capture ringbuffer
@@ -37,6 +38,7 @@ enum DeviceHints {
     kDeviceCapture = 0x1,
     kDeviceInitializing = 0x2,
     kDeviceStarting = 0x4,
+    kDeviceBuffering = 0x8,
     kDeviceSample16 = 0x10,
     kDeviceSample24 = 0x20,
     kDeviceSample24LE3 = 0x40,
@@ -59,10 +61,6 @@ uint8_t getSampleSizeFromHints(const uint8_t hints)
 // --------------------------------------------------------------------------------------------------------------------
 
 struct DeviceAudio {
-    struct Balance {
-        double ratio = 1.0;
-    } balance;
-
     struct HWStatus {
         uint8_t channels;
         uint8_t periods;
@@ -78,6 +76,7 @@ struct DeviceAudio {
     uint32_t sampleRate;
     uint16_t bufferSize;
     uint8_t hints;
+    bool enabled;
 
     struct {
         int8_t* raw;
@@ -90,6 +89,7 @@ struct DeviceAudio {
     AudioRingBuffer* ringbuffer;
     double rbFillTarget;
     double rbTotalNumSamples;
+    double rbRatio = 1.0;
 };
 
 // --------------------------------------------------------------------------------------------------------------------
