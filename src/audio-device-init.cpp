@@ -518,12 +518,12 @@ static void setDeviceTimings(DeviceAudio* const dev)
         return;
 
     const double rbratio = 2.0 - (
-        dev->ringbuffer->getNumReadableSamples() / kRingBufferDataFactor / dev->rbTotalNumSamples / dev->rbFillTarget
-        + AUDIO_BRIDGE_CLOCK_FILTER_STEPS - 1
-    ) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS;
+        dev->ringbuffer->getNumReadableSamples() / (double)kRingBufferDataFactor / dev->rbTotalNumSamples / dev->rbFillTarget
+        + AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1 - 1
+    ) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1;
 
     const double balratio = std::max(0.9, std::min(1.1,
-        (rbratio + dev->rbRatio * (AUDIO_BRIDGE_CLOCK_FILTER_STEPS - 1)) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS
+        (rbratio + dev->rbRatio * (AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2 - 1)) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2
     ));
 
     if (std::abs(dev->rbRatio - balratio) > 0.000000002)

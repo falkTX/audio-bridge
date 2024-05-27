@@ -17,20 +17,21 @@
 // --------------------------------------------------------------------------------------------------------------------
 
 // how many seconds to wait until start trying to compensate for clock drift
-#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY 5
+#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY 2
 
 // how many steps to use for smoothing the clock-drift compensation filter
-#define AUDIO_BRIDGE_CLOCK_FILTER_STEPS 8192
+#define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1 1024
+#define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2 8192
 
 // how many audio buffer-size capture blocks to store until rolling starts
 // must be > 0
-#define AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS 2
+#define AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS 4
 
 // how many audio buffer-size blocks to keep in the capture ringbuffer
 #define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 8
 
 // how many audio buffer-size blocks to keep in the playback ringbuffer
-#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 4
+#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 8
 
 // --------------------------------------------------------------------------------------------------------------------
 
