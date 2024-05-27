@@ -150,8 +150,8 @@ Currently limited to 2 audio ports and a single device, which is automatically c
         modgui:resourcesDirectory <modgui> ;
         modgui:iconTemplate <modgui/icon.html> ;
         modgui:stylesheet <modgui/stylesheet.css> ;
-        modgui:screenshot <modgui/screenshot.png> ;
-        modgui:thumbnail <modgui/thumbnail.png> ;
+        modgui:screenshot <modgui/screenshot-capture.png> ;
+        modgui:thumbnail <modgui/thumbnail-capture.png> ;
         modgui:javascript <modgui/script.js> ;
         modgui:brand "falkTX" ;
         modgui:label "Audio Capture" ;
@@ -309,8 +309,8 @@ Currently limited to 2 audio ports and a single device, which is automatically c
         modgui:resourcesDirectory <modgui> ;
         modgui:iconTemplate <modgui/icon.html> ;
         modgui:stylesheet <modgui/stylesheet.css> ;
-        modgui:screenshot <modgui/screenshot.png> ;
-        modgui:thumbnail <modgui/thumbnail.png> ;
+        modgui:screenshot <modgui/screenshot-playback.png> ;
+        modgui:thumbnail <modgui/thumbnail-playback.png> ;
         modgui:javascript <modgui/script.js> ;
         modgui:brand "falkTX" ;
         modgui:label "Audio Playback" ;
