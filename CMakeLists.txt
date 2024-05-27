@@ -65,6 +65,15 @@ set_common_target_properties(audio-bridge)
 
 configure_file(res/manifest.ttl audio-bridge.lv2/manifest.ttl COPYONLY)
 configure_file(res/audio-bridge.ttl audio-bridge.lv2/audio-bridge.ttl COPYONLY)
+configure_file(res/modgui/box.png audio-bridge.lv2/modgui/box.png COPYONLY)
+configure_file(res/modgui/footswitch.png audio-bridge.lv2/modgui/footswitch.png COPYONLY)
+configure_file(res/modgui/icon.html audio-bridge.lv2/modgui/icon.html COPYONLY)
+configure_file(res/modgui/screenshot-capture.png audio-bridge.lv2/modgui/screenshot-capture.png COPYONLY)
+configure_file(res/modgui/screenshot-playback.png audio-bridge.lv2/modgui/screenshot-playback.png COPYONLY)
+configure_file(res/modgui/script.js audio-bridge.lv2/modgui/script.js COPYONLY)
+configure_file(res/modgui/stylesheet.css audio-bridge.lv2/modgui/stylesheet.css COPYONLY)
+configure_file(res/modgui/thumbnail-capture.png audio-bridge.lv2/modgui/thumbnail-capture.png COPYONLY)
+configure_file(res/modgui/thumbnail-playback.png audio-bridge.lv2/modgui/thumbnail-playback.png COPYONLY)
 
 set_target_properties(audio-bridge
   PROPERTIES
