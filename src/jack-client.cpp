@@ -188,6 +188,20 @@ static bool activate_capture(ClientData* const d)
     jack_activate(client);
 
   #ifdef MOD_AUDIO_USB_BRIDGE
+  #ifdef _MOD_DEVICE_GENERIC_AARCH64
+    jack_connect(client, "mod-usbgadget_c:p1", "system:playback_1");
+    jack_connect(client, "mod-usbgadget_c:p2", "system:playback_2");
+    jack_connect(client, "mod-usbgadget_c:p3", "system:playback_3");
+    jack_connect(client, "mod-usbgadget_c:p4", "system:playback_4");
+    jack_connect(client, "mod-usbgadget_c:p5", "system:playback_5");
+    jack_connect(client, "mod-usbgadget_c:p6", "system:playback_6");
+    jack_connect(client, "mod-usbgadget_c:p7", "system:playback_7");
+    jack_connect(client, "mod-usbgadget_c:p8", "system:playback_8");
+    jack_connect(client, "system:capture_5", "mod-usbgadget_p:p1");
+    jack_connect(client, "system:capture_6", "mod-usbgadget_p:p2");
+    jack_connect(client, "system:capture_7", "mod-usbgadget_p:p3");
+    jack_connect(client, "system:capture_8", "mod-usbgadget_p:p4");
+  #else
    #ifdef _MOD_DEVICE_DWARF
     jack_connect(client, "mod-usbgadget_c:p1", "system:playback_2");
     jack_connect(client, "mod-usbgadget_c:p2", "system:playback_1");
@@ -202,6 +216,7 @@ static bool activate_capture(ClientData* const d)
     jack_connect(client, "mod-usbgadget_c:p3", "mod-host:in1");
     jack_connect(client, "mod-usbgadget_c:p4", "mod-peakmeter:in_2");
     jack_connect(client, "mod-usbgadget_c:p4", "mod-host:in2");
+  #endif
   #else
     jack_connect(client, "audio-bridge-capture:p1", "audio-bridge-playback:p1");
     jack_connect(client, "audio-bridge-capture:p2", "audio-bridge-playback:p2");
