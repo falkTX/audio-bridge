@@ -106,6 +106,7 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
     {
         // count = 1;
         printf("stream recovery: %s\n", snd_strerror(err));
+        fflush(stdout);
     }
 
     if (err == -EPIPE)
@@ -113,7 +114,10 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
         /* under-run */
         err = snd_pcm_prepare(handle);
         if (err < 0)
+        {
             printf("Can't recovery from underrun, prepare failed: %s\n", snd_strerror(err));
+            fflush(stdout);
+        }
         return 0;
     }
     else if (err == -ESTRPIPE)
@@ -125,7 +129,10 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
         {
             err = snd_pcm_prepare(handle);
             if (err < 0)
+            {
                 printf("Can't recovery from suspend, prepare failed: %s\n", snd_strerror(err));
+                fflush(stdout);
+            }
         }
 
         return 0;
@@ -436,6 +443,7 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         dev.rbTotalNumSamples = dev.bufferSize * blocks / kRingBufferDataFactor;
         dev.rbRatio = 1.0;
         printf("target is %f\n", dev.rbFillTarget);
+        fflush(stdout);
 
         DeviceAudio* const devptr = new DeviceAudio;
         std::memcpy(devptr, &dev, sizeof(dev));
@@ -514,7 +522,7 @@ static void setDeviceTimings(DeviceAudio* const dev)
 {
     if (dev->hints & kDeviceBuffering)
         return;
-    if (dev->framesDone < dev->sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY)
+    // if (dev->framesDone < dev->sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY)
         return;
 
     const double rbratio = 2.0 - (
