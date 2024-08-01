@@ -145,7 +145,9 @@ static void deviceFailInitHints(DeviceAudio* const dev)
 {
     dev->hints |= kDeviceInitializing|kDeviceStarting|kDeviceBuffering;
     dev->framesDone = 0;
+   #ifdef WITH_RESAMPLER
     dev->rbRatio = 1.0;
+   #endif
     dev->ringbuffer->flush();
 }
 
@@ -441,7 +443,9 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
 
         dev.rbFillTarget = static_cast<double>(playback ? 1 : AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS) / blocks;
         dev.rbTotalNumSamples = dev.bufferSize * blocks / kRingBufferDataFactor;
+       #ifdef WITH_RESAMPLER
         dev.rbRatio = 1.0;
+       #endif
         printf("target is %f\n", dev.rbFillTarget);
         fflush(stdout);
 
@@ -522,7 +526,8 @@ static void setDeviceTimings(DeviceAudio* const dev)
 {
     if (dev->hints & kDeviceBuffering)
         return;
-    // if (dev->framesDone < dev->sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY)
+   #ifdef WITH_RESAMPLER
+    if (dev->framesDone < dev->sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY)
         return;
 
     const double rbratio = 2.0 - (
@@ -536,6 +541,7 @@ static void setDeviceTimings(DeviceAudio* const dev)
 
     if (std::abs(dev->rbRatio - balratio) > 0.000000002)
         dev->rbRatio = balratio;
+   #endif
 }
 
 // --------------------------------------------------------------------------------------------------------------------

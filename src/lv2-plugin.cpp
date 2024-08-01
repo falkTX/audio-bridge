@@ -161,7 +161,9 @@ struct PluginData {
 
             if (*controlports[kControlStats] > 0.5f)
             {
+               #ifdef WITH_RESAMPLER
                 *controlports[kControlRatio] = dev->rbRatio;
+               #endif
                 *controlports[kControlBufferFill] = static_cast<float>(dev->ringbuffer->getNumReadableSamples() / kRingBufferDataFactor)
                                                   / static_cast<float>(maxRingBufferSize) * 100.f;
             }

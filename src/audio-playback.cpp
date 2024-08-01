@@ -14,8 +14,6 @@ static void* devicePlaybackThread(void* const  arg)
     const uint16_t bufferSize = dev->bufferSize;
 
     float** buffers = new float*[channels];
-    for (uint8_t c=0; c<channels; ++c)
-        buffers[c] = new float[bufferSize];
 
     simd::init();
 
@@ -24,15 +22,23 @@ static void* devicePlaybackThread(void* const  arg)
     gain.setSampleRate(dev->sampleRate);
     gain.setTimeConstant(0.5f);
 
+   #ifdef WITH_RESAMPLER
     VResampler* const resampler = new VResampler;
     resampler->setup(1.0, channels, 8);
+    double rbRatio = 0.0;
+
+    for (uint8_t c=0; c<channels; ++c)
+        buffers[c] = new float[bufferSize];
+   #else
+    for (uint8_t c=0; c<channels; ++c)
+        buffers[c] = dev->buffers.f32[c];
+   #endif
 
     snd_pcm_sframes_t err;
     float xgain;
-    double rbRatio = 0.0;
     bool enabled = true;
 
-    auto restart = [&dev, &resampler, &gain, &enabled]()
+    auto restart = [&dev, &gain, &enabled]()
     {
         deviceFailInitHints(dev);
         gain.setTargetValue(0.f);
@@ -131,6 +137,7 @@ static void* devicePlaybackThread(void* const  arg)
             gain.setTargetValue(enabled ? 1.f : 0.f);
         }
 
+       #ifdef WITH_RESAMPLER
         if (rbRatio != dev->rbRatio)
         {
             rbRatio = dev->rbRatio;
@@ -144,6 +151,9 @@ static void* devicePlaybackThread(void* const  arg)
         resampler->process();
 
         uint16_t frames = bufferSize * 2 - resampler->out_count;
+       #else
+        uint16_t frames = bufferSize;
+       #endif
 
         for (uint16_t i=0; i<frames; ++i)
         {
@@ -226,10 +236,13 @@ static void* devicePlaybackThread(void* const  arg)
 end:
     DEBUGPRINT("%08u | playback | audio thread closed", dev->frame);
 
+   #ifdef WITH_RESAMPLER
     delete resampler;
 
     for (uint8_t c=0; c<channels; ++c)
         delete[] buffers[c];
+   #endif
+
     delete[] buffers;
 
     dev->thread = 0;
@@ -245,7 +258,9 @@ static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], con
     if (dev->hints & kDeviceStarting)
     {
         dev->framesDone = 0;
+       #ifdef WITH_RESAMPLER
         dev->rbRatio = 1.0;
+       #endif
         return;
     }
 

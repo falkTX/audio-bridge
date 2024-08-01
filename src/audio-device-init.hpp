@@ -12,7 +12,9 @@
 #include "RingBuffer.hpp"
 #include "ValueSmoother.hpp"
 
+#ifdef WITH_RESAMPLER
 #include "zita-resampler/vresampler.h"
+#endif
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -90,7 +92,9 @@ struct DeviceAudio {
     AudioRingBuffer* ringbuffer;
     double rbFillTarget;
     double rbTotalNumSamples;
+   #ifdef WITH_RESAMPLER
     double rbRatio = 1.0;
+   #endif
 };
 
 // --------------------------------------------------------------------------------------------------------------------
