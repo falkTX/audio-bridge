@@ -25,10 +25,13 @@
 
 // how many audio buffer-size capture blocks to store until rolling starts
 // must be > 0
-#define AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS 4
+#define AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS 8
 
 // how many audio buffer-size blocks to keep in the capture ringbuffer
-#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 8
+#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 32
+
+// prefer to read in big blocks, higher latency but more stable capture
+#define AUDIO_BRIDGE_CAPTURE_BLOCK_SIZE_MULT 8
 
 // how many audio buffer-size blocks to keep in the playback ringbuffer
 #define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 8
@@ -63,10 +66,10 @@ uint8_t getSampleSizeFromHints(const uint8_t hints)
 
 struct DeviceAudio {
     struct HWStatus {
-        uint8_t channels;
-        uint8_t periods;
-        uint16_t periodSize;
-        uint16_t fullBufferSize;
+        uint32_t channels;
+        uint32_t periods;
+        uint32_t periodSize;
+        uint32_t fullBufferSize;
     } hwstatus;
 
     char* deviceID;
@@ -75,8 +78,8 @@ struct DeviceAudio {
     uint32_t frame;
     uint32_t framesDone;
     uint32_t sampleRate;
-    uint16_t bufferSize;
-    uint8_t hints;
+    uint32_t bufferSize;
+    uint32_t hints;
     bool enabled;
 
     struct {

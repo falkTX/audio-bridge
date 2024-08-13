@@ -131,6 +131,7 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
         return 0;
     }
 
+    return 0;
     return err;
 }
 
@@ -147,10 +148,11 @@ static void deviceTimedWait(DeviceAudio* const dev)
     if (sem_trywait(&dev->sem) == 0)
         return;
 
-    const uint32_t periodTime = (dev->bufferSize * 1000000) / dev->sampleRate * 1000;
+    const uint32_t periodTime = (dev->bufferSize * 1000000) / dev->sampleRate * 1000 / AUDIO_BRIDGE_CAPTURE_BLOCK_SIZE_MULT;
 
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
+
     ts.tv_nsec += periodTime;
     if (ts.tv_nsec >= 1000000000LL)
     {
@@ -419,15 +421,15 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
 
     {
         const uint8_t channels = dev.hwstatus.channels;
-        const uint8_t blocks = (playback ? AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS
-                                         : AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS);
+        const uint16_t blocks = (playback ? AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS
+                                          : AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS);
         const size_t rawbufferlen = getSampleSizeFromHints(dev.hints) * dev.bufferSize * channels * 2;
 
-        dev.buffers.raw = new int8_t[rawbufferlen];
+        dev.buffers.raw = new int8_t[rawbufferlen * AUDIO_BRIDGE_CAPTURE_BLOCK_SIZE_MULT];
         dev.buffers.f32 = new float*[channels];
 
         for (uint8_t c=0; c<channels; ++c)
-            dev.buffers.f32[c] = new float[dev.bufferSize * 2];
+            dev.buffers.f32[c] = new float[dev.bufferSize * 2 * AUDIO_BRIDGE_CAPTURE_BLOCK_SIZE_MULT];
 
         dev.ringbuffer = new AudioRingBuffer;
         dev.ringbuffer->createBuffer(channels, dev.bufferSize * blocks);

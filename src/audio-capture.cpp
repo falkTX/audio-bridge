@@ -16,7 +16,7 @@ static void* deviceCaptureThread(void* const  arg)
 
     float** buffers = new float*[channels];
     for (uint8_t c=0; c<channels; ++c)
-        buffers[c] = new float[bufferSize * 2];
+        buffers[c] = new float[bufferSize * 2 * AUDIO_BRIDGE_CAPTURE_BLOCK_SIZE_MULT];
 
     simd::init();
 
@@ -66,7 +66,13 @@ static void* deviceCaptureThread(void* const  arg)
             while ((err = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSize * 2)) > 0)
                 started = true;
 
-            if (err != -EAGAIN)
+            if (err == -EPIPE)
+            {
+                snd_pcm_prepare(dev->pcm);
+                // printf("%08u | capture | initial pipe error: %s\n", frame, snd_strerror(err));
+                // started = false;
+            }
+            else if (err != -EAGAIN)
             {
                 printf("%08u | capture | initial read error: %s\n", frame, snd_strerror(err));
                 goto end;
@@ -100,20 +106,32 @@ static void* deviceCaptureThread(void* const  arg)
             case -EAGAIN:
                 deviceTimedWait(dev);
                 continue;
+            case -EPIPE:
+                DEBUGPRINT("%08u | capture | EPIPE while kDeviceStarting", frame);
+                snd_pcm_prepare(dev->pcm);
+                deviceTimedWait(dev);
+                continue;
             default:
                 printf("%08u | capture | initial read error: %s\n", frame, snd_strerror(err));
                 goto end;
             }
         }
 
-        err = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSize);
+        err = snd_pcm_mmap_readi(dev->pcm, dev->buffers.raw, bufferSize * AUDIO_BRIDGE_CAPTURE_BLOCK_SIZE_MULT);
 
         if (dev->hwstatus.channels == 0)
             break;
 
-        if (err == 0 || err == -EAGAIN)
+        switch (err)
         {
+        case -EPIPE:
+            snd_pcm_prepare(dev->pcm);
+            // fall-through
+        case -EAGAIN:
             deviceTimedWait(dev);
+            continue;
+        case 0:
+            // deviceTimedWait(dev);
             continue;
         }
 
@@ -135,7 +153,7 @@ static void* deviceCaptureThread(void* const  arg)
                 goto end;
             }
 
-            break;
+            continue;
         }
 
         switch (hints & kDeviceSampleHints)
@@ -167,12 +185,12 @@ static void* deviceCaptureThread(void* const  arg)
         }
 
         resampler->inp_count = err;
-        resampler->out_count = bufferSize * 2;
+        resampler->out_count = bufferSize * 2 * AUDIO_BRIDGE_CAPTURE_BLOCK_SIZE_MULT;
         resampler->inp_data = dev->buffers.f32;
         resampler->out_data = buffers;
         resampler->process();
 
-        uint32_t frames = bufferSize * 2 - resampler->out_count;
+        uint32_t frames = bufferSize * 2 * AUDIO_BRIDGE_CAPTURE_BLOCK_SIZE_MULT - resampler->out_count;
 
         for (uint16_t i=0; i<frames; ++i)
         {
