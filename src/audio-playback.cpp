@@ -50,7 +50,6 @@ static void* devicePlaybackThread(void* const  arg)
         if (sem_timedwait(&dev->sem, &ts) != 0)
         {
             printf("%08u | playback | audio thread failed to post\n", dev->frame);
-            fflush(stdout);
             goto end;
         }
     }
@@ -70,7 +69,6 @@ static void* devicePlaybackThread(void* const  arg)
             if (err != -EAGAIN)
             {
                 printf("%08u | playback | initial write error: %s\n", frame, snd_strerror(err));
-                fflush(stdout);
                 goto end;
             }
 
@@ -105,7 +103,6 @@ static void* devicePlaybackThread(void* const  arg)
                 continue;
             default:
                 printf("%08u | playback | initial write error: %s\n", frame, snd_strerror(err));
-                fflush(stdout);
                 goto end;
             }
         }
@@ -189,12 +186,10 @@ static void* devicePlaybackThread(void* const  arg)
                 restart();
 
                 printf("%08u | playback | Write error: %s\n", frame, snd_strerror(err));
-                fflush(stdout);
 
                 if (xrun_recovery(dev->pcm, err) < 0)
                 {
                     printf("playback | xrun_recovery error: %s\n", snd_strerror(err));
-                    fflush(stdout);
                     goto end;
                 }
 

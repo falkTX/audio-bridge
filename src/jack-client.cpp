@@ -304,7 +304,6 @@ int jack_initialize(jack_client_t* const client, const char* const load_init)
             d->deviceID[devlen] = '\0';
 
             printf("deviceID %s || %d %d\n", d->deviceID, d->playback, playback);
-            fflush(stdout);
 
             if (pthread_create(&d->thread, nullptr, ClientData::threadRunInternal, d) == 0)
                 return 0;

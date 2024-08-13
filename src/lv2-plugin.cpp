@@ -88,8 +88,8 @@ struct PluginData {
             : atom_Int(uridMap->map(uridMap->handle, LV2_ATOM__Int)),
               bufsize_maxBlockLength(uridMap->map(uridMap->handle, LV2_BUF_SIZE__maxBlockLength))
            #ifndef __MOD_DEVICES__
+            , deviceid(uridMap->map(uridMap->handle,"https://falktx.com/plugins/audio-bridge#deviceid")),
             , atom_String(uridMap->map(uridMap->handle, LV2_ATOM__String))
-            , deviceid(uridMap->map(uridMap->handle,"https://falktx.com/plugins/audio-bridge#deviceid"))
            #endif
         {}
     } uris;

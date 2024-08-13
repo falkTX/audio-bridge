@@ -99,6 +99,6 @@ DeviceAudio* initDeviceAudio(const char* deviceID, bool playback, uint16_t buffe
 bool runDeviceAudio(DeviceAudio* dev, float* buffers[]);
 void closeDeviceAudio(DeviceAudio* dev);
 
-#define DEBUGPRINT(...) { printf(__VA_ARGS__); puts(""); fflush(stdout); }
+#define DEBUGPRINT(...) { printf(__VA_ARGS__); puts(""); }
 
 // --------------------------------------------------------------------------------------------------------------------
