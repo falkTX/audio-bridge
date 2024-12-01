@@ -431,6 +431,8 @@ DeviceAudio* initDeviceAudio(const char* const deviceID,
         for (uint8_t c=0; c<channels; ++c)
             dev.buffers.f32[c] = new float[dev.bufferSize * 2 * AUDIO_BRIDGE_CAPTURE_BLOCK_SIZE_MULT];
 
+        sem_init(&dev.sem, 0, 0);
+
         dev.ringbuffer = new AudioRingBuffer;
         dev.ringbuffer->createBuffer(channels, dev.bufferSize * blocks);
 
