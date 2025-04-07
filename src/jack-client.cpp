@@ -332,9 +332,6 @@ void jack_finish(void* const arg)
 #else
 int main(int argc, const char* argv[])
 {
-    std::vector<DeviceID> inputs, outputs;
-    enumerateSoundcards(inputs, outputs);
-
     ClientData* d;
     const char* deviceID;
 
@@ -350,6 +347,9 @@ int main(int argc, const char* argv[])
     }
     else
     {
+        std::vector<DeviceID> inputs, outputs;
+        enumerateSoundcards(inputs, outputs);
+
         deviceID = outputs[outputs.size() - 1].id.c_str();
         d = init_playback();
     }
@@ -359,8 +359,8 @@ int main(int argc, const char* argv[])
     }
 
     d->runExternal(deviceID);
-    close(d);
 
+    close(d);
     cleanup();
 
     return 0;

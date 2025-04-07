@@ -4,6 +4,8 @@
 #pragma once
 
 #include <cmath>
+#include <cstdint>
+
 #include <sched.h>
 
 #if defined(__SSE2_MATH__)
@@ -56,9 +58,9 @@ void s16(void* const dst, float* const* const src, const uint8_t channels, const
 {
     int16_t* const dstptr = static_cast<int16_t*>(dst);
 
-    for (uint16_t i=0; i<samples; ++i)
-        for (uint8_t c=0; c<channels; ++c)
-            dstptr[i*channels+c] = float16(src[c][i]);
+    for (uint16_t i = 0; i < samples; ++i)
+        for (uint8_t c = 0; c < channels; ++c)
+            dstptr[i * channels + c] = float16(src[c][i]);
 }
 
 static inline
@@ -66,9 +68,9 @@ void s24(void* const dst, float* const* const src, const uint8_t channels, const
 {
     int32_t* const dstptr = static_cast<int32_t*>(dst);
 
-    for (uint16_t i=0; i<samples; ++i)
-        for (uint8_t c=0; c<channels; ++c)
-            dstptr[i*channels+c] = float24(src[c][i]);
+    for (uint16_t i = 0; i < samples; ++i)
+        for (uint8_t c = 0; c < channels; ++c)
+            dstptr[i * channels + c] = float24(src[c][i]);
 }
 
 static inline
@@ -77,9 +79,9 @@ void s24le3(void* const dst, float* const* const src, const uint8_t channels, co
     int8_t* dstptr = static_cast<int8_t*>(dst);
     int32_t z;
 
-    for (uint16_t i=0; i<samples; ++i)
+    for (uint16_t i = 0; i < samples; ++i)
     {
-        for (uint8_t c=0; c<channels; ++c)
+        for (uint8_t c = 0; c < channels; ++c)
         {
             z = float24(src[c][i]);
            #if __BYTE_ORDER == __BIG_ENDIAN
@@ -101,9 +103,9 @@ void s32(void* const dst, float* const* const src, const uint8_t channels, const
 {
     int32_t* const dstptr = static_cast<int32_t*>(dst);
 
-    for (uint16_t i=0; i<samples; ++i)
-        for (uint8_t c=0; c<channels; ++c)
-            dstptr[i*channels+c] = float32(src[c][i]);
+    for (uint16_t i = 0; i < samples; ++i)
+        for (uint8_t c = 0; c < channels; ++c)
+            dstptr[i * channels + c] = float32(src[c][i]);
 }
 
 } // namespace float2int
@@ -118,9 +120,9 @@ void s16(float* const* const dst, void* const src, const uint8_t channels, const
 {
     int16_t* const srcptr = static_cast<int16_t*>(src);
 
-    for (uint16_t i=0; i<samples; ++i)
-        for (uint8_t c=0; c<channels; ++c)
-            dst[c][i] = static_cast<float>(srcptr[i*channels+c]) * (1.f / 32767.f);
+    for (uint16_t i = 0; i < samples; ++i)
+        for (uint8_t c = 0; c < channels; ++c)
+            dst[c][i] = static_cast<float>(srcptr[i * channels + c]) * (1.f / 32767.f);
 }
 
 static inline
@@ -128,9 +130,9 @@ void s24(float* const* const dst, void* const src, const uint8_t channels, const
 {
     int32_t* const srcptr = static_cast<int32_t*>(src);
 
-    for (uint16_t i=0; i<samples; ++i)
-        for (uint8_t c=0; c<channels; ++c)
-            dst[c][i] = static_cast<float>(srcptr[i*channels+c]) * (1.f / 8388607.f);
+    for (uint16_t i = 0; i < samples; ++i)
+        for (uint8_t c = 0; c < channels; ++c)
+            dst[c][i] = static_cast<float>(srcptr[i * channels + c]) * (1.f / 8388607.f);
 }
 
 static inline
@@ -139,9 +141,9 @@ void s24le3(float* const* const dst, void* const src, const uint8_t channels, co
     uint8_t* srcptr = static_cast<uint8_t*>(src);
     int32_t z;
 
-    for (uint16_t i=0; i<samples; ++i)
+    for (uint16_t i = 0; i < samples; ++i)
     {
-        for (uint8_t c=0; c<channels; ++c)
+        for (uint8_t c = 0; c < channels; ++c)
         {
            #if __BYTE_ORDER == __BIG_ENDIAN
             z = (static_cast<int32_t>(srcptr[0]) << 16)
@@ -173,9 +175,9 @@ void s32(float* const* const dst, void* const src, const uint8_t channels, const
 {
     int32_t* const srcptr = static_cast<int32_t*>(src);
 
-    for (uint16_t i=0; i<samples; ++i)
-        for (uint8_t c=0; c<channels; ++c)
-            dst[c][i] = static_cast<double>(srcptr[i*channels+c]) * (1.0 / 2147483647.0);
+    for (uint16_t i = 0; i < samples; ++i)
+        for (uint8_t c = 0; c < channels; ++c)
+            dst[c][i] = static_cast<double>(srcptr[i * channels + c]) * (1.0 / 2147483647.0);
 }
 
 } // namespace int2float

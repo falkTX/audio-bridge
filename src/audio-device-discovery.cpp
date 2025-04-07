@@ -117,7 +117,7 @@ static bool isdigit(const char* const s)
 {
     if (const size_t len = std::strlen(s))
     {
-        for (size_t i=0; i<len; ++i)
+        for (size_t i = 0; i < len; ++i)
         {
             if (! std::isdigit(s[i]))
                 return false;

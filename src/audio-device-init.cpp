@@ -504,7 +504,7 @@ void closeDeviceAudio(DeviceAudio* const dev)
 
     std::free(dev->deviceID);
 
-    for (uint8_t c=0; c<channels; ++c)
+    for (uint8_t c = 0; c < channels; ++c)
         delete[] dev->buffers.f32[c];
     delete[] dev->buffers.f32;
     delete[] dev->buffers.raw;
