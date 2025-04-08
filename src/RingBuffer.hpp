@@ -1,6 +1,6 @@
 /*
  * DISTRHO Plugin Framework (DPF)
- * Copyright (C) 2012-2023 Filipe Coelho <falktx@falktx.com>
+ * Copyright (C) 2012-2025 Filipe Coelho <falktx@falktx.com>
  *
  * Permission to use, copy, modify, and/or distribute this software for any purpose with
  * or without fee is hereby granted, provided that the above copyright notice and this
@@ -20,6 +20,7 @@
 // #include "../DistrhoUtils.hpp"
 
 #include <cstdio>
+#include <cstdint>
 #include <cstring>
 
 #include <sys/mman.h>
@@ -41,6 +42,8 @@
 #define DISTRHO_SAFE_EXCEPTION_BREAK(msg)       catch(...) { d_safe_exception(msg, __FILE__, __LINE__); break; }
 #define DISTRHO_SAFE_EXCEPTION_CONTINUE(msg)    catch(...) { d_safe_exception(msg, __FILE__, __LINE__); continue; }
 #define DISTRHO_SAFE_EXCEPTION_RETURN(msg, ret) catch(...) { d_safe_exception(msg, __FILE__, __LINE__); return ret; }
+
+typedef unsigned int uint;
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -114,8 +117,6 @@ class AudioRingBuffer
 public:
     /*
      * Constructor for uninitialised ring buffer.
-     * A call to setRingBuffer is required to tied this control to a ring buffer struct;
-     *
      */
     AudioRingBuffer() noexcept {}
 
@@ -137,7 +138,8 @@ public:
 
         try {
             buffer.buf = new float*[numChannels];
-            for (uint8_t c=0; c<numChannels; ++c)
+
+            for (uint8_t c = 0; c < numChannels; ++c)
                 buffer.buf[c] = new float[p2samples];
         } DISTRHO_SAFE_EXCEPTION_RETURN("HeapRingBuffer::createBuffer", false);
 
@@ -148,7 +150,7 @@ public:
 
         ::mlock(buffer.buf, sizeof(float*) * numChannels);
 
-        for (uint8_t c=0; c<numChannels; ++c)
+        for (uint8_t c = 0; c < numChannels; ++c)
             ::mlock(buffer.buf[c], sizeof(float) * p2samples);
 
         return true;
@@ -159,8 +161,9 @@ public:
     {
         DISTRHO_SAFE_ASSERT_RETURN(buffer.buf != nullptr,);
 
-        for (uint8_t c=0; c<buffer.channels; ++c)
+        for (uint8_t c = 0; c < buffer.channels; ++c)
             delete[] buffer.buf[c];
+
         delete[] buffer.buf;
         buffer.buf  = nullptr;
 
@@ -231,14 +234,14 @@ public:
 
             if (samples == 1)
             {
-                for (uint8_t c=0; c<buffer.channels; ++c)
+                for (uint8_t c = 0; c < buffer.channels; ++c)
                     std::memcpy(buffers[c], buffer.buf[c] + tail, sizeof(float));
             }
             else
             {
                 const uint32_t firstpart = buffer.samples - tail;
 
-                for (uint8_t c=0; c<buffer.channels; ++c)
+                for (uint8_t c = 0; c < buffer.channels; ++c)
                 {
                     std::memcpy(buffers[c], buffer.buf[c] + tail, firstpart * sizeof(float));
                     std::memcpy(buffers[c] + firstpart, buffer.buf[c], readto * sizeof(float));
@@ -247,7 +250,7 @@ public:
         }
         else
         {
-            for (uint8_t c=0; c<buffer.channels; ++c)
+            for (uint8_t c = 0; c < buffer.channels; ++c)
                 std::memcpy(buffers[c], buffer.buf[c] + tail, samples * sizeof(float));
 
             if (readto == buffer.samples)
@@ -287,14 +290,14 @@ public:
 
             if (samples == 1)
             {
-                for (uint8_t c=0; c<buffer.channels; ++c)
+                for (uint8_t c = 0; c < buffer.channels; ++c)
                     std::memcpy(buffer.buf[c], buffers[c], sizeof(float));
             }
             else
             {
                 const uint32_t firstpart = buffer.samples - head;
 
-                for (uint8_t c=0; c<buffer.channels; ++c)
+                for (uint8_t c = 0; c < buffer.channels; ++c)
                 {
                     std::memcpy(buffer.buf[c] + head, buffers[c], firstpart * sizeof(float));
                     std::memcpy(buffer.buf[c], buffers[c] + firstpart, writeto * sizeof(float));
@@ -303,7 +306,7 @@ public:
         }
         else
         {
-            for (uint8_t c=0; c<buffer.channels; ++c)
+            for (uint8_t c = 0; c < buffer.channels; ++c)
                 std::memcpy(buffer.buf[c] + head, buffers[c], samples * sizeof(float));
 
             if (writeto == buffer.samples)
