@@ -1,8 +1,8 @@
-// SPDX-FileCopyrightText: 2021-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-FileCopyrightText: 2021-2025 Filipe Coelho <falktx@falktx.com>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+#include "audio-device.hpp"
 #include "audio-device-discovery.hpp"
-#include "audio-device-init.hpp"
 
 #include <jack/jack.h>
 #include <cstring>
@@ -13,18 +13,27 @@
 #endif
 
 struct ClientData;
-static bool activate_capture(ClientData* d);
-static bool activate_playback(ClientData* d);
+static bool activate_jack_capture(ClientData* d);
+static bool activate_jack_playback(ClientData* d);
 
 struct ClientData {
-    DeviceAudio* dev = nullptr;
-    jack_client_t* client = nullptr;
-    float** buffers = {};
-    jack_port_t** ports = {};
-    uint8_t channels = 0;
+    // pointer to audio device instance, the one doing heavy lifting
+    AudioDevice* dev = nullptr;
+
+    // whether we are doing playback, or otherwise capture
     bool playback = false;
-    bool active = true;
-    bool running = true;
+
+    // whether the jack ports are in place and the audio device is active
+    bool active = false;
+
+    // number of audio channels to use (from audio device to jack ports)
+    uint8_t numChannels = 0;
+
+    struct {
+        jack_client_t* client = nullptr;
+        float** buffers = {};
+        jack_port_t** ports = {};
+    } jack;
 
    #ifdef AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
     char* deviceID = nullptr;
@@ -32,22 +41,23 @@ struct ClientData {
 
     void runInternal()
     {
-        const uint16_t bufferSize = jack_get_buffer_size(client);
-        const uint32_t sampleRate = jack_get_sample_rate(client);
+        const uint16_t bufferSize = jack_get_buffer_size(jack.client);
+        const uint32_t sampleRate = jack_get_sample_rate(jack.client);
 
         while (running && dev == nullptr)
         {
-            dev = initDeviceAudio(deviceID, playback, bufferSize, sampleRate);
+            dev = initAudioDevice(deviceID, playback, bufferSize, sampleRate);
 
             if (dev != nullptr)
             {
-                channels = dev->hwstatus.channels;
+                numChannels = dev->hwconfig.numChannels;
 
                 if (playback)
-                    activate_playback(this);
+                    activate_jack_playback(this);
                 else
-                    activate_capture(this);
+                    activate_jack_capture(this);
 
+                active = true;
                 break;
             }
 
@@ -64,56 +74,81 @@ struct ClientData {
         return nullptr;
     }
    #else
+    // whether the jack client is active
+    bool running = true;
+
     void runExternal(const char* const deviceID)
     {
-        const uint16_t bufferSize = jack_get_buffer_size(client);
-        const uint32_t sampleRate = jack_get_sample_rate(client);
         bool needsToInitialise = true;
 
         while (running)
         {
-            if (dev == nullptr)
+            if (dev != nullptr)
             {
-                dev = initDeviceAudio(deviceID, playback, bufferSize, sampleRate);
-
-                if (dev != nullptr)
+                if (! active)
                 {
-                    active = true;
-
-                    if (needsToInitialise)
-                    {
-                        needsToInitialise = false;
-                        channels = dev->hwstatus.channels;
-
-                        if (playback)
-                            activate_playback(this);
-                        else
-                            activate_capture(this);
-                    }
+                    closeAudioDevice(dev);
+                    dev = nullptr;
                 }
-            }
-            else if (! active)
-            {
-                closeDeviceAudio(dev);
-                dev = nullptr;
+
+                usleep(250000); // 250ms
+                continue;
             }
 
-            usleep(250000); // 250ms
+            const uint16_t bufferSize = jack_get_buffer_size(jack.client);
+            const uint32_t sampleRate = jack_get_sample_rate(jack.client);
+            DEBUGPRINT("JACK bufferSize %u, sampleRate %u", bufferSize, sampleRate);
+
+            dev = initAudioDevice(deviceID, playback, bufferSize, sampleRate);
+
+            if (dev != nullptr)
+            {
+                if (needsToInitialise)
+                {
+                    needsToInitialise = false;
+                    numChannels = dev->hwconfig.numChannels;
+
+                    if (playback)
+                        activate_jack_playback(this);
+                    else
+                        activate_jack_capture(this);
+                }
+
+                active = true;
+            }
+            else
+            {
+                usleep(250000); // 250ms
+                continue;
+            }
         }
     }
    #endif
 };
 
+static int jack_buffer_size(const unsigned frames, void* const arg)
+{
+    ClientData* const d = static_cast<ClientData*>(arg);
+
+    DEBUGPRINT("NEW jack_buffer_size %u", frames);
+
+    // force device to be reopened
+    if (d->dev != nullptr && d->active && d->dev->config.bufferSize != frames)
+        d->active = false;
+
+    return 0;
+}
+
 static int jack_process(const unsigned frames, void* const arg)
 {
     ClientData* const d = static_cast<ClientData*>(arg);
 
-    for (uint8_t c = 0; c < d->channels; ++c)
-        d->buffers[c] = static_cast<float*>(jack_port_get_buffer(d->ports[c], frames));
+    for (uint8_t c = 0; c < d->numChannels; ++c)
+        d->jack.buffers[c] = static_cast<float*>(jack_port_get_buffer(d->jack.ports[c], frames));
 
     if (d->dev != nullptr && d->active)
     {
-        if (runDeviceAudio(d->dev, d->buffers))
+        if (runAudioDevice(d->dev, d->jack.buffers, frames))
             return 0;
 
         d->active = false;
@@ -121,8 +156,8 @@ static int jack_process(const unsigned frames, void* const arg)
 
     if (!d->playback)
     {
-        for (uint8_t c = 0; c < d->channels; ++c)
-            std::memset(d->buffers[c], 0, sizeof(float)*frames);
+        for (uint8_t c = 0; c < d->numChannels; ++c)
+            std::memset(d->jack.buffers[c], 0, sizeof(float)*frames);
     }
 
     return 0;
@@ -142,9 +177,10 @@ static ClientData* init_capture(jack_client_t* client = nullptr)
         return nullptr;
 
     ClientData* const d = new ClientData;
-    d->client = client;
+    d->jack.client = client;
     d->playback = false;
 
+    jack_set_buffer_size_callback(client, jack_buffer_size, d);
     jack_set_process_callback(client, jack_process, d);
 
     return d;
@@ -159,7 +195,7 @@ static ClientData* init_playback(jack_client_t* client = nullptr)
         return nullptr;
 
     ClientData* const d = new ClientData;
-    d->client = client;
+    d->jack.client = client;
     d->playback = true;
 
     jack_set_process_callback(client, jack_process, d);
@@ -167,22 +203,22 @@ static ClientData* init_playback(jack_client_t* client = nullptr)
     return d;
 }
 
-static bool activate_capture(ClientData* const d)
+static bool activate_jack_capture(ClientData* const d)
 {
-    if (d->dev == nullptr || d->dev->hwstatus.channels == 0)
+    if (d->dev == nullptr || d->numChannels == 0)
         return false;
 
-    const uint8_t channels = d->dev->hwstatus.channels;
-    jack_client_t* const client = d->client;
+    const uint8_t channels = d->numChannels;
+    jack_client_t* const client = d->jack.client;
 
-    d->buffers = new float* [channels];
-    d->ports = new jack_port_t* [channels];
+    d->jack.buffers = new float* [channels];
+    d->jack.ports = new jack_port_t* [channels];
 
     for (uint8_t c = 0; c < channels; ++c)
     {
         char name[16] = {};
         std::snprintf(name, sizeof(name)-1, "p%d", c + 1);
-        d->ports[c] = jack_port_register(client, name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput|JackPortIsTerminal, 0);
+        d->jack.ports[c] = jack_port_register(client, name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput|JackPortIsTerminal, 0);
     }
 
     jack_activate(client);
@@ -225,22 +261,22 @@ static bool activate_capture(ClientData* const d)
     return true;
 }
 
-static bool activate_playback(ClientData* const d)
+static bool activate_jack_playback(ClientData* const d)
 {
-    if (d->dev == nullptr || d->dev->hwstatus.channels == 0)
+    if (d->dev == nullptr || d->numChannels == 0)
         return false;
 
-    const uint8_t channels = d->dev->hwstatus.channels;
-    jack_client_t* const client = d->client;
+    const uint8_t channels = d->numChannels;
+    jack_client_t* const client = d->jack.client;
 
-    d->buffers = new float* [channels];
-    d->ports = new jack_port_t* [channels];
+    d->jack.buffers = new float* [channels];
+    d->jack.ports = new jack_port_t* [channels];
 
     for (uint8_t c = 0; c < channels; ++c)
     {
         char name[16] = {};
         std::snprintf(name, sizeof(name)-1, "p%d", c + 1);
-        d->ports[c] = jack_port_register(client, name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput|JackPortIsTerminal, 0);
+        d->jack.ports[c] = jack_port_register(client, name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput|JackPortIsTerminal, 0);
     }
 
     jack_activate(client);
@@ -262,16 +298,17 @@ static bool activate_playback(ClientData* const d)
 
 static void close(ClientData* const d)
 {
-    if (d->client != nullptr)
+    if (d->jack.client != nullptr)
     {
-        jack_deactivate(d->client);
-        jack_client_close(d->client);
+        jack_deactivate(d->jack.client);
+        jack_client_close(d->jack.client);
     }
 
-    closeDeviceAudio(d->dev);
+    if (d->dev != nullptr)
+        closeAudioDevice(d->dev);
 
-    delete[] d->buffers;
-    delete[] d->ports;
+    delete[] d->jack.buffers;
+    delete[] d->jack.ports;
     delete d;
 }
 
@@ -325,7 +362,7 @@ void jack_finish(void* const arg)
         pthread_join(d->thread, nullptr);
     }
 
-    d->client = nullptr;
+    d->jack.client = nullptr;
     std::free(d->deviceID);
     close(d);
 }
@@ -339,16 +376,18 @@ int main(int argc, const char* argv[])
     {
         deviceID = argv[1];
         d = init_capture();
+        DEBUGPRINT("capture %p", d);
     }
     else if (argc > 1)
     {
         deviceID = argv[1];
         d = init_playback();
+        DEBUGPRINT("playback %p", d);
     }
     else
     {
         std::vector<DeviceID> inputs, outputs;
-        enumerateSoundcards(inputs, outputs);
+        enumerateAudioDevices(inputs, outputs);
 
         deviceID = outputs[outputs.size() - 1].id.c_str();
         d = init_playback();
@@ -361,7 +400,7 @@ int main(int argc, const char* argv[])
     d->runExternal(deviceID);
 
     close(d);
-    cleanup();
+    cleanupAudioDevices();
 
     return 0;
 }

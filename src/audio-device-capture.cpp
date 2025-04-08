@@ -1,15 +1,15 @@
-// SPDX-FileCopyrightText: 2021-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-FileCopyrightText: 2021-2025 Filipe Coelho <falktx@falktx.com>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-#include "audio-device-init.hpp"
+#include "audio-device.hpp"
+#include "audio-device-impl.hpp"
 #include "audio-utils.hpp"
 
-#include <algorithm>
+// #include <algorithm>
 
-static void* deviceCaptureThread(void* const  arg)
+void runAudioDeviceCaptureThreadImpl(AudioDevice::Impl* const impl)
 {
-    DeviceAudio* const dev = static_cast<DeviceAudio*>(arg);
-
+#if 0
     const uint8_t hints = dev->hints;
     const uint8_t channels = dev->hwstatus.channels;
     const uint16_t bufferSize = dev->bufferSize;
@@ -247,8 +247,10 @@ end:
 
     dev->thread = 0;
     return nullptr;
+#endif
 }
 
+#if 0
 static inline
 void clearCaptureBuffers(DeviceAudio* const dev, float* buffers[])
 {
@@ -257,9 +259,11 @@ void clearCaptureBuffers(DeviceAudio* const dev, float* buffers[])
     for (uint8_t c=0; c < dev->hwstatus.channels; ++c)
         std::memset(buffers[c], 0, sizeof(float) * bufferSize);
 }
+#endif
 
-static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], const uint32_t frame)
+void runAudioDeviceCaptureImpl(AudioDevice::Impl* const impl, float* buffers[])
 {
+#if 0
     const uint16_t bufferSize = dev->bufferSize;
 
     sem_post(&dev->sem);
@@ -284,4 +288,5 @@ static void runDeviceAudioCapture(DeviceAudio* const dev, float* buffers[], cons
 
     dev->framesDone += bufferSize;
     setDeviceTimings(dev);
+#endif
 }

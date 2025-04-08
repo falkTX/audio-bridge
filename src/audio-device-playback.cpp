@@ -1,13 +1,12 @@
-// SPDX-FileCopyrightText: 2021-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-FileCopyrightText: 2021-2025 Filipe Coelho <falktx@falktx.com>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-#include "audio-device-init.hpp"
-#include "audio-utils.hpp"
+#include "audio-device.hpp"
+#include "audio-device-impl.hpp"
 
-static void* devicePlaybackThread(void* const  arg)
+void runAudioDevicePlaybackThreadImpl(AudioDevice::Impl* const impl)
 {
-    DeviceAudio* const dev = static_cast<DeviceAudio*>(arg);
-
+#if 0
     const uint8_t hints = dev->hints;
     const uint8_t channels = dev->hwstatus.channels;
     const uint8_t sampleSize = getSampleSizeFromHints(hints);
@@ -40,16 +39,18 @@ static void* devicePlaybackThread(void* const  arg)
         if (enabled)
             gain.setTargetValue(1.f);
     };
+#endif
 
+#if 0
     // wait for audio thread to post
     {
         struct timespec ts;
         clock_gettime(CLOCK_REALTIME, &ts);
         ts.tv_sec += 15;
 
-        if (sem_timedwait(&dev->sem, &ts) != 0)
+        if (sem_timedwait(&impl->sem, &ts) != 0)
         {
-            printf("%08u | playback | audio thread failed to post\n", dev->frame);
+            printf("%08u | audio thread failed to post\n", impl->frame);
             goto end;
         }
     }
@@ -229,30 +230,11 @@ end:
 
     dev->thread = 0;
     return nullptr;
+#endif
 }
 
-static void runDeviceAudioPlayback(DeviceAudio* const dev, float* buffers[], const uint32_t frame)
+void runAudioDevicePlaybackImpl(AudioDevice::Impl* const impl, float* buffers[])
 {
-    const uint16_t bufferSize = dev->bufferSize;
-
-    sem_post(&dev->sem);
-
-    if (dev->hints & kDeviceStarting)
-    {
-        dev->framesDone = 0;
-        dev->rbRatio = 1.0;
-        return;
-    }
-
-    if (dev->ringbuffer->getNumWritableSamples() < bufferSize)
-    {
-        DEBUGPRINT("%08u | playback | ringbuffer full, adding kDeviceInitializing|kDeviceStarting|kDeviceBuffering", frame);
-        deviceFailInitHints(dev);
-        return;
-    }
-
-    DISTRHO_SAFE_ASSERT_RETURN(dev->ringbuffer->write(buffers, bufferSize),);
-
-    dev->framesDone += bufferSize;
-    setDeviceTimings(dev);
+#if 0
+#endif
 }

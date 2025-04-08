@@ -54,7 +54,7 @@ namespace float2int
 {
 
 static inline
-void s16(void* const dst, float* const* const src, const uint8_t channels, const uint16_t samples)
+void s16(void* const dst, const float* const* const src, const uint8_t channels, const uint16_t samples)
 {
     int16_t* const dstptr = static_cast<int16_t*>(dst);
 
@@ -64,7 +64,7 @@ void s16(void* const dst, float* const* const src, const uint8_t channels, const
 }
 
 static inline
-void s24(void* const dst, float* const* const src, const uint8_t channels, const uint16_t samples)
+void s24(void* const dst, const float* const* const src, const uint8_t channels, const uint16_t samples)
 {
     int32_t* const dstptr = static_cast<int32_t*>(dst);
 
@@ -74,7 +74,7 @@ void s24(void* const dst, float* const* const src, const uint8_t channels, const
 }
 
 static inline
-void s24le3(void* const dst, float* const* const src, const uint8_t channels, const uint16_t samples)
+void s24le3(void* const dst, const float* const* const src, const uint8_t channels, const uint16_t samples)
 {
     int8_t* dstptr = static_cast<int8_t*>(dst);
     int32_t z;
@@ -99,7 +99,7 @@ void s24le3(void* const dst, float* const* const src, const uint8_t channels, co
 }
 
 static inline
-void s32(void* const dst, float* const* const src, const uint8_t channels, const uint16_t samples)
+void s32(void* const dst, const float* const* const src, const uint8_t channels, const uint16_t samples)
 {
     int32_t* const dstptr = static_cast<int32_t*>(dst);
 

@@ -6,12 +6,12 @@
 int main()
 {
     std::vector<DeviceID> inputs, outputs;
-    enumerateSoundcards(inputs, outputs);
+    enumerateAudioDevices(inputs, outputs);
 
     for (auto device : outputs)
     {
         DeviceProperties props;
-        if (getDeviceProperties(device.id, true, true, 48000, props))
+        if (getAudioDeviceProperties(device.id, true, true, 48000, props))
             printf("%s | %s | ins %u/%u | outs %u/%u | min buf size %u\n",
                    device.id.c_str(), device.name.c_str(),
                    props.minChansIn, props.maxChansIn,
@@ -21,7 +21,7 @@ int main()
             printf("%s | %s | FAIL\n", device.id.c_str(), device.name.c_str());
     }
 
-    cleanup();
+    cleanupAudioDevices();
 
     return 0;
 }

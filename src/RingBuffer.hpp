@@ -19,6 +19,7 @@
 
 // #include "../DistrhoUtils.hpp"
 
+#include <cstdarg>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2021-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-FileCopyrightText: 2021-2025 Filipe Coelho <falktx@falktx.com>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "audio-device-discovery.hpp"
@@ -45,11 +45,11 @@ enum {
 
 struct WorkerDevice {
     uint32_t r;
-    DeviceAudio* dev;
+    AudioDevice* dev;
 };
 
 struct PluginData {
-    DeviceAudio* dev = nullptr;
+    AudioDevice* dev = nullptr;
     uint16_t bufferSize = 0;
     uint32_t sampleRate = 0;
     uint32_t maxRingBufferSize = 0;
@@ -108,7 +108,7 @@ struct PluginData {
         DISTRHO_SAFE_ASSERT(! activated);
 
         if (dev != nullptr)
-            closeDeviceAudio(dev);
+            closeAudioDevice(dev);
 
         delete[] buffers.dummy;
     }
@@ -138,9 +138,9 @@ struct PluginData {
 
     void run(const uint32_t frames)
     {
-        if (dev != nullptr && ! runDeviceAudio(dev, buffers.pointers))
+        if (dev != nullptr && ! runAudioDevice(dev, buffers.pointers))
         {
-            DeviceAudio* const olddev = dev;
+            AudioDevice* const olddev = dev;
             dev = nullptr;
 
             const WorkerDevice r = { kWorkerDestroyDevice, olddev };
@@ -297,12 +297,12 @@ struct PluginData {
         {
         case kWorkerLoadLastAvailableDevice:
         {
-            DeviceAudio* devptr = nullptr;
+            AudioDevice* devptr = nullptr;
 
            #ifndef __MOD_DEVICES__
             if (deviceID != nullptr)
             {
-                devptr = initDeviceAudio(deviceID, playback, bufferSize, sampleRate);
+                devptr = initAudioDevice(deviceID, playback, bufferSize, sampleRate);
             }
             else
            #endif
@@ -313,7 +313,7 @@ struct PluginData {
                 const std::vector<DeviceID>& devices(playback ? outputs : inputs);
 
                 for (cri it = devices.rbegin(); it != devices.rend() && devptr == nullptr; ++it)
-                    devptr = initDeviceAudio((*it).id.c_str(), playback, bufferSize, sampleRate);
+                    devptr = initAudioDevice((*it).id.c_str(), playback, bufferSize, sampleRate);
             }
 
             if (devptr == nullptr)
@@ -326,8 +326,8 @@ struct PluginData {
         case kWorkerLoadDeviceWithKnownId:
         {
             const char* const nextDeviceID = reinterpret_cast<const char*>(udata + 1);
-            DeviceAudio* const devptr = nextDeviceID[0] != '\0'
-                                      ? initDeviceAudio(nextDeviceID, playback, bufferSize, sampleRate)
+            AudioDevice* const devptr = nextDeviceID[0] != '\0'
+                                      ? initAudioDevice(nextDeviceID, playback, bufferSize, sampleRate)
                                       : nullptr;
             respond(handle, sizeof(devptr), &devptr);
             break;
@@ -336,7 +336,7 @@ struct PluginData {
         case kWorkerDestroyDevice:
         {
             const WorkerDevice* const r = static_cast<const WorkerDevice*>(data);
-            closeDeviceAudio(r->dev);
+            closeAudioDevice(r->dev);
             break;
         }
         }
@@ -346,10 +346,10 @@ struct PluginData {
 
     LV2_Worker_Status workResponse(const uint32_t size, const void* const data)
     {
-        DISTRHO_SAFE_ASSERT_RETURN(size == sizeof(DeviceAudio*), LV2_WORKER_ERR_UNKNOWN);
+        DISTRHO_SAFE_ASSERT_RETURN(size == sizeof(AudioDevice*), LV2_WORKER_ERR_UNKNOWN);
 
-        DeviceAudio* const newdev = *static_cast<DeviceAudio* const*>(data);
-        DeviceAudio* const olddev = dev;
+        AudioDevice* const newdev = *static_cast<AudioDevice* const*>(data);
+        AudioDevice* const olddev = dev;
 
         dev = newdev;
         maxRingBufferSize = newdev != nullptr ? newdev->ringbuffer->getNumSamples() / kRingBufferDataFactor : 0;

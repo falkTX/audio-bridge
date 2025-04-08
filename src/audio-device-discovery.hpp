@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2021-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-FileCopyrightText: 2021-2025 Filipe Coelho <falktx@falktx.com>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #pragma once
@@ -19,12 +19,12 @@ struct DeviceProperties {
     std::vector<unsigned> bufsizes;
 };
 
-bool enumerateSoundcards(std::vector<DeviceID>& inputs, std::vector<DeviceID>& outputs);
+bool enumerateAudioDevices(std::vector<DeviceID>& inputs, std::vector<DeviceID>& outputs);
 
-bool getDeviceProperties(const std::string& deviceID,
-                         bool checkInput,
-                         bool checkOutput,
-                         unsigned sampleRate,
-                         DeviceProperties& props);
+bool getAudioDeviceProperties(const std::string& deviceID,
+                              bool checkInput,
+                              bool checkOutput,
+                              unsigned sampleRate,
+                              DeviceProperties& props);
 
-void cleanup();
+void cleanupAudioDevices();

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2021-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-FileCopyrightText: 2021-2025 Filipe Coelho <falktx@falktx.com>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "audio-device-discovery.hpp"
@@ -23,10 +23,26 @@ static int nextPowerOfTwo(int size) noexcept
     return ++size;
 }
 
-static bool fillDeviceProperties(snd_pcm_t* const pcm,
-                                 const bool isOutput,
-                                 const unsigned sampleRate,
-                                 DeviceProperties& props)
+static bool isdigit(const char* const s)
+{
+    if (const size_t len = std::strlen(s))
+    {
+        for (size_t i = 0; i < len; ++i)
+        {
+            if (! std::isdigit(s[i]))
+                return false;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+static bool fillAudioDeviceProperties(snd_pcm_t* const pcm,
+                                      const bool isOutput,
+                                      const unsigned sampleRate,
+                                      DeviceProperties& props)
 {
     snd_pcm_hw_params_t* params;
     snd_pcm_hw_params_alloca(&params);
@@ -113,23 +129,7 @@ static bool fillDeviceProperties(snd_pcm_t* const pcm,
     return false;
 }
 
-static bool isdigit(const char* const s)
-{
-    if (const size_t len = std::strlen(s))
-    {
-        for (size_t i = 0; i < len; ++i)
-        {
-            if (! std::isdigit(s[i]))
-                return false;
-        }
-
-        return true;
-    }
-
-    return false;
-}
-
-bool enumerateSoundcards(std::vector<DeviceID>& inputs, std::vector<DeviceID>& outputs)
+bool enumerateAudioDevices(std::vector<DeviceID>& inputs, std::vector<DeviceID>& outputs)
 {
     snd_ctl_t* ctl = nullptr;
     snd_ctl_card_info_t* cardinfo = nullptr;
@@ -249,11 +249,11 @@ bool enumerateSoundcards(std::vector<DeviceID>& inputs, std::vector<DeviceID>& o
     return inputs.size() + outputs.size() != 0;
 }
 
-bool getDeviceProperties(const std::string& deviceID,
-                         const bool checkInput,
-                         const bool checkOutput,
-                         const unsigned sampleRate,
-                         DeviceProperties& props)
+bool getAudioDeviceProperties(const std::string& deviceID,
+                              const bool checkInput,
+                              const bool checkOutput,
+                              const unsigned sampleRate,
+                              DeviceProperties& props)
 {
     props.minChansOut = props.maxChansOut = props.minChansIn = props.maxChansIn = 0;
     props.bufsizes.clear();
@@ -272,7 +272,7 @@ bool getDeviceProperties(const std::string& deviceID,
 
         if (snd_pcm_open(&pcm, deviceID.c_str(), SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK) >= 0)
         {
-            ok = fillDeviceProperties(pcm, true, sampleRate, props);
+            ok = fillAudioDeviceProperties(pcm, true, sampleRate, props);
             snd_pcm_close(pcm);
         }
         else
@@ -288,7 +288,7 @@ bool getDeviceProperties(const std::string& deviceID,
 
         if (snd_pcm_open(&pcm, deviceID.c_str(), SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK) >= 0)
         {
-            ok = fillDeviceProperties(pcm, false, sampleRate, props);
+            ok = fillAudioDeviceProperties(pcm, false, sampleRate, props);
             snd_pcm_close(pcm);
         }
         else
@@ -301,7 +301,7 @@ bool getDeviceProperties(const std::string& deviceID,
     return ok;
 }
 
-void cleanup()
+void cleanupAudioDevices()
 {
     snd_config_update_free_global();
 }

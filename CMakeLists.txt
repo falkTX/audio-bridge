@@ -24,8 +24,8 @@ find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
 
 pkg_check_modules(ALSA IMPORTED_TARGET REQUIRED alsa)
-pkg_check_modules(LV2 IMPORTED_TARGET REQUIRED lv2)
 pkg_check_modules(JACK IMPORTED_TARGET REQUIRED jack)
+pkg_check_modules(LV2 IMPORTED_TARGET REQUIRED lv2)
 
 #######################################################################################################################
 # Utilities
@@ -57,46 +57,6 @@ function(set_common_target_properties TARGET)
 endfunction()
 
 #######################################################################################################################
-# Setup LV2 plugin target
-
-add_library(audio-bridge SHARED)
-
-set_common_target_properties(audio-bridge)
-
-configure_file(res/manifest.ttl audio-bridge.lv2/manifest.ttl COPYONLY)
-configure_file(res/audio-bridge.ttl audio-bridge.lv2/audio-bridge.ttl COPYONLY)
-configure_file(res/modgui/box.png audio-bridge.lv2/modgui/box.png COPYONLY)
-configure_file(res/modgui/footswitch.png audio-bridge.lv2/modgui/footswitch.png COPYONLY)
-configure_file(res/modgui/icon.html audio-bridge.lv2/modgui/icon.html COPYONLY)
-configure_file(res/modgui/screenshot-capture.png audio-bridge.lv2/modgui/screenshot-capture.png COPYONLY)
-configure_file(res/modgui/screenshot-playback.png audio-bridge.lv2/modgui/screenshot-playback.png COPYONLY)
-configure_file(res/modgui/script.js audio-bridge.lv2/modgui/script.js COPYONLY)
-configure_file(res/modgui/stylesheet.css audio-bridge.lv2/modgui/stylesheet.css COPYONLY)
-configure_file(res/modgui/thumbnail-capture.png audio-bridge.lv2/modgui/thumbnail-capture.png COPYONLY)
-configure_file(res/modgui/thumbnail-playback.png audio-bridge.lv2/modgui/thumbnail-playback.png COPYONLY)
-
-set_target_properties(audio-bridge
-  PROPERTIES
-    PREFIX ""
-    LIBRARY_OUTPUT_DIRECTORY audio-bridge.lv2
-)
-
-target_link_libraries(audio-bridge
-  PRIVATE
-    PkgConfig::LV2
-    PkgConfig::JACK
-)
-
-target_sources(audio-bridge
-  PRIVATE
-    src/audio-device-discovery.cpp
-    src/audio-device-init.cpp
-    src/lv2-plugin.cpp
-    src/resampler-table.cc
-    src/vresampler.cc
-)
-
-#######################################################################################################################
 # Setup JACK standalone target
 
 add_executable(jack-audio-bridge)
@@ -110,9 +70,13 @@ target_link_libraries(jack-audio-bridge
 
 target_sources(jack-audio-bridge
   PRIVATE
+    src/audio-device.cpp
+    src/audio-device-alsa.cpp
+    src/audio-device-capture.cpp
     src/audio-device-discovery.cpp
-    src/audio-device-init.cpp
+    src/audio-device-playback.cpp
     src/jack-client.cpp
+    #src/resampler.cc
     src/resampler-table.cc
     src/vresampler.cc
 )
@@ -120,34 +84,75 @@ target_sources(jack-audio-bridge
 #######################################################################################################################
 # Setup JACK internal client target
 
-add_library(jack-int-audio-bridge SHARED)
+#add_library(jack-int-audio-bridge SHARED)
 
-set_common_target_properties(jack-int-audio-bridge)
+#set_common_target_properties(jack-int-audio-bridge)
 
-set_target_properties(jack-int-audio-bridge
-  PROPERTIES
-    OUTPUT_NAME "jack-audio-bridge"
-    PREFIX ""
-)
+#set_target_properties(jack-int-audio-bridge
+  #PROPERTIES
+    #OUTPUT_NAME "jack-audio-bridge"
+    #PREFIX ""
+#)
 
-target_compile_definitions(jack-int-audio-bridge
-  PRIVATE
-    AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
-)
+#target_compile_definitions(jack-int-audio-bridge
+  #PRIVATE
+    #AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
+#)
 
-target_link_libraries(jack-int-audio-bridge
-  PRIVATE
-    PkgConfig::JACK
-)
+#target_link_libraries(jack-int-audio-bridge
+  #PRIVATE
+    #PkgConfig::JACK
+#)
 
-target_sources(jack-int-audio-bridge
-  PRIVATE
-    src/audio-device-discovery.cpp
-    src/audio-device-init.cpp
-    src/jack-client.cpp
-    src/resampler-table.cc
-    src/vresampler.cc
-)
+#target_sources(jack-int-audio-bridge
+  #PRIVATE
+    #src/audio-device.cpp
+    #src/audio-device-discovery.cpp
+    #src/jack-client.cpp
+    #src/resampler-table.cc
+    #src/vresampler.cc
+#)
+
+#######################################################################################################################
+# Setup LV2 plugin target
+
+#add_library(lv2-audio-bridge SHARED)
+
+#set_common_target_properties(lv2-audio-bridge)
+
+#configure_file(res/manifest.ttl audio-bridge.lv2/manifest.ttl COPYONLY)
+#configure_file(res/audio-bridge.ttl audio-bridge.lv2/audio-bridge.ttl COPYONLY)
+#configure_file(res/modgui/box.png audio-bridge.lv2/modgui/box.png COPYONLY)
+#configure_file(res/modgui/footswitch.png audio-bridge.lv2/modgui/footswitch.png COPYONLY)
+#configure_file(res/modgui/icon.html audio-bridge.lv2/modgui/icon.html COPYONLY)
+#configure_file(res/modgui/screenshot-capture.png audio-bridge.lv2/modgui/screenshot-capture.png COPYONLY)
+#configure_file(res/modgui/screenshot-playback.png audio-bridge.lv2/modgui/screenshot-playback.png COPYONLY)
+#configure_file(res/modgui/script.js audio-bridge.lv2/modgui/script.js COPYONLY)
+#configure_file(res/modgui/stylesheet.css audio-bridge.lv2/modgui/stylesheet.css COPYONLY)
+#configure_file(res/modgui/thumbnail-capture.png audio-bridge.lv2/modgui/thumbnail-capture.png COPYONLY)
+#configure_file(res/modgui/thumbnail-playback.png audio-bridge.lv2/modgui/thumbnail-playback.png COPYONLY)
+
+#set_target_properties(lv2-audio-bridge
+  #PROPERTIES
+    #LIBRARY_OUTPUT_DIRECTORY audio-bridge.lv2
+    #OUTPUT_NAME audio-bridge
+    #PREFIX ""
+#)
+
+#target_link_libraries(lv2-audio-bridge
+  #PRIVATE
+    #PkgConfig::LV2
+    #PkgConfig::JACK
+#)
+
+#target_sources(lv2-audio-bridge
+  #PRIVATE
+    #src/audio-device.cpp
+    #src/audio-device-discovery.cpp
+    #src/lv2-plugin.cpp
+    #src/resampler-table.cc
+    #src/vresampler.cc
+#)
 
 #######################################################################################################################
 # Setup tests
