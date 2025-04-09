@@ -95,7 +95,6 @@ struct AudioDevice {
     Impl* impl;
 
 //     uint32_t framesDone;
-//     bool enabled;
 
     struct Buffers {
         float** f32;

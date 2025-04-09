@@ -870,8 +870,6 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
         goto error;
     }
 
-//     dev.enabled = true;
-
     {
 #if 0
         const uint16_t blocks = (playback ? AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS
