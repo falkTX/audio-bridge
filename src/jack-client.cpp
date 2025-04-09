@@ -8,10 +8,6 @@
 #include <cstring>
 #include <unistd.h>
 
-#if defined(__MOD_DEVICES__) && defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT)
-# define MOD_AUDIO_USB_BRIDGE
-#endif
-
 struct ClientData;
 static bool activate_jack_capture(ClientData* d);
 static bool activate_jack_playback(ClientData* d);
@@ -33,39 +29,14 @@ struct ClientData {
         jack_client_t* client = nullptr;
         float** buffers = {};
         jack_port_t** ports = {};
+
+        // whether the jack client is active
+        bool running = true;
     } jack;
 
    #ifdef AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
     char* deviceID = nullptr;
     pthread_t thread = {};
-
-    void runInternal()
-    {
-        const uint16_t bufferSize = jack_get_buffer_size(jack.client);
-        const uint32_t sampleRate = jack_get_sample_rate(jack.client);
-
-        while (running && dev == nullptr)
-        {
-            dev = initAudioDevice(deviceID, playback, bufferSize, sampleRate);
-
-            if (dev != nullptr)
-            {
-                numChannels = dev->hwconfig.numChannels;
-
-                if (playback)
-                    activate_jack_playback(this);
-                else
-                    activate_jack_capture(this);
-
-                active = true;
-                break;
-            }
-
-            usleep(250000); // 250ms
-        }
-
-        running = false;
-    }
 
     static void* threadRunInternal(void* const arg)
     {
@@ -73,15 +44,16 @@ struct ClientData {
         d->runInternal();
         return nullptr;
     }
-   #else
-    // whether the jack client is active
-    bool running = true;
 
+    void runInternal()
+    {
+   #else
     void runExternal(const char* const deviceID)
     {
+   #endif
         bool needsToInitialise = true;
 
-        while (running)
+        while (jack.running)
         {
             if (dev != nullptr)
             {
@@ -123,18 +95,18 @@ struct ClientData {
             }
         }
     }
-   #endif
 };
 
 static int jack_buffer_size(const unsigned frames, void* const arg)
 {
     ClientData* const d = static_cast<ClientData*>(arg);
 
-    DEBUGPRINT("NEW jack_buffer_size %u", frames);
-
     // force device to be reopened
     if (d->dev != nullptr && d->active && d->dev->config.bufferSize != frames)
+    {
+        DEBUGPRINT("NEW jack_buffer_size %u", frames);
         d->active = false;
+    }
 
     return 0;
 }
@@ -223,21 +195,8 @@ static bool activate_jack_capture(ClientData* const d)
 
     jack_activate(client);
 
-  #ifdef MOD_AUDIO_USB_BRIDGE
-  #ifdef _MOD_DEVICE_GENERIC_AARCH64
-    jack_connect(client, "mod-usbgadget_c:p1", "system:playback_1");
-    jack_connect(client, "mod-usbgadget_c:p2", "system:playback_2");
-    jack_connect(client, "mod-usbgadget_c:p3", "system:playback_3");
-    jack_connect(client, "mod-usbgadget_c:p4", "system:playback_4");
-    jack_connect(client, "mod-usbgadget_c:p5", "system:playback_5");
-    jack_connect(client, "mod-usbgadget_c:p6", "system:playback_6");
-    jack_connect(client, "mod-usbgadget_c:p7", "system:playback_7");
-    jack_connect(client, "mod-usbgadget_c:p8", "system:playback_8");
-    jack_connect(client, "system:capture_5", "mod-usbgadget_p:p1");
-    jack_connect(client, "system:capture_6", "mod-usbgadget_p:p2");
-    jack_connect(client, "system:capture_7", "mod-usbgadget_p:p3");
-    jack_connect(client, "system:capture_8", "mod-usbgadget_p:p4");
-  #else
+  #if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && \
+        (defined(_MOD_DEVICE_DUO) || defined(_MOD_DEVICE_DUOX) || defined(_MOD_DEVICE_DWARF))
    #ifdef _MOD_DEVICE_DWARF
     jack_connect(client, "mod-usbgadget_c:p1", "system:playback_2");
     jack_connect(client, "mod-usbgadget_c:p2", "system:playback_1");
@@ -252,11 +211,7 @@ static bool activate_jack_capture(ClientData* const d)
     jack_connect(client, "mod-usbgadget_c:p3", "mod-host:in1");
     jack_connect(client, "mod-usbgadget_c:p4", "mod-peakmeter:in_2");
     jack_connect(client, "mod-usbgadget_c:p4", "mod-host:in2");
-  #endif
-  #else
-    jack_connect(client, "audio-bridge-capture:p1", "audio-bridge-playback:p1");
-    jack_connect(client, "audio-bridge-capture:p2", "audio-bridge-playback:p2");
-  #endif
+ #endif
 
     return true;
 }
@@ -281,16 +236,12 @@ static bool activate_jack_playback(ClientData* const d)
 
     jack_activate(client);
 
-   #ifdef MOD_AUDIO_USB_BRIDGE
+   #if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && \
+        (defined(_MOD_DEVICE_DUO) || defined(_MOD_DEVICE_DUOX) || defined(_MOD_DEVICE_DWARF))
     jack_connect(client, "mod-host:out1", "mod-usbgadget_p:p1");
     jack_connect(client, "mod-host:out2", "mod-usbgadget_p:p2");
     jack_connect(client, "mod-monitor:out_1", "mod-usbgadget_p:p3");
     jack_connect(client, "mod-monitor:out_2", "mod-usbgadget_p:p4");
-   #else
-    jack_connect(client, "PulseAudio JACK Sink:front-left", "audio-bridge-playback:p1");
-    jack_connect(client, "PulseAudio JACK Sink:front-right", "audio-bridge-playback:p2");
-    jack_connect(client, "audio-bridge-capture:p1", "audio-bridge-playback:p1");
-    jack_connect(client, "audio-bridge-capture:p2", "audio-bridge-playback:p2");
    #endif
 
     return true;
@@ -323,7 +274,7 @@ void jack_finish(void* arg);
 
 int jack_initialize(jack_client_t* const client, const char* const load_init)
 {
-   #ifdef __MOD_DEVICES__
+   #if defined(_MOD_DEVICE_DUO) || defined(_MOD_DEVICE_DUOX) || defined(_MOD_DEVICE_DWARF)
     if (access("/data/enable-usb-multi-gadget", F_OK) != 0 ||
         access("/data/enable-usb-audio-gadget", F_OK) != 0)
         return 1;
@@ -340,7 +291,7 @@ int jack_initialize(jack_client_t* const client, const char* const load_init)
             std::memcpy(d->deviceID, load_init, devlen);
             d->deviceID[devlen] = '\0';
 
-            printf("deviceID %s || %d %d\n", d->deviceID, d->playback, playback);
+            DEBUGPRINT("deviceID: %s, playback: %d", d->deviceID, d->playback);
 
             if (pthread_create(&d->thread, nullptr, ClientData::threadRunInternal, d) == 0)
                 return 0;
@@ -356,9 +307,9 @@ void jack_finish(void* const arg)
 {
     ClientData* const d = static_cast<ClientData*>(arg);
 
-    if (d->running)
+    if (d->jack.running)
     {
-        d->running = false;
+        d->jack.running = false;
         pthread_join(d->thread, nullptr);
     }
 

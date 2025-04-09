@@ -89,7 +89,47 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
     }
     else
     {
-        runAudioDeviceCaptureImpl(dev->impl, buffers);
+//         runAudioDeviceCaptureImpl(dev->impl, buffers);
+
+        static bool started = false;
+        if (dev->ringbuffer.getNumReadableSamples() >= numFrames * 4)
+            started = true;
+
+        bool ok = false;
+        if (started)
+        {
+            const uint16_t neededFrames = numFrames;
+            ok = dev->ringbuffer.read(dev->buffers.f32, neededFrames);
+            // DISTRHO_SAFE_ASSERT(ok);
+
+            if (ok)
+            {
+                dev->resampler->inp_count = neededFrames;
+                dev->resampler->out_count = numFrames;
+                dev->resampler->inp_data = dev->buffers.f32;
+                dev->resampler->out_data = buffers;
+                dev->resampler->process();
+                DISTRHO_SAFE_ASSERT(dev->resampler->inp_count == 0);
+                DISTRHO_SAFE_ASSERT(dev->resampler->out_count == 0);
+            }
+            else
+            {
+                started = false;
+            }
+        }
+
+        static bool lastok = false;
+        if (lastok != ok)
+        {
+            DEBUGPRINT("-------------------------------------- is ok %d", ok);
+            lastok = ok;
+        }
+
+        if (!started || !ok)
+        {
+            for (uint8_t c = 0; c < dev->hwconfig.numChannels; ++c)
+                std::memset(buffers[c], 0, sizeof(float) * numFrames);
+        }
     }
 
     return runAudioDevicePostImpl(dev->impl);

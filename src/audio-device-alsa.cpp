@@ -26,7 +26,7 @@ static constexpr const snd_pcm_format_t kSampleFormatsToTry[] = {
     SND_PCM_FORMAT_S16,
 };
 
-static constexpr const unsigned kSampleRatesToTry[] = { /*48000,*/ 96000, 88200, 44100 };
+static constexpr const unsigned kSampleRatesToTry[] = { 48000, 44100, 96000, 88200 };
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -128,18 +128,6 @@ struct AudioDevice::Impl {
 
 // --------------------------------------------------------------------------------------------------------------------
 
-static void* _audio_device_capture_thread(void* const arg)
-{
-    AudioDevice::Impl* const impl = static_cast<AudioDevice::Impl*>(arg);
-
-    while (! impl->closing)
-    {
-    }
-
-    impl->disconnected = true;
-    return nullptr;
-}
-
 // TODO cleanup, see what is needed
 static int _xrun_recovery(snd_pcm_t *handle, int err)
 {
@@ -174,6 +162,168 @@ static int _xrun_recovery(snd_pcm_t *handle, int err)
     }
 
     return err;
+}
+
+static void* _audio_device_capture_thread(void* const arg)
+{
+    AudioDevice::Impl* const impl = static_cast<AudioDevice::Impl*>(arg);
+
+    DeviceState state = kDeviceInitializing;
+
+    const uint8_t sampleSize = getSampleSizeFromFormat(impl->format);
+    const uint8_t numChannels = impl->numChannels;
+    const uint16_t periodSize = impl->periodSize;
+    DEBUGPRINT("_audio_device_capture_thread sampleSize %u numChannels %u periodSize %u",
+               sampleSize, numChannels, periodSize);
+
+    uint8_t* const raw = new uint8_t [periodSize * sampleSize * numChannels];
+
+    float** f32 = new float* [numChannels];
+    for (uint8_t i = 0; i < numChannels; ++i)
+        f32[i] = new float [periodSize];
+
+    snd_pcm_sframes_t err;
+    while (! impl->closing)
+    {
+        if (state == kDeviceInitializing)
+        {
+            // read until alsa buffers are empty
+            bool started = false;
+            while ((err = snd_pcm_mmap_readi(impl->pcm, raw, periodSize)) > 0)
+                started = true;
+
+            if (err == -EPIPE)
+            {
+                snd_pcm_prepare(impl->pcm);
+                // printf("%08u | capture | initial pipe error: %s\n", frame, snd_strerror(err));
+                // started = false;
+                snd_pcm_wait(impl->pcm, -1);
+                continue;
+            }
+            else if (err != -EAGAIN)
+            {
+                printf("%08u | capture | initial read error: %s\n", impl->frame, snd_strerror(err));
+                break;
+            }
+
+            if (started)
+            {
+                DEBUGPRINT("%08u | capture | can read data? removing kDeviceInitializing", impl->frame);
+                // restart();
+                state = kDeviceStarting;
+            }
+            else
+            {
+                DEBUGPRINT("%08u | capture | kDeviceInitializing waiting 1 cycle", impl->frame);
+                snd_pcm_wait(impl->pcm, -1);
+                continue;
+            }
+        }
+
+        if (state == kDeviceStarting)
+        {
+            // try reading a single sample to see if device is running
+            // TODO replace with avail check
+            err = snd_pcm_mmap_readi(impl->pcm, raw, 1);
+
+            switch (err)
+            {
+            case 1:
+                DEBUGPRINT("%08u | capture | wrote data, removing kDeviceStarting", impl->frame);
+                state = kDeviceBuffering;
+                snd_pcm_rewind(impl->pcm, 1);
+                break;
+            case -EAGAIN:
+                // deviceTimedWait(dev);
+                DEBUGPRINT("%08u | capture | kDeviceStarting waiting 1 cycle", impl->frame);
+                snd_pcm_wait(impl->pcm, -1);
+//                 usleep(0);
+//                 sched_yield();
+                continue;
+            case -EPIPE:
+                DEBUGPRINT("%08u | capture | EPIPE while kDeviceStarting", impl->frame);
+                snd_pcm_prepare(impl->pcm);
+                snd_pcm_wait(impl->pcm, -1);
+//                 deviceTimedWait(dev);
+                continue;
+            default:
+                printf("%08u | capture | initial write error: %s\n", impl->frame, snd_strerror(err));
+                break;
+            }
+        }
+
+        err = snd_pcm_mmap_readi(impl->pcm, raw, periodSize);
+
+        if (impl->closing)
+            break;
+
+        switch (err)
+        {
+        case -EPIPE:
+            snd_pcm_prepare(impl->pcm);
+            // fall-through
+        case -EAGAIN:
+        case 0:
+//             deviceTimedWait(dev);
+            snd_pcm_wait(impl->pcm, -1);
+            continue;
+//         case 0:
+//             // deviceTimedWait(dev);
+//             continue;
+        }
+
+        if (err < 0)
+        {
+//             restart();
+
+            /*
+            for (uint8_t c=0; c<channels; ++c)
+                dev->ringbuffer->clearData();
+            */
+
+            DEBUGPRINT("%08u | capture | Read error %s", impl->frame, snd_strerror(err));
+
+            // TODO offline recovery
+//             if (_xrun_recovery(impl->pcm, err) < 0)
+            {
+                printf("%08u | capture | xrun_recovery error: %s\n", impl->frame, snd_strerror(err));
+                break;
+            }
+
+//             continue;
+        }
+
+        switch (impl->format)
+        {
+        case kSampleFormat16:
+            int2float::s16(f32, raw, numChannels, err);
+            break;
+        case kSampleFormat24:
+            int2float::s24(f32, raw, numChannels, err);
+            break;
+        case kSampleFormat24LE3:
+            int2float::s24le3(f32, raw, numChannels, err);
+            break;
+        case kSampleFormat32:
+            int2float::s32(f32, raw, numChannels, err);
+            break;
+        default:
+            DEBUGPRINT("unknown format");
+            break;
+        }
+
+        if (!impl->ringbuffer->write(f32, err))
+        {
+            DEBUGPRINT("%08u | capture | failed writing data", impl->frame);
+            sched_yield();
+
+            state = kDeviceBuffering;
+            snd_pcm_wait(impl->pcm, -1);
+        }
+    }
+
+    impl->disconnected = true;
+    return nullptr;
 }
 
 static void* _audio_device_playback_thread(void* const arg)

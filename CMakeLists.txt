@@ -76,7 +76,6 @@ target_sources(jack-audio-bridge
     src/audio-device-discovery.cpp
     src/audio-device-playback.cpp
     src/jack-client.cpp
-    #src/resampler.cc
     src/resampler-table.cc
     src/vresampler.cc
 )
@@ -84,34 +83,37 @@ target_sources(jack-audio-bridge
 #######################################################################################################################
 # Setup JACK internal client target
 
-#add_library(jack-int-audio-bridge SHARED)
+add_library(jack-int-audio-bridge SHARED)
 
-#set_common_target_properties(jack-int-audio-bridge)
+set_common_target_properties(jack-int-audio-bridge)
 
-#set_target_properties(jack-int-audio-bridge
-  #PROPERTIES
-    #OUTPUT_NAME "jack-audio-bridge"
-    #PREFIX ""
-#)
+set_target_properties(jack-int-audio-bridge
+  PROPERTIES
+    OUTPUT_NAME "jack-audio-bridge"
+    PREFIX ""
+)
 
-#target_compile_definitions(jack-int-audio-bridge
-  #PRIVATE
-    #AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
-#)
+target_compile_definitions(jack-int-audio-bridge
+  PRIVATE
+    AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
+)
 
-#target_link_libraries(jack-int-audio-bridge
-  #PRIVATE
-    #PkgConfig::JACK
-#)
+target_link_libraries(jack-int-audio-bridge
+  PRIVATE
+    PkgConfig::JACK
+)
 
-#target_sources(jack-int-audio-bridge
-  #PRIVATE
-    #src/audio-device.cpp
-    #src/audio-device-discovery.cpp
-    #src/jack-client.cpp
-    #src/resampler-table.cc
-    #src/vresampler.cc
-#)
+target_sources(jack-int-audio-bridge
+  PRIVATE
+    src/audio-device.cpp
+    src/audio-device-alsa.cpp
+    src/audio-device-capture.cpp
+    src/audio-device-discovery.cpp
+    src/audio-device-playback.cpp
+    src/jack-client.cpp
+    src/resampler-table.cc
+    src/vresampler.cc
+)
 
 #######################################################################################################################
 # Setup LV2 plugin target
