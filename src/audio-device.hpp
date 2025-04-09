@@ -103,6 +103,9 @@ struct AudioDevice {
     AudioRingBuffer ringbuffer;
     VResampler* resampler;
 
+    // lv2 enabled control, for on/off (enable/bypass) control
+    bool enabled;
+
     DeviceState state;
 //     double rbFillTarget;
 //     double rbTotalNumSamples;
@@ -111,8 +114,14 @@ struct AudioDevice {
 
 // --------------------------------------------------------------------------------------------------------------------
 
-AudioDevice* initAudioDevice(const char* deviceID, bool playback, uint16_t bufferSize, uint32_t sampleRate);
+AudioDevice* initAudioDevice(const char* deviceID,
+                             bool playback,
+                             uint16_t bufferSize,
+                             uint32_t sampleRate,
+                             bool enabled = true);
+
 bool runAudioDevice(AudioDevice* dev, float* buffers[], uint16_t numFrames);
+
 void closeAudioDevice(AudioDevice* dev);
 
 // --------------------------------------------------------------------------------------------------------------------

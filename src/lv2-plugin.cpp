@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2021-2025 Filipe Coelho <falktx@falktx.com>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+#include "audio-device.hpp"
 #include "audio-device-discovery.hpp"
-#include "audio-device-init.hpp"
 
 #include <lv2/core/lv2.h>
 #include <lv2/core/lv2_util.h>
@@ -33,7 +33,7 @@ enum {
 enum {
     kControlEnabled = 0,
     kControlStats,
-    kControlStatus,
+    kControlState,
     kControlNumChannels,
     kControlNumPeriods,
     kControlPeriodSize,
@@ -55,6 +55,7 @@ struct PluginData {
     uint32_t maxRingBufferSize = 0;
     bool playback = false;
     bool activated = false;
+    bool enabled = true;
     uint32_t numSamplesUntilWorkerIdle = 0;
    #ifndef __MOD_DEVICES__
     char* deviceID = nullptr;
@@ -138,43 +139,44 @@ struct PluginData {
 
     void run(const uint32_t frames)
     {
-        if (dev != nullptr && ! runAudioDevice(dev, buffers.pointers))
-        {
-            AudioDevice* const olddev = dev;
-            dev = nullptr;
+        enabled = *controlports[kControlEnabled] > 0.5f;
 
-            const WorkerDevice r = { kWorkerDestroyDevice, olddev };
-            features.workerSchedule->schedule_work(features.workerSchedule->handle, sizeof(r), &r);
+        if (dev != nullptr)
+        {
+            dev->enabled = enabled;
+
+            if (! runAudioDevice(dev, buffers.pointers, frames))
+            {
+                AudioDevice* const olddev = dev;
+                dev = nullptr;
+
+                const WorkerDevice r = { kWorkerDestroyDevice, olddev };
+                features.workerSchedule->schedule_work(features.workerSchedule->handle, sizeof(r), &r);
+            }
         }
 
         if (dev != nullptr)
         {
-            const uint8_t hints = dev->hints;
-            *controlports[kControlStatus] = hints & kDeviceInitializing ? 1.f
-                                          : hints & kDeviceStarting ? 2.f
-                                          : hints & kDeviceBuffering ? 3.f
-                                          : 4.f;
-            *controlports[kControlNumChannels] = dev->hwstatus.channels;
-            *controlports[kControlNumPeriods] = dev->hwstatus.periods;
-            *controlports[kControlPeriodSize] = dev->hwstatus.periodSize;
-            *controlports[kControlBufferSize] = dev->hwstatus.fullBufferSize;
+            *controlports[kControlState] = dev->state + 1;
+            *controlports[kControlNumChannels] = dev->hwconfig.numChannels;
+            *controlports[kControlNumPeriods] = dev->hwconfig.numPeriods;
+            *controlports[kControlPeriodSize] = dev->hwconfig.periodSize;
+            *controlports[kControlBufferSize] = dev->hwconfig.fullBufferSize;
 
             if (*controlports[kControlStats] > 0.5f)
             {
-                *controlports[kControlRatio] = dev->rbRatio;
-                *controlports[kControlBufferFill] = static_cast<float>(dev->ringbuffer->getNumReadableSamples() / kRingBufferDataFactor)
+                *controlports[kControlRatio] = 1.f; // dev->rbRatio;
+                *controlports[kControlBufferFill] = static_cast<float>(dev->ringbuffer.getNumReadableSamples() / kRingBufferDataFactor)
                                                   / static_cast<float>(maxRingBufferSize) * 100.f;
             }
             else
             {
                 *controlports[kControlRatio] = *controlports[kControlBufferFill] = 0.f;
             }
-
-            dev->enabled = *controlports[kControlEnabled] > 0.5f;
         }
         else
         {
-            *controlports[kControlStatus] = 0.f;
+            *controlports[kControlState] = 0.f;
             *controlports[kControlNumChannels] = *controlports[kControlNumPeriods] = 0.f;
             *controlports[kControlPeriodSize] = *controlports[kControlBufferSize] = 0.f;
             *controlports[kControlRatio] = *controlports[kControlBufferFill] = 0.f;
@@ -236,9 +238,9 @@ struct PluginData {
                                const LV2_State_Handle handle,
                                uint32_t, const LV2_Feature* const*)
     {
-        if (dev != nullptr && dev->deviceID)
+        if (dev != nullptr && dev->config.deviceID)
         {
-            store(handle, uris.deviceid, dev->deviceID, std::strlen(dev->deviceID) + 1,
+            store(handle, uris.deviceid, dev->config.deviceID, std::strlen(dev->config.deviceID) + 1,
                   uris.atom_String, LV2_STATE_IS_POD|LV2_STATE_IS_PORTABLE);
         }
         else if (deviceID != nullptr)
@@ -302,13 +304,13 @@ struct PluginData {
            #ifndef __MOD_DEVICES__
             if (deviceID != nullptr)
             {
-                devptr = initAudioDevice(deviceID, playback, bufferSize, sampleRate);
+                devptr = initAudioDevice(deviceID, playback, bufferSize, sampleRate, enabled);
             }
             else
            #endif
             {
                 std::vector<DeviceID> inputs, outputs;
-                enumerateSoundcards(inputs, outputs);
+                enumerateAudioDevices(inputs, outputs);
 
                 const std::vector<DeviceID>& devices(playback ? outputs : inputs);
 
@@ -352,7 +354,7 @@ struct PluginData {
         AudioDevice* const olddev = dev;
 
         dev = newdev;
-        maxRingBufferSize = newdev != nullptr ? newdev->ringbuffer->getNumSamples() / kRingBufferDataFactor : 0;
+        maxRingBufferSize = newdev != nullptr ? newdev->ringbuffer.getNumSamples() / kRingBufferDataFactor : 0;
         numSamplesUntilWorkerIdle = 0;
 
         if (olddev == nullptr)

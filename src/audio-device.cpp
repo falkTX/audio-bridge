@@ -13,13 +13,17 @@
 AudioDevice* initAudioDevice(const char* const deviceID,
                              const bool playback,
                              const uint16_t bufferSize,
-                             const uint32_t sampleRate)
+                             const uint32_t sampleRate,
+                             const bool enabled)
 {
     AudioDevice* const dev = new AudioDevice;
     dev->config.deviceID = strdup(deviceID);
     dev->config.playback = playback;
     dev->config.bufferSize = bufferSize;
     dev->config.sampleRate = sampleRate;
+
+    dev->enabled = enabled;
+    dev->state = kDeviceInitializing;
 
     if ((dev->impl = initAudioDeviceImpl(dev, dev->hwconfig)) == nullptr)
     {
