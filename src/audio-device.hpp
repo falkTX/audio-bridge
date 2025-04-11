@@ -98,6 +98,9 @@ struct AudioDevice {
         AudioRingBuffer* ringbuffer;
         VResampler* resampler;
         std::atomic<int> state = { kDeviceInitializing };
+        // TODO
+        uint32_t bufferSize;
+        uint32_t leftoverResampledFrames;
     } proc;
 
     struct Stats {

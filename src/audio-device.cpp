@@ -116,6 +116,10 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
                 DISTRHO_SAFE_ASSERT(dev->proc.resampler->inp_count == 0);
                 DISTRHO_SAFE_ASSERT(dev->proc.resampler->out_count == 0);
             }
+            else
+            {
+                dev->proc.state = kDeviceBuffering;
+            }
         }
         else
         {
