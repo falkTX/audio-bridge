@@ -5,6 +5,8 @@
 
 #include <cstdint>
 
+#include <atomic>
+
 #include "RingBuffer.hpp"
 // #include "ValueSmoother.hpp"
 
@@ -91,25 +93,26 @@ struct AudioDevice {
         uint32_t sampleRate;
     } hwconfig;
 
+    mutable struct Process {
+        float** buffers;
+        AudioRingBuffer* ringbuffer;
+        VResampler* resampler;
+        std::atomic<int> state = { kDeviceInitializing };
+    } proc;
+
+    struct Stats {
+//     double rbFillTarget;
+//     double rbTotalNumSamples;
+//     double rbRatio = 1.0;
+    } stats;
+
     struct Impl;
     Impl* impl;
 
 //     uint32_t framesDone;
 
-    struct Buffers {
-        float** f32;
-    } buffers;
-
-    AudioRingBuffer ringbuffer;
-    VResampler* resampler;
-
     // lv2 enabled control, for on/off (enable/bypass) control
     bool enabled;
-
-    DeviceState state;
-//     double rbFillTarget;
-//     double rbTotalNumSamples;
-//     double rbRatio = 1.0;
 };
 
 // --------------------------------------------------------------------------------------------------------------------

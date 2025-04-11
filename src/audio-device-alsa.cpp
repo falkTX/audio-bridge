@@ -107,7 +107,7 @@ struct AudioDevice::Impl {
     uint32_t fullBufferSize;
 
     // direct pointer
-    AudioRingBuffer* ringbuffer;
+    Process* proc;
 
     // monotonic frame counter
     uint32_t frame = 0;
@@ -168,7 +168,7 @@ static void* _audio_device_capture_thread(void* const arg)
 {
     AudioDevice::Impl* const impl = static_cast<AudioDevice::Impl*>(arg);
 
-    DeviceState state = kDeviceInitializing;
+    std::atomic<int>& state = impl->proc->state;
 
     const uint8_t sampleSize = getSampleSizeFromFormat(impl->format);
     const uint8_t numChannels = impl->numChannels;
@@ -200,7 +200,7 @@ static void* _audio_device_capture_thread(void* const arg)
                 snd_pcm_wait(impl->pcm, -1);
                 continue;
             }
-            else if (err != -EAGAIN)
+            if (err != -EAGAIN)
             {
                 printf("%08u | capture | initial read error: %s\n", impl->frame, snd_strerror(err));
                 break;
@@ -312,10 +312,16 @@ static void* _audio_device_capture_thread(void* const arg)
             break;
         }
 
-        if (!impl->ringbuffer->write(f32, err))
+        if (impl->proc->ringbuffer->write(f32, err))
+        {
+            if (state == kDeviceBuffering && impl->proc->ringbuffer->getNumReadableSamples() >= 512)
+                state = kDeviceRunning;
+        }
+        else
         {
             DEBUGPRINT("%08u | capture | failed writing data", impl->frame);
             sched_yield();
+            impl->proc->ringbuffer->flush();
 
             state = kDeviceBuffering;
             snd_pcm_wait(impl->pcm, -1);
@@ -330,7 +336,7 @@ static void* _audio_device_playback_thread(void* const arg)
 {
     AudioDevice::Impl* const impl = static_cast<AudioDevice::Impl*>(arg);
 
-    DeviceState state = kDeviceInitializing;
+    std::atomic<int>& state = impl->proc->state;
 
     const uint8_t sampleSize = getSampleSizeFromFormat(impl->format);
     const uint8_t numChannels = impl->numChannels;
@@ -433,7 +439,7 @@ static void* _audio_device_playback_thread(void* const arg)
 
         if (state == kDeviceBuffering)
         {
-            if (impl->ringbuffer->getNumReadableSamples() < periodSize * 256)
+            if (impl->proc->ringbuffer->getNumReadableSamples() < periodSize * 256)
             {
 //                 DEBUGPRINT("%08u | playback | kDeviceBuffering waiting 1 cycle because ringbuffer not ready, %u",
 //                         impl->frame, impl->ringbuffer->getNumReadableSamples());
@@ -445,7 +451,7 @@ static void* _audio_device_playback_thread(void* const arg)
             }
 
             DEBUGPRINT("%08u | playback | has enough ringbuffer data, removing kDeviceBuffering, %u vs %u",
-                       impl->frame, impl->ringbuffer->getNumReadableSamples() , periodSize * 256);
+                       impl->frame, impl->proc->ringbuffer->getNumReadableSamples() , periodSize * 256);
             state = kDeviceRunning;
         }
 
@@ -458,7 +464,7 @@ static void* _audio_device_playback_thread(void* const arg)
         if ((music_pos += periodSize) >= music_size)
             music_pos = 0;
 #else
-        while (!impl->ringbuffer->read(f32, periodSize))
+        while (!impl->proc->ringbuffer->read(f32, periodSize))
         {
             DEBUGPRINT("%08u | playback | WARNING | failed reading data", impl->frame);
             sched_yield();
@@ -475,7 +481,7 @@ static void* _audio_device_playback_thread(void* const arg)
         {
             counter = 0;
             DEBUGPRINT("%08u | playback | check %u vs %u",
-                       impl->frame, impl->ringbuffer->getNumReadableSamples() , periodSize * 1024);
+                       impl->frame, impl->proc->ringbuffer->getNumReadableSamples() , periodSize * 1024);
         }
 #endif
 
@@ -598,7 +604,7 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     std::unique_ptr<AudioDevice::Impl> impl = std::unique_ptr<AudioDevice::Impl>(new AudioDevice::Impl);
     impl->playback = dev->config.playback;
     impl->bufferSize = dev->config.bufferSize;
-    impl->ringbuffer = const_cast<AudioRingBuffer*>(&dev->ringbuffer);
+    impl->proc = &dev->proc;
 
 #if 0
     dev.hints = kDeviceInitializing|kDeviceStarting|kDeviceBuffering;

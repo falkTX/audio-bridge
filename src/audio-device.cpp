@@ -23,7 +23,7 @@ AudioDevice* initAudioDevice(const char* const deviceID,
     dev->config.sampleRate = sampleRate;
 
     dev->enabled = enabled;
-    dev->state = kDeviceInitializing;
+    dev->proc.state = kDeviceInitializing;
 
     if ((dev->impl = initAudioDeviceImpl(dev, dev->hwconfig)) == nullptr)
     {
@@ -33,20 +33,21 @@ AudioDevice* initAudioDevice(const char* const deviceID,
 
     const uint8_t numChannels = dev->hwconfig.numChannels;
 
-    dev->resampler = new VResampler;
-    dev->resampler->setup(static_cast<double>(dev->hwconfig.sampleRate) / sampleRate, numChannels, 8);
+    dev->proc.resampler = new VResampler;
+    dev->proc.resampler->setup(static_cast<double>(dev->hwconfig.sampleRate) / sampleRate, numChannels, 8);
 
 //     const uint32_t numBlocks = (playback ? AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS
 //                                          : AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS);
 
-    dev->ringbuffer.createBuffer(dev->hwconfig.numChannels, std::max(sampleRate, dev->hwconfig.sampleRate) * 2);
+    dev->proc.ringbuffer = new AudioRingBuffer;
+    dev->proc.ringbuffer->createBuffer(dev->hwconfig.numChannels, std::max(sampleRate, dev->hwconfig.sampleRate) * 2);
 
-    dev->buffers.f32 = new float* [numChannels];
+    dev->proc.buffers = new float* [numChannels];
 
     for (uint8_t c = 0; c < numChannels; ++c)
     {
-        dev->buffers.f32[c] = new float[bufferSize * 4];
-        std::memset(dev->buffers.f32[c], 0, sizeof(float) * bufferSize * 4);
+        dev->proc.buffers[c] = new float[bufferSize * 4];
+        std::memset(dev->proc.buffers[c], 0, sizeof(float) * bufferSize * 4);
     }
 
     return dev;
@@ -76,50 +77,49 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
 //             return;
 //         }
 
-        dev->resampler->inp_count = numFrames;
-        dev->resampler->out_count = bufferSize * 4;
-        dev->resampler->inp_data = buffers;
-        dev->resampler->out_data = dev->buffers.f32;
-        dev->resampler->process();
-        DISTRHO_SAFE_ASSERT(dev->resampler->inp_count == 0);
+        if (dev->proc.state == kDeviceRunning)
+        {
+            dev->proc.resampler->inp_count = numFrames;
+            dev->proc.resampler->out_count = bufferSize * 4;
+            dev->proc.resampler->inp_data = buffers;
+            dev->proc.resampler->out_data = dev->proc.buffers;
+            dev->proc.resampler->process();
+            DISTRHO_SAFE_ASSERT(dev->proc.resampler->inp_count == 0);
 
-        const uint16_t resampledFrames = bufferSize * 4 - dev->resampler->out_count;
+            const uint16_t resampledFrames = bufferSize * 4 - dev->proc.resampler->out_count;
 
-        const bool ok = dev->ringbuffer.write(dev->buffers.f32, resampledFrames);
-        DISTRHO_SAFE_ASSERT(ok);
+            const bool ok = dev->proc.ringbuffer->write(dev->proc.buffers, resampledFrames);
+            DISTRHO_SAFE_ASSERT(ok);
 
 //         dev->framesDone += bufferSize;
 //         setDeviceTimings(dev);
+        }
     }
     else
     {
 //         runAudioDeviceCaptureImpl(dev->impl, buffers);
 
-        static bool started = false;
-        if (dev->ringbuffer.getNumReadableSamples() >= numFrames * 4)
-            started = true;
-
-        bool ok = false;
-        if (started)
+        bool ok;
+        if (dev->proc.state == kDeviceRunning)
         {
             const uint16_t neededFrames = numFrames;
-            ok = dev->ringbuffer.read(dev->buffers.f32, neededFrames);
+            ok = dev->proc.ringbuffer->read(dev->proc.buffers, neededFrames);
             // DISTRHO_SAFE_ASSERT(ok);
 
             if (ok)
             {
-                dev->resampler->inp_count = neededFrames;
-                dev->resampler->out_count = numFrames;
-                dev->resampler->inp_data = dev->buffers.f32;
-                dev->resampler->out_data = buffers;
-                dev->resampler->process();
-                DISTRHO_SAFE_ASSERT(dev->resampler->inp_count == 0);
-                DISTRHO_SAFE_ASSERT(dev->resampler->out_count == 0);
+                dev->proc.resampler->inp_count = neededFrames;
+                dev->proc.resampler->out_count = numFrames;
+                dev->proc.resampler->inp_data = dev->proc.buffers;
+                dev->proc.resampler->out_data = buffers;
+                dev->proc.resampler->process();
+                DISTRHO_SAFE_ASSERT(dev->proc.resampler->inp_count == 0);
+                DISTRHO_SAFE_ASSERT(dev->proc.resampler->out_count == 0);
             }
-            else
-            {
-                started = false;
-            }
+        }
+        else
+        {
+            ok = false;
         }
 
         static bool lastok = false;
@@ -129,7 +129,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
             lastok = ok;
         }
 
-        if (!started || !ok)
+        if (!ok)
         {
             for (uint8_t c = 0; c < dev->hwconfig.numChannels; ++c)
                 std::memset(buffers[c], 0, sizeof(float) * numFrames);
@@ -143,13 +143,13 @@ void closeAudioDevice(AudioDevice* const dev)
 {
     closeAudioDeviceImpl(dev->impl);
 
-    delete dev->resampler;
-    dev->ringbuffer.deleteBuffer();
+    delete dev->proc.resampler;
+    delete dev->proc.ringbuffer;
 
     for (uint8_t c = 0; c < dev->hwconfig.numChannels; ++c)
-        delete[] dev->buffers.f32[c];
+        delete[] dev->proc.buffers[c];
 
-    delete[] dev->buffers.f32;
+    delete[] dev->proc.buffers;
 
     std::free(dev->config.deviceID);
 

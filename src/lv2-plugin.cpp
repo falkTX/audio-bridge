@@ -157,7 +157,7 @@ struct PluginData {
 
         if (dev != nullptr)
         {
-            *controlports[kControlState] = dev->state + 1;
+            *controlports[kControlState] = dev->proc.state + 1;
             *controlports[kControlNumChannels] = dev->hwconfig.numChannels;
             *controlports[kControlNumPeriods] = dev->hwconfig.numPeriods;
             *controlports[kControlPeriodSize] = dev->hwconfig.periodSize;
@@ -166,7 +166,7 @@ struct PluginData {
             if (*controlports[kControlStats] > 0.5f)
             {
                 *controlports[kControlRatio] = 1.f; // dev->rbRatio;
-                *controlports[kControlBufferFill] = static_cast<float>(dev->ringbuffer.getNumReadableSamples() / kRingBufferDataFactor)
+                *controlports[kControlBufferFill] = static_cast<float>(dev->proc.ringbuffer->getNumReadableSamples() / kRingBufferDataFactor)
                                                   / static_cast<float>(maxRingBufferSize) * 100.f;
             }
             else
@@ -321,7 +321,7 @@ struct PluginData {
             if (devptr == nullptr)
                 return LV2_WORKER_SUCCESS;
 
-            respond(handle, sizeof(devptr), &devptr);
+            respond(handle, sizeof(void*), &devptr);
             break;
         }
        #ifndef __MOD_DEVICES__
@@ -331,7 +331,7 @@ struct PluginData {
             AudioDevice* const devptr = nextDeviceID[0] != '\0'
                                       ? initAudioDevice(nextDeviceID, playback, bufferSize, sampleRate)
                                       : nullptr;
-            respond(handle, sizeof(devptr), &devptr);
+            respond(handle, sizeof(void*), &devptr);
             break;
         }
        #endif
@@ -348,13 +348,13 @@ struct PluginData {
 
     LV2_Worker_Status workResponse(const uint32_t size, const void* const data)
     {
-        DISTRHO_SAFE_ASSERT_RETURN(size == sizeof(AudioDevice*), LV2_WORKER_ERR_UNKNOWN);
+        DISTRHO_SAFE_ASSERT_RETURN(size == sizeof(void*), LV2_WORKER_ERR_UNKNOWN);
 
         AudioDevice* const newdev = *static_cast<AudioDevice* const*>(data);
         AudioDevice* const olddev = dev;
 
         dev = newdev;
-        maxRingBufferSize = newdev != nullptr ? newdev->ringbuffer.getNumSamples() / kRingBufferDataFactor : 0;
+        maxRingBufferSize = newdev != nullptr ? newdev->proc.ringbuffer->getNumSamples() / kRingBufferDataFactor : 0;
         numSamplesUntilWorkerIdle = 0;
 
         if (olddev == nullptr)
