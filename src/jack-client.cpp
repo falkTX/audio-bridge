@@ -8,10 +8,7 @@
 #include <cstring>
 #include <unistd.h>
 
-#if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
-#define EFFECT_GLOBALEQ "effect_9991"
-#define EFFECT_MIXER "effect_9992"
-#endif
+// #define _DARKGLASS_DEVICE_PABLITO
 
 struct ClientData;
 static bool activate_jack_capture(ClientData* d);
@@ -56,7 +53,15 @@ struct ClientData {
     void runExternal(const char* const deviceID)
     {
    #endif
-        bool needsToInitialise = true;
+        bool needsToInitialise = numChannels != 0;
+
+        if (! needsToInitialise)
+        {
+            if (playback)
+                activate_jack_playback(this);
+            else
+                activate_jack_capture(this);
+        }
 
         while (jack.running)
         {
@@ -83,6 +88,11 @@ struct ClientData {
                 if (needsToInitialise)
                 {
                     needsToInitialise = false;
+                    if (numChannels != 0) {
+                        DISTRHO_SAFE_ASSERT_UINT2_RETURN(numChannels == dev->hwconfig.numChannels,
+                                                         numChannels,
+                                                         dev->hwconfig.numChannels,);
+                    }
                     numChannels = dev->hwconfig.numChannels;
 
                     if (playback)
@@ -156,6 +166,13 @@ static ClientData* init_capture(jack_client_t* client = nullptr)
     ClientData* const d = new ClientData;
     d->jack.client = client;
     d->playback = false;
+  #ifdef AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
+   #if defined(_MOD_DEVICE_DUO) || defined(_MOD_DEVICE_DUOX) || defined(_MOD_DEVICE_DWARF)
+    d->numChannels = access("/data/enable-usb-audio-4x4", F_OK) == 0 ? 4 : 2;
+   #elif defined(_DARKGLASS_DEVICE_PABLITO)
+    d->numChannels = 9;
+   #endif
+  #endif
 
     jack_set_buffer_size_callback(client, jack_buffer_size, d);
     jack_set_process_callback(client, jack_process, d);
@@ -174,6 +191,13 @@ static ClientData* init_playback(jack_client_t* client = nullptr)
     ClientData* const d = new ClientData;
     d->jack.client = client;
     d->playback = true;
+  #ifdef AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
+   #if defined(_MOD_DEVICE_DUO) || defined(_MOD_DEVICE_DUOX) || defined(_MOD_DEVICE_DWARF)
+    d->numChannels = 4;
+   #elif defined(_DARKGLASS_DEVICE_PABLITO)
+    d->numChannels = 3;
+   #endif
+  #endif
 
     jack_set_process_callback(client, jack_process, d);
 
@@ -200,38 +224,31 @@ static bool activate_jack_capture(ClientData* const d)
 
     jack_activate(client);
 
-  #if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && \
-        (defined(_MOD_DEVICE_DUO) || defined(_MOD_DEVICE_DUOX) || defined(_MOD_DEVICE_DWARF))
-   #ifdef _MOD_DEVICE_DWARF
-    jack_connect(client, "mod-usbgadget_c:p1", "system:playback_2");
-    jack_connect(client, "mod-usbgadget_c:p2", "system:playback_1");
-   #else
-    jack_connect(client, "mod-usbgadget_c:p1", "system:playback_1");
-    jack_connect(client, "mod-usbgadget_c:p2", "system:playback_2");
-   #endif
+  #ifdef AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
+   #if defined(_MOD_DEVICE_DUO) || defined(_MOD_DEVICE_DUOX) || defined(_MOD_DEVICE_DWARF)
+    static constexpr const char* kPlaybackPorts[2] = {
+       #ifdef _MOD_DEVICE_DWARF
+        "system:playback_2",
+        "system:playback_1",
+       #else
+        "system:playback_1",
+        "system:playback_2",
+       #endif
+    };
+    jack_connect(client, "mod-usbgadget_c:p1", kPlaybackPorts[0]);
     jack_connect(client, "mod-usbgadget_c:p1", "mod-peakmeter:in_3");
+    jack_connect(client, "mod-usbgadget_c:p2", kPlaybackPorts[1]);
     jack_connect(client, "mod-usbgadget_c:p2", "mod-peakmeter:in_4");
-    // optional 4x4 mode
-    jack_connect(client, "mod-usbgadget_c:p3", "mod-peakmeter:in_1");
-    jack_connect(client, "mod-usbgadget_c:p3", "mod-host:in1");
-    jack_connect(client, "mod-usbgadget_c:p4", "mod-peakmeter:in_2");
-    jack_connect(client, "mod-usbgadget_c:p4", "mod-host:in2");
-  #elif defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
-    if (jack_port_by_name(client, EFFECT_GLOBALEQ ":inL") != NULL)
+    if (d->numChannels == 4) // optional 4x4 mode
     {
-        jack_connect(client, "usbgadget-capture:p1", EFFECT_GLOBALEQ ":inL");
-        jack_connect(client, "usbgadget-capture:p2", EFFECT_GLOBALEQ ":inR");
+        jack_connect(client, "mod-usbgadget_c:p3", "mod-peakmeter:in_1");
+        jack_connect(client, "mod-usbgadget_c:p3", "mod-host:in1");
+        jack_connect(client, "mod-usbgadget_c:p4", "mod-peakmeter:in_2");
+        jack_connect(client, "mod-usbgadget_c:p4", "mod-host:in2");
     }
-    if (jack_port_by_name(client, EFFECT_MIXER ":inHpL") != NULL)
-    {
-        jack_connect(client, "usbgadget-capture:p3", EFFECT_MIXER ":inHpL");
-        jack_connect(client, "usbgadget-capture:p4", EFFECT_MIXER ":inHpR");
-        jack_connect(client, "usbgadget-capture:p5", EFFECT_MIXER ":inXlrL");
-        jack_connect(client, "usbgadget-capture:p6", EFFECT_MIXER ":inXlrR");
-        jack_connect(client, "usbgadget-capture:p7", EFFECT_MIXER ":inTrsL");
-        jack_connect(client, "usbgadget-capture:p8", EFFECT_MIXER ":inTrsR");
-    }
+   #elif defined(_DARKGLASS_DEVICE_PABLITO)
     jack_connect(client, "usbgadget-capture:p9", "anagram-input:usb");
+   #endif
   #endif
 
     return true;
@@ -257,20 +274,16 @@ static bool activate_jack_playback(ClientData* const d)
 
     jack_activate(client);
 
-   #if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && \
-        (defined(_MOD_DEVICE_DUO) || defined(_MOD_DEVICE_DUOX) || defined(_MOD_DEVICE_DWARF))
+  #ifdef AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
+   #if defined(_MOD_DEVICE_DUO) || defined(_MOD_DEVICE_DUOX) || defined(_MOD_DEVICE_DWARF)
     jack_connect(client, "mod-host:out1", "mod-usbgadget_p:p1");
     jack_connect(client, "mod-host:out2", "mod-usbgadget_p:p2");
     jack_connect(client, "mod-monitor:out_1", "mod-usbgadget_p:p3");
     jack_connect(client, "mod-monitor:out_2", "mod-usbgadget_p:p4");
-   #elif defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
-    if (jack_port_by_name(client, EFFECT_GLOBALEQ ":outL") != NULL)
-    {
-        jack_connect(client, EFFECT_GLOBALEQ ":outL", "usbgadget-playback:p1");
-        jack_connect(client, EFFECT_GLOBALEQ ":outR", "usbgadget-playback:p2");
-    }
+   #elif defined(_DARKGLASS_DEVICE_PABLITO)
     jack_connect(client, "anagram-input:out", "usbgadget-playback:p3");
    #endif
+  #endif
 
     return true;
 }
