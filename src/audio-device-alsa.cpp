@@ -1,6 +1,10 @@
 // SPDX-FileCopyrightText: 2021-2025 Filipe Coelho <falktx@falktx.com>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+// #undef DEBUG
+// #undef NDEBUG
+// #define DEBUG 1
+
 #include "audio-device.hpp"
 #include "audio-device-impl.hpp"
 #include "audio-utils.hpp"
@@ -14,6 +18,8 @@
 #include <alsa/asoundlib.h>
 #include <pthread.h>
 // #include <semaphore.h>
+
+// #define MUSIC_TEST
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -350,7 +356,7 @@ static void* _audio_device_playback_thread(void* const arg)
     float *musicFull, *musicR;
     size_t music_size;
     size_t music_pos = 0;
-    FILE* const f = fopen("/home/falktx/Source/falkTX/audio-bridge/out.raw", "rb");
+    FILE* const f = fopen("/root/out.raw", "rb");
     assert(f);
     fseek(f, 0, SEEK_END);
     music_size = ftell(f);
@@ -437,12 +443,23 @@ static void* _audio_device_playback_thread(void* const arg)
             }
         }
 
+#ifdef MUSIC_TEST
+        static constexpr const float zero[128] = {};
+        const float* f32[3] = {
+            musicFull + music_pos,
+            musicR + music_pos,
+            zero,
+        };
+
+        if ((music_pos += periodSize) >= music_size)
+            music_pos = 0;
+#else
         if (state == kDeviceBuffering)
         {
             if (impl->proc->ringbuffer->getNumReadableSamples() < periodSize * 256)
             {
 //                 DEBUGPRINT("%08u | playback | kDeviceBuffering waiting 1 cycle because ringbuffer not ready, %u",
-//                         impl->frame, impl->ringbuffer->getNumReadableSamples());
+//                             impl->frame, impl->proc->ringbuffer->getNumReadableSamples());
 
                 std::memset(raw, 0, periodSize * sampleSize * numChannels);
                 snd_pcm_mmap_writei(impl->pcm, raw, periodSize);
@@ -455,15 +472,6 @@ static void* _audio_device_playback_thread(void* const arg)
             state = kDeviceRunning;
         }
 
-#ifdef MUSIC_TEST
-        const float* f32[2] = {
-            musicFull + music_pos,
-            musicR + music_pos,
-        };
-
-        if ((music_pos += periodSize) >= music_size)
-            music_pos = 0;
-#else
         while (!impl->proc->ringbuffer->read(f32, periodSize))
         {
             DEBUGPRINT("%08u | playback | WARNING | failed reading data", impl->frame);
@@ -876,6 +884,11 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
         goto error;
     }
 
+    impl->format = hwconfig.format;
+    impl->numChannels = hwconfig.numChannels;
+    impl->periodSize = hwconfig.periodSize;
+    impl->fullBufferSize = hwconfig.fullBufferSize;
+
     {
 #if 0
         const uint16_t blocks = (playback ? AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS
@@ -916,11 +929,6 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
         }
         pthread_attr_destroy(&attr);
     }
-
-    impl->format = hwconfig.format;
-    impl->numChannels = hwconfig.numChannels;
-    impl->periodSize = hwconfig.periodSize;
-    impl->fullBufferSize = hwconfig.fullBufferSize;
 
     return impl.release();
 
