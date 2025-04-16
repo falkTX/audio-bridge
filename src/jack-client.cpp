@@ -211,7 +211,10 @@ static bool activate_jack_capture(ClientData* const d)
     jack_connect(client, "mod-usbgadget_c:p3", "mod-host:in1");
     jack_connect(client, "mod-usbgadget_c:p4", "mod-peakmeter:in_2");
     jack_connect(client, "mod-usbgadget_c:p4", "mod-host:in2");
- #endif
+  #elif defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
+    if (jack_port_by_name(client, "anagram-input:usb") != NULL)
+        jack_connect(client, "usbgadget-capture:p9", "anagram-input:usb");
+  #endif
 
     return true;
 }
@@ -242,6 +245,9 @@ static bool activate_jack_playback(ClientData* const d)
     jack_connect(client, "mod-host:out2", "mod-usbgadget_p:p2");
     jack_connect(client, "mod-monitor:out_1", "mod-usbgadget_p:p3");
     jack_connect(client, "mod-monitor:out_2", "mod-usbgadget_p:p4");
+   #elif defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
+    if (jack_port_by_name(client, "anagram-input:out") != NULL)
+        jack_connect(client, "anagram-input:out", "usbgadget-playback:p3");
    #endif
 
     return true;
