@@ -38,8 +38,8 @@ enum {
     kControlNumPeriods,
     kControlPeriodSize,
     kControlFullBufferSize,
-    kControlRatio,
-    kControlBufferFill,
+    kControlRatioActive,
+    kControlRatioFiltered,
     kControlCount,
 };
 
@@ -52,7 +52,6 @@ struct PluginData {
     AudioDevice* dev = nullptr;
     uint16_t bufferSize = 0;
     uint32_t sampleRate = 0;
-    uint32_t maxRingBufferSize = 0;
     bool playback = false;
     bool activated = false;
     bool enabled = true;
@@ -165,13 +164,13 @@ struct PluginData {
 
             if (*controlports[kControlStats] > 0.5f)
             {
-                *controlports[kControlRatio] = 1.f; // dev->rbRatio;
-                *controlports[kControlBufferFill] = static_cast<float>(dev->proc.ringbuffer->getNumReadableSamples() / kRingBufferDataFactor)
-                                                  / static_cast<float>(maxRingBufferSize) * 100.f;
+                *controlports[kControlRatioActive] = clamp_ratio(
+                    dev->proc.ringbuffer->getNumReadableSamples() / kRingBufferDataFactord / dev->stats.rbFillTarget);
+                *controlports[kControlRatioFiltered] = dev->stats.rbRatio;
             }
             else
             {
-                *controlports[kControlRatio] = *controlports[kControlBufferFill] = 0.f;
+                *controlports[kControlRatioActive] = *controlports[kControlRatioFiltered] = 0.f;
             }
         }
         else
@@ -181,8 +180,8 @@ struct PluginData {
             *controlports[kControlNumPeriods] = 0.f;
             *controlports[kControlPeriodSize] = 0.f;
             *controlports[kControlFullBufferSize] = 0.f;
-            *controlports[kControlRatio] = 0.f;
-            *controlports[kControlBufferFill] = 0.f;
+            *controlports[kControlRatioActive] = 0.f;
+            *controlports[kControlRatioFiltered] = 0.f;
 
             if (!playback)
             {
@@ -357,7 +356,6 @@ struct PluginData {
         AudioDevice* const olddev = dev;
 
         dev = newdev;
-        maxRingBufferSize = newdev != nullptr ? newdev->proc.ringbuffer->getNumSamples() / kRingBufferDataFactor : 0;
         numSamplesUntilWorkerIdle = 0;
 
         if (olddev == nullptr)

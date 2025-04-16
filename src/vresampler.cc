@@ -202,7 +202,7 @@ bool VResampler::process (void)
 {
     int            nr, np, hl, nz, di, i, n;
     unsigned int   in, j, inp_i, outp_i;
-    double         ph, dp, dd;
+    double         ph, dp, dd, qs;
     float          a, b, *p1, *p2, *q1, *q2;
 
     if (!_table) return false;
@@ -214,6 +214,7 @@ bool VResampler::process (void)
     nz = _nzero;
     ph = _phase;
     dp = _pstep;
+    qs = _qstep;
 
     p1 = _buff + in;
     p2 = p1 + 2 * hl - nr;
@@ -334,8 +335,8 @@ bool VResampler::process (void)
         --out_count;
         ++outp_i;
 
-        dd =  _qstep - dp;
-        if (fabs (dd) < 1e-20) dp = _qstep;
+        dd =  qs - dp;
+        if (fabs (dd) < 1e-20) dp = qs;
         else dp += _wstep * dd;
         ph += dp;
         if (ph >= np)

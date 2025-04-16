@@ -207,7 +207,7 @@ public:
 
     // ----------------------------------------------------------------------------------------------------------------
 
-    bool read(float* const* const buffers, const uint32_t samples) noexcept
+    bool read(float* const* const buffers, const uint32_t samples, const uint32_t offset = 0) noexcept
     {
         // empty
         if (buffer.head == buffer.tail)
@@ -236,7 +236,7 @@ public:
             if (samples == 1)
             {
                 for (uint8_t c = 0; c < buffer.channels; ++c)
-                    std::memcpy(buffers[c], buffer.buf[c] + tail, sizeof(float));
+                    std::memcpy(buffers[c] + offset, buffer.buf[c] + tail, sizeof(float));
             }
             else
             {
@@ -244,15 +244,15 @@ public:
 
                 for (uint8_t c = 0; c < buffer.channels; ++c)
                 {
-                    std::memcpy(buffers[c], buffer.buf[c] + tail, firstpart * sizeof(float));
-                    std::memcpy(buffers[c] + firstpart, buffer.buf[c], readto * sizeof(float));
+                    std::memcpy(buffers[c] + offset, buffer.buf[c] + tail, firstpart * sizeof(float));
+                    std::memcpy(buffers[c] + offset + firstpart, buffer.buf[c], readto * sizeof(float));
                 }
             }
         }
         else
         {
             for (uint8_t c = 0; c < buffer.channels; ++c)
-                std::memcpy(buffers[c], buffer.buf[c] + tail, samples * sizeof(float));
+                std::memcpy(buffers[c] + offset, buffer.buf[c] + tail, samples * sizeof(float));
 
             if (readto == buffer.samples)
                 readto = 0;

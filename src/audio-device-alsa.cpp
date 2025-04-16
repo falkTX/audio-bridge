@@ -17,7 +17,6 @@
 //#define ALSA_PCM_NEW_SW_PARAMS_API
 #include <alsa/asoundlib.h>
 #include <pthread.h>
-// #include <semaphore.h>
 
 // #define MUSIC_TEST
 
@@ -123,7 +122,6 @@ struct AudioDevice::Impl {
 
     // sync primitives
     pthread_t thread;
-//     sem_t sem;
 
     // whether audio device is closing down, triggered by `closeAudioDeviceImpl`
     bool closing = false;
@@ -179,6 +177,7 @@ static void* _audio_device_capture_thread(void* const arg)
     const uint8_t sampleSize = getSampleSizeFromFormat(impl->format);
     const uint8_t numChannels = impl->numChannels;
     const uint16_t periodSize = impl->periodSize;
+    const uint32_t numBufferingSamples = impl->proc->numBufferingSamples;
     DEBUGPRINT("_audio_device_capture_thread sampleSize %u numChannels %u periodSize %u",
                sampleSize, numChannels, periodSize);
 
@@ -188,6 +187,7 @@ static void* _audio_device_capture_thread(void* const arg)
     for (uint8_t i = 0; i < numChannels; ++i)
         f32[i] = new float [periodSize];
 
+    bool ok;
     snd_pcm_sframes_t err;
     while (! impl->closing)
     {
@@ -236,7 +236,7 @@ static void* _audio_device_capture_thread(void* const arg)
             {
             case 1:
                 DEBUGPRINT("%08u | capture | wrote data, removing kDeviceStarting", impl->frame);
-                state = kDeviceBuffering;
+                state = kDeviceStarted;
                 snd_pcm_rewind(impl->pcm, 1);
                 break;
             case -EAGAIN:
@@ -299,6 +299,13 @@ static void* _audio_device_capture_thread(void* const arg)
 //             continue;
         }
 
+        if (state == kDeviceStarted)
+        {
+            // wait for host side to be ready
+            snd_pcm_wait(impl->pcm, -1);
+            continue;
+        }
+
         switch (impl->format)
         {
         case kSampleFormat16:
@@ -318,18 +325,30 @@ static void* _audio_device_capture_thread(void* const arg)
             break;
         }
 
-        if (impl->proc->ringbuffer->write(f32, err))
+//         pthread_mutex_lock(&impl->proc->ringbufferLock);
+        ok = impl->proc->ringbuffer->write(f32, err);
+//         pthread_mutex_unlock(&impl->proc->ringbufferLock);
+
+        static int counter = 0;
+        if (++counter == 250)
         {
-            if (state == kDeviceBuffering && impl->proc->ringbuffer->getNumReadableSamples() >= 512)
+            counter = 0;
+            DEBUGPRINT("%08u | capture | check %u vs %u",
+                       impl->frame, impl->proc->ringbuffer->getNumReadableSamples() , numBufferingSamples);
+        }
+
+        if (ok)
+        {
+            if (state == kDeviceBuffering && impl->proc->ringbuffer->getNumReadableSamples() >= numBufferingSamples)
                 state = kDeviceRunning;
         }
         else
         {
             DEBUGPRINT("%08u | capture | failed writing data", impl->frame);
             sched_yield();
-            impl->proc->ringbuffer->flush();
 
-            state = kDeviceBuffering;
+            state = kDeviceStarting;
+            impl->proc->reset.store(kDeviceResetFull);
             snd_pcm_wait(impl->pcm, -1);
         }
     }
@@ -347,6 +366,7 @@ static void* _audio_device_playback_thread(void* const arg)
     const uint8_t sampleSize = getSampleSizeFromFormat(impl->format);
     const uint8_t numChannels = impl->numChannels;
     const uint16_t periodSize = impl->periodSize;
+    const uint32_t numBufferingSamples = impl->proc->numBufferingSamples;
     DEBUGPRINT("_audio_device_playback_thread sampleSize %u numChannels %u periodSize %u",
                sampleSize, numChannels, periodSize);
 
@@ -380,11 +400,12 @@ static void* _audio_device_playback_thread(void* const arg)
         musicFull[i] = musicFull[i * 2];
     }
 #else
-    float** f32 = new float* [numChannels];
+    float** convBuffers = new float* [numChannels];
     for (uint8_t i = 0; i < numChannels; ++i)
-        f32[i] = new float [periodSize];
+        convBuffers[i] = new float [periodSize];
 #endif
 
+    bool ok;
     snd_pcm_sframes_t err;
     while (! impl->closing)
     {
@@ -431,7 +452,7 @@ static void* _audio_device_playback_thread(void* const arg)
             {
             case 1:
                 DEBUGPRINT("%08u | playback | wrote data, removing kDeviceStarting", impl->frame);
-                state = kDeviceBuffering;
+                state = kDeviceStarted;
                 snd_pcm_rewind(impl->pcm, 1);
                 break;
             case -EAGAIN:
@@ -447,9 +468,18 @@ static void* _audio_device_playback_thread(void* const arg)
             }
         }
 
+        if (state == kDeviceStarted)
+        {
+            // wait for host side to be ready
+            std::memset(raw, 0, periodSize * sampleSize * numChannels);
+            snd_pcm_mmap_writei(impl->pcm, raw, periodSize);
+            snd_pcm_wait(impl->pcm, -1);
+            continue;
+        }
+
 #ifdef MUSIC_TEST
         static constexpr const float zero[128] = {};
-        const float* f32[3] = {
+        const float* convBuffers[3] = {
             musicFull + music_pos,
             musicR + music_pos,
             zero,
@@ -460,7 +490,7 @@ static void* _audio_device_playback_thread(void* const arg)
 #else
         if (state == kDeviceBuffering)
         {
-            if (impl->proc->ringbuffer->getNumReadableSamples() < periodSize * 256)
+            if (impl->proc->ringbuffer->getNumReadableSamples() < numBufferingSamples)
             {
 //                 DEBUGPRINT("%08u | playback | kDeviceBuffering waiting 1 cycle because ringbuffer not ready, %u",
 //                             impl->frame, impl->proc->ringbuffer->getNumReadableSamples());
@@ -472,16 +502,26 @@ static void* _audio_device_playback_thread(void* const arg)
             }
 
             DEBUGPRINT("%08u | playback | has enough ringbuffer data, removing kDeviceBuffering, %u vs %u",
-                       impl->frame, impl->proc->ringbuffer->getNumReadableSamples() , periodSize * 256);
+                       impl->frame, impl->proc->ringbuffer->getNumReadableSamples() , numBufferingSamples);
             state = kDeviceRunning;
         }
 
-        while (!impl->proc->ringbuffer->read(f32, periodSize))
+//         pthread_mutex_lock(&impl->proc->ringbufferLock);
+        ok = impl->proc->ringbuffer->read(convBuffers, periodSize);
+//         pthread_mutex_unlock(&impl->proc->ringbufferLock);
+
+        if (! ok)
         {
-            DEBUGPRINT("%08u | playback | WARNING | failed reading data", impl->frame);
+            static int counter = 0;
+            if (++counter == 50)
+            {
+                counter = 0;
+                DEBUGPRINT("%08u | playback | WARNING | failed reading data", impl->frame);
+            }
             sched_yield();
 
             state = kDeviceBuffering;
+            impl->proc->reset.store(true);
             std::memset(raw, 0, periodSize * sampleSize * numChannels);
             snd_pcm_mmap_writei(impl->pcm, raw, periodSize);
             snd_pcm_wait(impl->pcm, -1);
@@ -493,7 +533,7 @@ static void* _audio_device_playback_thread(void* const arg)
         {
             counter = 0;
             DEBUGPRINT("%08u | playback | check %u vs %u",
-                       impl->frame, impl->proc->ringbuffer->getNumReadableSamples() , periodSize * 1024);
+                       impl->frame, impl->proc->ringbuffer->getNumReadableSamples() , numBufferingSamples);
         }
 #endif
 
@@ -506,13 +546,6 @@ static void* _audio_device_playback_thread(void* const arg)
             enabled = dev->enabled;
             gain.setTargetValue(enabled ? 1.f : 0.f);
         }
-
-        if (rbRatio != dev->rbRatio)
-        {
-            rbRatio = dev->rbRatio;
-            resampler->set_rratio(rbRatio);
-        }
-
 #endif
 
 //         for (uint16_t i = 0; i < frames; ++i)
@@ -520,22 +553,22 @@ static void* _audio_device_playback_thread(void* const arg)
 //             xgain = gain.next();
 //
 //             for (uint8_t c = 0; c < numChannels; ++c)
-//                 f32[c][i] *= xgain;
+//                 convBuffers[c][i] *= xgain;
 //         }
 
         switch (impl->format)
         {
         case kSampleFormat16:
-            float2int::s16(raw, f32, numChannels, periodSize);
+            float2int::s16(raw, convBuffers, numChannels, periodSize);
             break;
         case kSampleFormat24:
-            float2int::s24(raw, f32, numChannels, periodSize);
+            float2int::s24(raw, convBuffers, numChannels, periodSize);
             break;
         case kSampleFormat24LE3:
-            float2int::s24le3(raw, f32, numChannels, periodSize);
+            float2int::s24le3(raw, convBuffers, numChannels, periodSize);
             break;
         case kSampleFormat32:
-            float2int::s32(raw, f32, numChannels, periodSize);
+            float2int::s32(raw, convBuffers, numChannels, periodSize);
             break;
         default:
             DEBUGPRINT("unknown format");
@@ -598,9 +631,9 @@ static void* _audio_device_playback_thread(void* const arg)
 end:
 #ifndef MUSIC_TEST
     for (uint8_t i = 0; i < numChannels; ++i)
-        delete[] f32[i];
+        delete[] convBuffers[i];
 
-    delete[] f32;
+    delete[] convBuffers;
 #endif
 
     delete[] raw;
@@ -764,6 +797,13 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     uintParam = 0;
     for (unsigned periods : kNumPeriodsToTry)
     {
+//         ulongParam = AUDIO_BRIDGE_DEVICE_BUFFER_SIZE * periods * 16;
+//         if ((err = snd_pcm_hw_params_set_buffer_size_max(pcm, params, &ulongParam)) != 0)
+//         {
+//             DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_max fail %u %u %s",
+//                         periods, AUDIO_BRIDGE_DEVICE_BUFFER_SIZE, snd_strerror(err));
+//             continue;
+//         }
         ulongParam = AUDIO_BRIDGE_DEVICE_BUFFER_SIZE * periods;
         if ((err = snd_pcm_hw_params_set_buffer_size_min(pcm, params, &ulongParam)) != 0)
         {
@@ -772,7 +812,7 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
             continue;
         }
 
-        DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_min %u %lu", periods, ulongParam);
+        DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_min/max %u %lu", periods, ulongParam);
         uintParam = periods;
         break;
     }
@@ -816,53 +856,34 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     }
 
     // SND_PCM_TSTAMP_NONE SND_PCM_TSTAMP_ENABLE (= SND_PCM_TSTAMP_MMAP)
-    if ((err = snd_pcm_sw_params_set_tstamp_mode(pcm, swparams, SND_PCM_TSTAMP_MMAP)) != 0)
+    if ((err = snd_pcm_sw_params_set_tstamp_mode(pcm, swparams, SND_PCM_TSTAMP_NONE)) != 0)
     {
         DEBUGPRINT("snd_pcm_sw_params_set_tstamp_mode fail %s", snd_strerror(err));
         goto error;
     }
 
+    /*
     // SND_PCM_TSTAMP_TYPE_MONOTONIC
     if ((err = snd_pcm_sw_params_set_tstamp_type(pcm, swparams, SND_PCM_TSTAMP_TYPE_MONOTONIC_RAW)) != 0)
     {
         DEBUGPRINT("snd_pcm_sw_params_set_tstamp_type fail %s", snd_strerror(err));
         goto error;
     }
+    */
 
-#if 0
-    if (playback)
-#endif
+    // how many samples we need to until snd_pcm_wait completes
+    if ((err = snd_pcm_sw_params_set_avail_min(pcm, swparams, hwconfig.periodSize)) != 0)
     {
-        // unused in playback?
-        if ((err = snd_pcm_sw_params_set_avail_min(pcm, swparams, hwconfig.periodSize)) != 0)
-        {
-            DEBUGPRINT("snd_pcm_sw_params_set_avail_min fail %s", snd_strerror(err));
-            goto error;
-        }
-
-        // how many samples we need to write until audio hw starts
-        if ((err = snd_pcm_sw_params_set_start_threshold(pcm, swparams, 0)) != 0)
-        {
-            DEBUGPRINT("snd_pcm_sw_params_set_start_threshold fail %s", snd_strerror(err));
-            goto error;
-        }
+        DEBUGPRINT("snd_pcm_sw_params_set_avail_min fail %s", snd_strerror(err));
+        goto error;
     }
-#if 0
-    else
+
+    // how many samples we need to write until audio hw starts
+    if ((err = snd_pcm_sw_params_set_start_threshold(pcm, swparams, 0)) != 0)
     {
-        if ((err = snd_pcm_sw_params_set_avail_min(pcm, swparams, 1)) != 0)
-        {
-            DEBUGPRINT("snd_pcm_sw_params_set_avail_min fail %s", snd_strerror(err));
-            goto error;
-        }
-
-        if ((err = snd_pcm_sw_params_set_start_threshold(pcm, swparams, 0)) != 0)
-        {
-            DEBUGPRINT("snd_pcm_sw_params_set_start_threshold fail %s", snd_strerror(err));
-            goto error;
-        }
+        DEBUGPRINT("snd_pcm_sw_params_set_start_threshold fail %s", snd_strerror(err));
+        goto error;
     }
-#endif
 
     if ((err = snd_pcm_sw_params_set_stop_threshold(pcm, swparams, (snd_pcm_uframes_t)-1)) != 0)
     {
@@ -893,22 +914,20 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     impl->periodSize = hwconfig.periodSize;
     impl->fullBufferSize = hwconfig.fullBufferSize;
 
+    dev->proc.numBufferingSamples = std::max<uint32_t>(dev->config.bufferSize, dev->hwconfig.fullBufferSize);
+
+    if (dev->config.playback)
     {
-#if 0
-        const uint16_t blocks = (playback ? AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS
-                                          : AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS);
+        dev->proc.numBufferingSamples *= AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS;
+    }
+    else
+    {
+        dev->proc.numBufferingSamples *= AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS;
+    }
 
-        dev.ringbuffer = new AudioRingBuffer;
-        dev.ringbuffer->createBuffer(channels, dev.bufferSize * blocks);
+    dev->proc.numBufferingSamples = 512;
 
-        dev.rbFillTarget = static_cast<double>(playback ? 1 : AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS) / blocks;
-        dev.rbTotalNumSamples = dev.bufferSize * blocks / kRingBufferDataFactor;
-        dev.rbRatio = 1.0;
-        printf("target is %f\n", dev.rbFillTarget);
-#endif
-
-//         sem_init(&impl->sem, 0, 0);
-
+    {
         pthread_attr_t attr;
         pthread_attr_init(&attr);
         pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
@@ -944,18 +963,16 @@ error:
 void closeAudioDeviceImpl(AudioDevice::Impl* const impl)
 {
     impl->closing = true;
-//     sem_post(&impl->sem);
     pthread_join(impl->thread, nullptr);
 
-//     sem_destroy(&impl->sem);
     snd_pcm_close(impl->pcm);
 
     delete impl;
 }
 
-bool runAudioDevicePostImpl(AudioDevice::Impl* const impl)
+bool runAudioDevicePostImpl(AudioDevice::Impl* const impl, const uint16_t numFrames)
 {
-    impl->frame += impl->bufferSize;
+    impl->frame += numFrames;
 
     return !impl->disconnected;
 }

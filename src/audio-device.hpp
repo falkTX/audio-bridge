@@ -3,9 +3,10 @@
 
 #pragma once
 
-#include <cstdint>
-
 #include <atomic>
+#include <cmath>
+#include <cstdint>
+#include <pthread.h>
 
 #include "RingBuffer.hpp"
 // #include "ValueSmoother.hpp"
@@ -15,7 +16,8 @@
 // --------------------------------------------------------------------------------------------------------------------
 
 // how many seconds to wait until start trying to compensate for clock drift
-#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY 2
+#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1  4 /* start ratio calculations */
+#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2 10 /* activate dynamic resampling */
 
 // how many steps to use for smoothing the clock-drift compensation filter
 #define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1 1024
@@ -23,16 +25,16 @@
 
 // how many audio buffer-size capture blocks to store until rolling starts
 // must be > 0
-#define AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS 8
+// #define AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS 8
 
 // how many audio buffer-size blocks to keep in the capture ringbuffer
-// #define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 32
+#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 8
 
 // how many audio buffer-size blocks to keep in the playback ringbuffer
-// #define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 32
+#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 8
 
 #define AUDIO_BRIDGE_DEVICE_BUFFER_SIZE 16
-// #define AUDIO_BRIDGE_DEVICE_BUFFER_SIZE 128
+// #define AUDIO_BRIDGE_DEVICE_BUFFER_SIZE 256
 
 // prefer to read in big blocks, higher latency but more stable capture
 // #define AUDIO_BRIDGE_CAPTURE_BLOCK_SIZE_MULT 8
@@ -44,21 +46,29 @@
 // --------------------------------------------------------------------------------------------------------------------
 
 enum SampleFormat {
-    kSampleFormatInvalid,
+    kSampleFormatInvalid = 0,
     kSampleFormat16,
     kSampleFormat24,
     kSampleFormat24LE3,
     kSampleFormat32
 };
 
+enum DeviceReset {
+    kDeviceResetNone = 0,
+    kDeviceResetStats,
+    kDeviceResetFull,
+};
+
 enum DeviceState {
-    kDeviceInitializing,
+    kDeviceInitializing = 0,
     kDeviceStarting,
+    kDeviceStarted,
     kDeviceBuffering,
     kDeviceRunning,
 };
 
 static constexpr const uint8_t kRingBufferDataFactor = 32;
+static constexpr const double kRingBufferDataFactord = kRingBufferDataFactor;
 
 static inline constexpr
 uint8_t getSampleSizeFromFormat(const uint8_t format)
@@ -68,6 +78,12 @@ uint8_t getSampleSizeFromFormat(const uint8_t format)
            format == kSampleFormat24LE3 ? 3 :
            format == kSampleFormat32 ? sizeof(int32_t) :
            0;
+}
+
+static inline constexpr
+double clamp_ratio(const double ratio)
+{
+    return std::fmax(0.0, std::fmin(4.0, ratio));
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -93,26 +109,33 @@ struct AudioDevice {
         uint32_t sampleRate;
     } hwconfig;
 
+    // shared process data between host code and device implementations
     mutable struct Process {
-        float** buffers;
         AudioRingBuffer* ringbuffer;
-        VResampler* resampler;
+        pthread_mutex_t ringbufferLock;
+        std::atomic<int> reset = { kDeviceResetNone };
         std::atomic<int> state = { kDeviceInitializing };
-        // TODO
-        uint32_t bufferSize;
-        uint32_t leftoverResampledFrames;
+
+        uint32_t numBufferingSamples;
     } proc;
 
+    // host process data
+    struct {
+        VResampler* resampler;
+        uint32_t leftoverResampledFrames;
+        uint32_t tempBufferSize;
+        float** tempBuffers;
+        float** tempBuffers2;
+    } hostproc;
+
     struct Stats {
-//     double rbFillTarget;
-//     double rbTotalNumSamples;
-//     double rbRatio = 1.0;
+        uint32_t framesDone;
+        double rbFillTarget;
+        double rbRatio;
     } stats;
 
     struct Impl;
     Impl* impl;
-
-//     uint32_t framesDone;
 
     // lv2 enabled control, for on/off (enable/bypass) control
     bool enabled;
