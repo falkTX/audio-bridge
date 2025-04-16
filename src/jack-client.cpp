@@ -8,6 +8,11 @@
 #include <cstring>
 #include <unistd.h>
 
+#if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
+#define EFFECT_GLOBALEQ "effect_9991"
+#define EFFECT_MIXER "effect_9992"
+#endif
+
 struct ClientData;
 static bool activate_jack_capture(ClientData* d);
 static bool activate_jack_playback(ClientData* d);
@@ -212,8 +217,21 @@ static bool activate_jack_capture(ClientData* const d)
     jack_connect(client, "mod-usbgadget_c:p4", "mod-peakmeter:in_2");
     jack_connect(client, "mod-usbgadget_c:p4", "mod-host:in2");
   #elif defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
-    if (jack_port_by_name(client, "anagram-input:usb") != NULL)
-        jack_connect(client, "usbgadget-capture:p9", "anagram-input:usb");
+    if (jack_port_by_name(client, EFFECT_GLOBALEQ ":inL") != NULL)
+    {
+        jack_connect(client, "usbgadget-capture:p1", EFFECT_GLOBALEQ ":inL");
+        jack_connect(client, "usbgadget-capture:p2", EFFECT_GLOBALEQ ":inR");
+    }
+    if (jack_port_by_name(client, EFFECT_MIXER ":inHpL") != NULL)
+    {
+        jack_connect(client, "usbgadget-capture:p3", EFFECT_MIXER ":inHpL");
+        jack_connect(client, "usbgadget-capture:p4", EFFECT_MIXER ":inHpR");
+        jack_connect(client, "usbgadget-capture:p5", EFFECT_MIXER ":inXlrL");
+        jack_connect(client, "usbgadget-capture:p6", EFFECT_MIXER ":inXlrR");
+        jack_connect(client, "usbgadget-capture:p7", EFFECT_MIXER ":inTrsL");
+        jack_connect(client, "usbgadget-capture:p8", EFFECT_MIXER ":inTrsR");
+    }
+    jack_connect(client, "usbgadget-capture:p9", "anagram-input:usb");
   #endif
 
     return true;
@@ -246,8 +264,12 @@ static bool activate_jack_playback(ClientData* const d)
     jack_connect(client, "mod-monitor:out_1", "mod-usbgadget_p:p3");
     jack_connect(client, "mod-monitor:out_2", "mod-usbgadget_p:p4");
    #elif defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
-    if (jack_port_by_name(client, "anagram-input:out") != NULL)
-        jack_connect(client, "anagram-input:out", "usbgadget-playback:p3");
+    if (jack_port_by_name(client, EFFECT_GLOBALEQ ":outL") != NULL)
+    {
+        jack_connect(client, EFFECT_GLOBALEQ ":outL", "usbgadget-playback:p1");
+        jack_connect(client, EFFECT_GLOBALEQ ":outR", "usbgadget-playback:p2");
+    }
+    jack_connect(client, "anagram-input:out", "usbgadget-playback:p3");
    #endif
 
     return true;
