@@ -37,7 +37,7 @@ enum {
     kControlNumChannels,
     kControlNumPeriods,
     kControlPeriodSize,
-    kControlBufferSize,
+    kControlFullBufferSize,
     kControlRatio,
     kControlBufferFill,
     kControlCount,
@@ -161,7 +161,7 @@ struct PluginData {
             *controlports[kControlNumChannels] = dev->hwconfig.numChannels;
             *controlports[kControlNumPeriods] = dev->hwconfig.numPeriods;
             *controlports[kControlPeriodSize] = dev->hwconfig.periodSize;
-            *controlports[kControlBufferSize] = dev->hwconfig.fullBufferSize;
+            *controlports[kControlFullBufferSize] = dev->hwconfig.fullBufferSize;
 
             if (*controlports[kControlStats] > 0.5f)
             {
@@ -177,9 +177,12 @@ struct PluginData {
         else
         {
             *controlports[kControlState] = 0.f;
-            *controlports[kControlNumChannels] = *controlports[kControlNumPeriods] = 0.f;
-            *controlports[kControlPeriodSize] = *controlports[kControlBufferSize] = 0.f;
-            *controlports[kControlRatio] = *controlports[kControlBufferFill] = 0.f;
+            *controlports[kControlNumChannels] = 0.f;
+            *controlports[kControlNumPeriods] = 0.f;
+            *controlports[kControlPeriodSize] = 0.f;
+            *controlports[kControlFullBufferSize] = 0.f;
+            *controlports[kControlRatio] = 0.f;
+            *controlports[kControlBufferFill] = 0.f;
 
             if (!playback)
             {

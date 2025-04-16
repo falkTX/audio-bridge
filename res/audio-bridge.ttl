@@ -6,6 +6,7 @@
 @prefix modgui:  <http://moddevices.com/ns/modgui#> .
 @prefix opts:    <http://lv2plug.in/ns/ext/options#> .
 @prefix params:  <http://lv2plug.in/ns/ext/parameters#> .
+@prefix rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix state:   <http://lv2plug.in/ns/ext/state#> .
 @prefix units:   <http://lv2plug.in/ns/extensions/units#> .
@@ -71,12 +72,26 @@
     ], [
         a lv2:OutputPort, lv2:ControlPort;
         lv2:index 4;
-        lv2:symbol "state";
-        lv2:name "State";
-        lv2:default 0 ;
-        lv2:minimum 0 ;
+        lv2:symbol "status";
+        lv2:name "Status";
         lv2:maximum 4 ;
-        lv2:portProperty lv2:integer ;
+        lv2:portProperty lv2:integer , lv2:enumeration ;
+        lv2:scalePoint [
+            rdfs:label "Off" ;
+            rdf:value 0 ;
+        ] , [
+            rdfs:label "Initializing" ;
+            rdf:value 1 ;
+        ] , [
+            rdfs:label "Starting" ;
+            rdf:value 2 ;
+        ] , [
+            rdfs:label "Buffering" ;
+            rdf:value 3 ;
+        ] , [
+            rdfs:label "Running" ;
+            rdf:value 4 ;
+        ] ;
     ], [
         a lv2:OutputPort, lv2:ControlPort;
         lv2:index 5;
@@ -93,7 +108,7 @@
         lv2:name "Num periods";
         lv2:default 3 ;
         lv2:minimum 1 ;
-        lv2:maximum 4 ;
+        lv2:maximum 12 ;
         lv2:portProperty lv2:integer ;
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
@@ -107,8 +122,8 @@
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
         lv2:index 8;
-        lv2:symbol "buffersize";
-        lv2:name "Buffer size";
+        lv2:symbol "fullbuffersize";
+        lv2:name "Full buffer size";
         lv2:default 1 ;
         lv2:minimum 1 ;
         lv2:maximum 65536 ;
@@ -234,8 +249,24 @@ Currently limited to 2 audio ports and a single device, which is automatically c
         lv2:name "Status";
         lv2:default 0 ;
         lv2:minimum 0 ;
-        lv2:maximum 3 ;
-        lv2:portProperty lv2:integer ;
+        lv2:maximum 4 ;
+        lv2:portProperty lv2:integer , lv2:enumeration ;
+        lv2:scalePoint [
+            rdfs:label "Off" ;
+            rdf:value 0 ;
+        ] , [
+            rdfs:label "Initializing" ;
+            rdf:value 1 ;
+        ] , [
+            rdfs:label "Starting" ;
+            rdf:value 2 ;
+        ] , [
+            rdfs:label "Buffering" ;
+            rdf:value 3 ;
+        ] , [
+            rdfs:label "Running" ;
+            rdf:value 4 ;
+        ] ;
     ], [
         a lv2:OutputPort, lv2:ControlPort;
         lv2:index 5;
@@ -252,7 +283,7 @@ Currently limited to 2 audio ports and a single device, which is automatically c
         lv2:name "Num periods";
         lv2:default 3 ;
         lv2:minimum 1 ;
-        lv2:maximum 4 ;
+        lv2:maximum 12 ;
         lv2:portProperty lv2:integer ;
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
@@ -266,8 +297,8 @@ Currently limited to 2 audio ports and a single device, which is automatically c
     ] , [
         a lv2:OutputPort, lv2:ControlPort;
         lv2:index 8;
-        lv2:symbol "buffersize";
-        lv2:name "Buffer size";
+        lv2:symbol "fullbuffersize";
+        lv2:name "Full buffer size";
         lv2:default 1 ;
         lv2:minimum 1 ;
         lv2:maximum 65536 ;

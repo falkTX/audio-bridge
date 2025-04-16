@@ -356,7 +356,11 @@ static void* _audio_device_playback_thread(void* const arg)
     float *musicFull, *musicR;
     size_t music_size;
     size_t music_pos = 0;
+   #ifdef AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
     FILE* const f = fopen("/root/out.raw", "rb");
+   #else
+    FILE* const f = fopen("/home/falktx/Source/falkTX/audio-bridge/out.raw", "rb");
+   #endif
     assert(f);
     fseek(f, 0, SEEK_END);
     music_size = ftell(f);
