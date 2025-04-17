@@ -125,14 +125,14 @@ static void* _audio_device_capture_thread(void* const arg)
     for (uint8_t i = 0; i < numChannels; ++i)
         convBuffers[i] = new float [periodSize];
 
-    std::atomic<int>& state = impl->proc->state;
-
     simd::init();
 
     bool ok;
     snd_pcm_sframes_t err;
     while (! impl->closing)
     {
+        DeviceState state = static_cast<DeviceState>(impl->proc->state.load());
+
         if (state == kDeviceInitializing)
         {
             // read until alsa buffers are empty
@@ -156,8 +156,9 @@ static void* _audio_device_capture_thread(void* const arg)
 
             if (started)
             {
-                DEBUGPRINT("%08u | capture | can read data? removing kDeviceInitializing", impl->frame);
+                DEBUGPRINT("%08u | capture | can read data? kDeviceInitializing -> kDeviceStarting", impl->frame);
                 state = kDeviceStarting;
+                impl->proc->state.store(kDeviceStarting);
                 impl->proc->reset.store(kDeviceResetFull);
             }
             else
@@ -171,36 +172,39 @@ static void* _audio_device_capture_thread(void* const arg)
 
         if (state == kDeviceStarting)
         {
-            // try reading a single sample to see if device is running
-            // TODO replace with avail check
-            err = snd_pcm_mmap_readi(impl->pcm, raw, 1);
+            // check if device is running
+            err = snd_pcm_avail(impl->pcm);
 
-            switch (err)
+            if (err > 0)
             {
-            case 1:
-                DEBUGPRINT("%08u | capture | wrote data, removing kDeviceStarting", impl->frame);
+                DEBUGPRINT("%08u | capture | device is running, kDeviceStarting -> kDeviceStarted", impl->frame);
                 state = kDeviceStarted;
-                snd_pcm_rewind(impl->pcm, 1);
-                break;
-            case -EAGAIN:
-                DEBUGPRINT("%08u | capture | kDeviceStarting waiting 1 cycle", impl->frame);
-                sched_yield();
-                snd_pcm_wait(impl->pcm, -1);
-                continue;
-            case -EPIPE:
-                DEBUGPRINT("%08u | capture | EPIPE while kDeviceStarting", impl->frame);
-                snd_pcm_prepare(impl->pcm);
-                sched_yield();
-                snd_pcm_wait(impl->pcm, -1);
-                continue;
-            default:
-                impl->closing = true;
-                DEBUGPRINT("%08u | capture | initial write error: %s", impl->frame, snd_strerror(err));
-                break;
+                impl->proc->state.store(kDeviceStarted);
             }
+            else
+            {
+                switch (err)
+                {
+                case 0:
+                    DEBUGPRINT("%08u | capture | kDeviceStarting waiting 1 cycle", impl->frame);
+                    sched_yield();
+                    snd_pcm_wait(impl->pcm, -1);
+                    continue;
+                case -EPIPE:
+                    DEBUGPRINT("%08u | capture | EPIPE while kDeviceStarting", impl->frame);
+                    snd_pcm_prepare(impl->pcm);
+                    sched_yield();
+                    snd_pcm_wait(impl->pcm, -1);
+                    continue;
+                default:
+                    impl->closing = true;
+                    DEBUGPRINT("%08u | capture | initial write error: %s", impl->frame, snd_strerror(err));
+                    break;
+                }
 
-            if (impl->closing)
-                break;
+                if (impl->closing)
+                    break;
+            }
         }
 
         err = snd_pcm_mmap_readi(impl->pcm, raw, periodSize);
@@ -285,13 +289,13 @@ static void* _audio_device_capture_thread(void* const arg)
         if (ok)
         {
             if (state == kDeviceBuffering && impl->proc->ringbuffer->getNumReadableSamples() >= numBufferingSamples)
-                state = kDeviceRunning;
+                impl->proc->state.store(kDeviceRunning);
         }
         else
         {
-            DEBUGPRINT("%08u | capture | failed writing data", impl->frame);
+            DEBUGPRINT("%08u | capture | failed writing data, ... -> kDeviceStarting", impl->frame);
 
-            state = kDeviceStarting;
+            impl->proc->state.store(kDeviceStarting);
             impl->proc->reset.store(kDeviceResetFull);
             sched_yield();
             snd_pcm_wait(impl->pcm, -1);
@@ -305,8 +309,6 @@ static void* _audio_device_capture_thread(void* const arg)
 static void* _audio_device_playback_thread(void* const arg)
 {
     AudioDevice::Impl* const impl = static_cast<AudioDevice::Impl*>(arg);
-
-    std::atomic<int>& state = impl->proc->state;
 
     const uint8_t sampleSize = getSampleSizeFromFormat(impl->format);
     const uint8_t numChannels = impl->numChannels;
@@ -358,6 +360,8 @@ static void* _audio_device_playback_thread(void* const arg)
     snd_pcm_sframes_t err;
     while (! impl->closing)
     {
+        DeviceState state = static_cast<DeviceState>(impl->proc->state.load());
+
         if (state == kDeviceInitializing)
         {
             // write silence until alsa buffers are full
@@ -373,8 +377,9 @@ static void* _audio_device_playback_thread(void* const arg)
 
             if (started)
             {
-                DEBUGPRINT("%08u | playback | can write data? removing kDeviceInitializing", impl->frame);
+                DEBUGPRINT("%08u | playback | can write data? kDeviceInitializing -> kDeviceStarting", impl->frame);
                 state = kDeviceStarting;
+                impl->proc->state.store(kDeviceStarting);
                 impl->proc->reset.store(kDeviceResetFull);
             }
             else
@@ -388,26 +393,28 @@ static void* _audio_device_playback_thread(void* const arg)
 
         if (state == kDeviceStarting)
         {
-            // try writing a single sample to see if device is running
-            // TODO replace with avail check
-            std::memset(raw, 0, sampleSize * numChannels);
-            err = snd_pcm_mmap_writei(impl->pcm, raw, 1);
+            // check if device is running
+            err = snd_pcm_avail(impl->pcm);
 
-            switch (err)
+            if (err > 0)
             {
-            case 1:
-                DEBUGPRINT("%08u | playback | wrote data, removing kDeviceStarting", impl->frame);
+                DEBUGPRINT("%08u | playback | device is running, kDeviceStarting -> kDeviceStarted", impl->frame);
                 state = kDeviceStarted;
-                snd_pcm_rewind(impl->pcm, 1);
-                break;
-            case -EAGAIN:
-                DEBUGPRINT("%08u | playback | kDeviceStarting waiting 1 cycle", impl->frame);
-                sched_yield();
-                snd_pcm_wait(impl->pcm, -1);
-                continue;
-            default:
-                DEBUGPRINT("%08u | playback | initial write error: %s", impl->frame, snd_strerror(err));
-                break;
+                impl->proc->state.store(kDeviceStarted);
+            }
+            else
+            {
+                switch (err)
+                {
+                case 0:
+                    DEBUGPRINT("%08u | playback | kDeviceStarting waiting 1 cycle", impl->frame);
+                    sched_yield();
+                    snd_pcm_wait(impl->pcm, -1);
+                    continue;
+                default:
+                    DEBUGPRINT("%08u | playback | initial write error: %s", impl->frame, snd_strerror(err));
+                    break;
+                }
             }
         }
 
@@ -444,9 +451,8 @@ static void* _audio_device_playback_thread(void* const arg)
                 continue;
             }
 
-            DEBUGPRINT("%08u | playback | has enough ringbuffer data, removing kDeviceBuffering, %u vs %u",
-                       impl->frame, impl->proc->ringbuffer->getNumReadableSamples() , numBufferingSamples);
-            state = kDeviceRunning;
+            DEBUGPRINT("%08u | playback | has enough ringbuffer data, kDeviceBuffering -> kDeviceRunning", impl->frame);
+            impl->proc->state.store(kDeviceRunning);
         }
 
         pthread_mutex_lock(&impl->proc->ringbufferLock);
@@ -464,7 +470,7 @@ static void* _audio_device_playback_thread(void* const arg)
             }
            #endif
 
-            state = kDeviceBuffering;
+            impl->proc->state.store(kDeviceBuffering);
             impl->proc->reset.store(kDeviceResetStats);
             snd_pcm_mmap_writei(impl->pcm, zeros, periodSize);
             sched_yield();

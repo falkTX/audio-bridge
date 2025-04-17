@@ -144,6 +144,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
     {
         if (state == kDeviceStarted)
         {
+            DEBUGPRINT("%08u | playback | host is running, kDeviceStarted -> kDeviceBuffering", dev->stats.framesDone);
             dev->proc.state.store(kDeviceBuffering);
         }
         else if (state >= kDeviceBuffering)
@@ -172,6 +173,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
 
         if (state == kDeviceStarted)
         {
+            DEBUGPRINT("%08u | capture | host is running, kDeviceStarted -> kDeviceBuffering", dev->stats.framesDone);
             dev->proc.state.store(kDeviceBuffering);
         }
         else if (state == kDeviceRunning)
