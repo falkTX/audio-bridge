@@ -437,22 +437,6 @@ static void* _audio_device_playback_thread(void* const arg)
         if (impl->closing)
             break;
 
-#if 0
-        if (enabled != dev->enabled)
-        {
-            enabled = dev->enabled;
-            gain.setTargetValue(enabled ? 1.f : 0.f);
-        }
-#endif
-
-//         for (uint16_t i = 0; i < frames; ++i)
-//         {
-//             xgain = gain.next();
-//
-//             for (uint8_t c = 0; c < numChannels; ++c)
-//                 convBuffers[c][i] *= xgain;
-//         }
-
         switch (impl->format)
         {
         case kSampleFormat16:
