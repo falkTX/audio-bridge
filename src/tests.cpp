@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2021-2024 Filipe Coelho <falktx@falktx.com>
+// SPDX-FileCopyrightText: 2021-2025 Filipe Coelho <falktx@falktx.com>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "audio-device-discovery.hpp"
@@ -22,6 +22,5 @@ int main()
     }
 
     cleanupAudioDevices();
-
     return 0;
 }

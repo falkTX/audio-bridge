@@ -72,9 +72,9 @@ void resetAudioDeviceRingBuffer(AudioDevice* const dev)
 // --------------------------------------------------------------------------------------------------------------------
 
 AudioDevice* initAudioDevice(const char* const deviceID,
-                             const bool playback,
                              const uint16_t bufferSize,
                              const uint32_t sampleRate,
+                             const bool playback,
                              const bool enabled [[maybe_unused]])
 {
     AudioDevice* const dev = new AudioDevice;

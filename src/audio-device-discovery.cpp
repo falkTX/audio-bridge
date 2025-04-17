@@ -2,14 +2,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "audio-device-discovery.hpp"
+#include "audio-device.hpp"
 
-//#define ALSA_PCM_NEW_HW_PARAMS_API
-//#define ALSA_PCM_NEW_SW_PARAMS_API
 #include <alsa/asoundlib.h>
 #include <map>
 #include <cstring>
-
-#define DEBUGPRINT(...) printf(__VA_ARGS__); puts("");
 
 static int nextPowerOfTwo(int size) noexcept
 {

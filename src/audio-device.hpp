@@ -17,6 +17,7 @@
 // --------------------------------------------------------------------------------------------------------------------
 
 // print debug messages for development
+// NOTE messages are mixed for capture and playback, do not enable while running both
 #define AUDIO_BRIDGE_DEBUG 0
 
 // how many seconds to wait until start trying to compensate for clock drift
@@ -118,7 +119,7 @@ struct AudioDevice {
         uint32_t sampleRate;
     } config;
 
-    // device runtime configuration as created in `initAudioDevice`
+    // device runtime configuration as created in `initAudioDeviceImpl`
     // does not change during the lifetime of the audio device
     struct HWConfig {
         SampleFormat format;
@@ -135,7 +136,6 @@ struct AudioDevice {
         pthread_mutex_t ringbufferLock;
         std::atomic<int> reset = { kDeviceResetNone };
         std::atomic<int> state = { kDeviceInitializing };
-
         uint32_t numBufferingSamples;
     } proc;
 
@@ -152,12 +152,14 @@ struct AudioDevice {
        #endif
     } hostproc;
 
+    // statistics for clock drift and dynamic resampling
     struct Stats {
         uint32_t framesDone;
         double rbFillTarget;
         double rbRatio;
     } stats;
 
+    // private device-specific implementation (ALSA, etc)
     struct Impl;
     Impl* impl;
 
@@ -170,9 +172,9 @@ struct AudioDevice {
 // --------------------------------------------------------------------------------------------------------------------
 
 AudioDevice* initAudioDevice(const char* deviceID,
-                             bool playback,
                              uint16_t bufferSize,
                              uint32_t sampleRate,
+                             bool playback,
                              bool enabled = true);
 
 bool runAudioDevice(AudioDevice* dev, float* buffers[], uint16_t numFrames);

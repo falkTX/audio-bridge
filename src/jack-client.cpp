@@ -8,7 +8,7 @@
 #include <cstring>
 #include <unistd.h>
 
-#define _DARKGLASS_DEVICE_PABLITO
+// #define _DARKGLASS_DEVICE_PABLITO
 
 struct ClientData;
 static bool activate_jack_capture(ClientData* d);
