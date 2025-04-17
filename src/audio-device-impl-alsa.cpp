@@ -11,6 +11,10 @@
 #include <pthread.h>
 #include <sched.h>
 
+#if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
+#include <libudev.h>
+#endif
+
 // --------------------------------------------------------------------------------------------------------------------
 
 static constexpr const uint kNumPeriodsMin = 3;
@@ -49,6 +53,12 @@ struct AudioDevice::Impl {
     // ALSA PCM handle
     snd_pcm_t* pcm = nullptr;
 
+   #if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
+    // dynamic sample rate changes
+    struct udev* udev = nullptr;
+    struct udev_monitor* udev_mon = nullptr;
+   #endif
+
     // sync primitives
     pthread_t thread;
 
@@ -60,6 +70,37 @@ struct AudioDevice::Impl {
 };
 
 // --------------------------------------------------------------------------------------------------------------------
+
+#if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
+static bool _sample_rate_changed(AudioDevice::Impl* const impl)
+{
+    if (impl->udev_mon == nullptr)
+        return false;
+
+    struct udev_device* dev;
+    while ((dev = udev_monitor_receive_device(impl->udev_mon)) != nullptr)
+    {
+        if (const char* const usbstate = udev_device_get_property_value(dev, "USB_STATE"))
+        {
+            if (std::strcmp(usbstate, "SET_SAMPLE_RATE") == 0)
+            {
+                udev_device_unref(dev);
+                return true;
+            }
+           #if AUDIO_BRIDGE_DEBUG
+            if (std::strcmp(usbstate, "SET_AUDIO_CLK") == 0)
+            {
+                const char* const val = udev_device_get_property_value(dev, "PPM");
+                DEBUGPRINT("%08u | capture | got new SET_AUDIO_CLK %s", impl->frame, val);
+            }
+           #endif
+        }
+        udev_device_unref(dev);
+    }
+
+    return false;
+}
+#endif
 
 // TODO cleanup, see what is needed
 static int _xrun_recovery(snd_pcm_t *handle, bool& closing, int err)
@@ -119,6 +160,15 @@ static void* _audio_device_capture_thread(void* const arg)
     while (! impl->closing)
     {
         DeviceState state = static_cast<DeviceState>(impl->proc->state.load());
+
+       #if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
+        // check if sample rate changed, requiring reopening audio card
+        if (_sample_rate_changed(impl))
+        {
+            impl->closing = true;
+            break;
+        }
+       #endif
 
         if (state == kDeviceInitializing)
         {
@@ -788,6 +838,24 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     dev->proc.numBufferingSamples *= dev->config.playback ? AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS
                                                           : AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS;
 
+   #if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
+    if (struct udev* const udev = udev_new())
+    {
+        if (struct udev_monitor* const udev_mon = udev_monitor_new_from_netlink(udev, "kernel"))
+        {
+            udev_monitor_filter_add_match_subsystem_devtype(udev_mon, "u_audio", nullptr);
+            udev_monitor_enable_receiving(udev_mon);
+
+            impl->udev = udev;
+            impl->udev_mon = udev_mon;
+        }
+        else
+        {
+            udev_unref(udev);
+        }
+    }
+   #endif
+
     {
         pthread_attr_t attr;
         pthread_attr_init(&attr);
@@ -828,6 +896,16 @@ void closeAudioDeviceImpl(AudioDevice::Impl* const impl)
     pthread_join(impl->thread, nullptr);
 
     snd_pcm_close(impl->pcm);
+
+   #if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
+    if (impl->udev != nullptr)
+    {
+        if (impl->udev_mon != nullptr)
+            udev_monitor_unref(impl->udev_mon);
+
+        udev_unref(impl->udev);
+    }
+   #endif
 
     delete impl;
 }

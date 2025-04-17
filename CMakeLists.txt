@@ -26,6 +26,7 @@ find_package(Threads REQUIRED)
 pkg_check_modules(ALSA IMPORTED_TARGET REQUIRED alsa)
 pkg_check_modules(JACK IMPORTED_TARGET REQUIRED jack)
 pkg_check_modules(LV2 IMPORTED_TARGET REQUIRED lv2)
+pkg_check_modules(UDEV IMPORTED_TARGET REQUIRED libudev)
 
 #######################################################################################################################
 # Utilities
@@ -99,6 +100,7 @@ target_compile_definitions(jack-int-audio-bridge
 target_link_libraries(jack-int-audio-bridge
   PRIVATE
     PkgConfig::JACK
+    PkgConfig::UDEV
 )
 
 target_link_options(jack-int-audio-bridge

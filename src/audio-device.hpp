@@ -14,6 +14,9 @@
 
 #include "zita-resampler/vresampler.h"
 
+// TESTING
+// #define _DARKGLASS_DEVICE_PABLITO
+
 // --------------------------------------------------------------------------------------------------------------------
 
 // print debug messages for development
