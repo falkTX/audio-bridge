@@ -107,8 +107,6 @@ static void* _audio_device_capture_thread(void* const arg)
 {
     AudioDevice::Impl* const impl = static_cast<AudioDevice::Impl*>(arg);
 
-    std::atomic<int>& state = impl->proc->state;
-
     const uint8_t sampleSize = getSampleSizeFromFormat(impl->format);
     const uint8_t numChannels = impl->numChannels;
     const uint16_t periodSize = impl->periodSize;
@@ -121,6 +119,8 @@ static void* _audio_device_capture_thread(void* const arg)
     float** convBuffers = new float* [numChannels];
     for (uint8_t i = 0; i < numChannels; ++i)
         convBuffers[i] = new float [periodSize];
+
+    std::atomic<int>& state = impl->proc->state;
 
     simd::init();
 
@@ -189,9 +189,13 @@ static void* _audio_device_capture_thread(void* const arg)
                 snd_pcm_wait(impl->pcm, -1);
                 continue;
             default:
+                impl->closing = true;
                 DEBUGPRINT("%08u | capture | initial write error: %s", impl->frame, snd_strerror(err));
                 break;
             }
+
+            if (impl->closing)
+                break;
         }
 
         err = snd_pcm_mmap_readi(impl->pcm, raw, periodSize);
