@@ -16,8 +16,8 @@
 // --------------------------------------------------------------------------------------------------------------------
 
 // how many seconds to wait until start trying to compensate for clock drift
-#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1  4 /* start ratio calculations */
-#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2 10 /* activate dynamic resampling */
+#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1  1 /* start ratio calculations */
+#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2 2 /* activate dynamic resampling */
 
 // how many steps to use for smoothing the clock-drift compensation filter
 #define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1 1024

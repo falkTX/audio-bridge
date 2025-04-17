@@ -11,20 +11,39 @@
 // --------------------------------------------------------------------------------------------------------------------
 
 static inline
+void clearAudioDeviceResampler(AudioDevice* const dev)
+{
+    const uint32_t bufferSize = dev->config.bufferSize;
+    const uint8_t numChannels = dev->hwconfig.numChannels;
+
+    for (uint8_t c = 0; c < numChannels; ++c)
+        std::memset(dev->hostproc.tempBuffers[c], 0, sizeof(float) * bufferSize);
+
+    dev->hostproc.resampler->reset();
+    dev->hostproc.resampler->inp_count = bufferSize;
+    dev->hostproc.resampler->out_count = bufferSize;
+    dev->hostproc.resampler->inp_data = dev->hostproc.tempBuffers;
+    dev->hostproc.resampler->out_data = dev->hostproc.tempBuffers;
+    dev->hostproc.resampler->process();
+}
+
+static inline
 void resetAudioDeviceStats(AudioDevice* const dev)
 {
     dev->stats.framesDone = 0;
     dev->stats.rbRatio = 1.0;
     dev->hostproc.leftoverResampledFrames = 0;
     dev->hostproc.resampler->set_rratio(1.0);
+
+    clearAudioDeviceResampler(dev);
 }
 
 static inline
 void resetAudioDeviceRingBuffer(AudioDevice* const dev)
 {
-//     pthread_mutex_lock(&dev->proc.ringbufferLock);
+    pthread_mutex_lock(&dev->proc.ringbufferLock);
     dev->proc.ringbuffer->flush();
-//     pthread_mutex_unlock(&dev->proc.ringbufferLock);
+    pthread_mutex_unlock(&dev->proc.ringbufferLock);
 }
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -81,6 +100,7 @@ AudioDevice* initAudioDevice(const char* const deviceID,
     fprintf(stderr, "Fill target is %f\n", dev->stats.rbFillTarget);
     dev->stats.rbRatio = 1.0;
 
+    clearAudioDeviceResampler(dev);
     return dev;
 }
 
@@ -125,9 +145,9 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
 
             const uint16_t resampledFrames = tempBufferSize - dev->hostproc.resampler->out_count;
 
-//             pthread_mutex_lock(&dev->proc.ringbufferLock);
+            pthread_mutex_lock(&dev->proc.ringbufferLock);
             ok = dev->proc.ringbuffer->write(tempBuffers, resampledFrames);
-//             pthread_mutex_unlock(&dev->proc.ringbufferLock);
+            pthread_mutex_unlock(&dev->proc.ringbufferLock);
 
             DISTRHO_SAFE_ASSERT(ok);
         }
@@ -142,23 +162,28 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
         }
         else if (state == kDeviceRunning)
         {
-            float** const tempBuffers2 = dev->hostproc.tempBuffers;
+            float** const tempBuffers2 = dev->hostproc.tempBuffers2;
             uint32_t leftoverFrames = dev->hostproc.leftoverResampledFrames;
 
-            for (uint32_t remainingFrames = numFrames, offset = 0; remainingFrames != 0;)
+            for (uint32_t offset = 0; offset != numFrames;)
             {
-                for (int retry = 0; retry < 5; ++retry)
-                {
-//                     pthread_mutex_lock(&dev->proc.ringbufferLock);
-                    ok = dev->proc.ringbuffer->read(tempBuffers, remainingFrames, offset);
-//                     pthread_mutex_unlock(&dev->proc.ringbufferLock);
+                const uint32_t remainingFrames = numFrames - offset;
+                DISTRHO_SAFE_ASSERT(offset < numFrames);
+                DISTRHO_SAFE_ASSERT(remainingFrames >= leftoverFrames);
+                DISTRHO_SAFE_ASSERT(remainingFrames != 0);
 
-                    if (ok)
-                        break;
+//                 for (int retry = 0; retry < 5; ++retry)
+//                 {
+                    pthread_mutex_lock(&dev->proc.ringbufferLock);
+                    ok = dev->proc.ringbuffer->read(tempBuffers, remainingFrames - leftoverFrames, leftoverFrames);
+                    pthread_mutex_unlock(&dev->proc.ringbufferLock);
 
-                    sched_yield();
+//                     if (ok)
+//                         break;
+
+//                     sched_yield();
                     // usleep(0);
-                }
+//                 }
 
                 DISTRHO_SAFE_ASSERT(ok);
 
@@ -167,25 +192,37 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
                     for (uint8_t c = 0; c < numChannels; ++c)
                         tempBuffers2[c] = buffers[c] + offset;
 
-                    dev->hostproc.resampler->inp_count = leftoverFrames + remainingFrames;
+                    dev->hostproc.resampler->inp_count = remainingFrames;
                     dev->hostproc.resampler->out_count = remainingFrames;
                     dev->hostproc.resampler->inp_data = tempBuffers;
                     dev->hostproc.resampler->out_data = tempBuffers2;
                     dev->hostproc.resampler->process();
                     DISTRHO_SAFE_ASSERT(dev->hostproc.resampler->out_count == 0);
 
-                    const uint16_t resampledFrames = leftoverFrames + remainingFrames - dev->hostproc.resampler->inp_count;
+                    const uint16_t resampledFrames = remainingFrames - dev->hostproc.resampler->inp_count;
+
                     offset += resampledFrames;
-                    remainingFrames -= resampledFrames;
+                    DISTRHO_SAFE_ASSERT(offset <= numFrames);
 
                     if ((leftoverFrames = dev->hostproc.resampler->inp_count) != 0)
                     {
+                        /*
+                        DEBUGPRINT("out_count %u, inp_count %u, offset %u, leftoverFrames %u | %f",
+                                   dev->hostproc.resampler->out_count,
+                                   dev->hostproc.resampler->inp_count,
+                                   offset, leftoverFrames,
+                                   dev->hostproc.resampler->_ratio);
+                        */
+
                         for (uint8_t c = 0; c < numChannels; ++c)
-                            std::memmove(tempBuffers[c], tempBuffers[c] + offset, sizeof(float) * leftoverFrames);
+                            std::memmove(tempBuffers[c],
+                                         tempBuffers[c] + resampledFrames,
+                                         sizeof(float) * leftoverFrames);
                     }
                 }
                 else
                 {
+                    leftoverFrames = 0;
                     break;
                 }
             }
@@ -210,48 +247,49 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
     {
         dev->stats.framesDone += numFrames;
 
-//         if (state == kDeviceRunning &&
-//             dev->stats.framesDone > dev->config.sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1)
-//         {
-//             static bool print = true;
-//             if (print)
-//             {
-//                 print = false;
-//                 fprintf(stderr, "AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1 reached\n");
-//             }
-//
-//             const double rbratio = 2.0 - (
-//                 clamp_ratio(dev->proc.ringbuffer->getNumReadableSamples() / kRingBufferDataFactord / dev->stats.rbFillTarget)
-//                 + AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1 - 1
-//             ) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1;
-//
-//             const double balratio = std::fmax(0.9, std::fmin(1.1,
-//                 (rbratio + dev->stats.rbRatio * (AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2 - 1)) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2
-//             ));
-//
-//             if (std::abs(dev->stats.rbRatio - balratio) > 0.000000002)
-//             {
-//                 dev->stats.rbRatio = balratio;
-//
-//                 if (dev->stats.framesDone > dev->config.sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2)
-//                 {
-//                     static bool print2 = true;
-//                     if (print2)
-//                     {
-//                         print2 = false;
-//                         fprintf(stderr, "AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2 reached\n");
-//                     }
-//                     dev->hostproc.resampler->set_rratio(dev->stats.rbRatio);
-//                 }
-//             }
-//         }
-//
-//         static int counter = 0;
-//         if (++counter == 250)
-//         {
-//             counter = 0;
-//             DEBUGPRINT("%08u | drift check %f", dev->stats.framesDone, dev->stats.rbRatio);
-//         }
+        if (state == kDeviceRunning &&
+            dev->stats.framesDone > dev->config.sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1)
+        {
+            static bool print = true;
+            if (print)
+            {
+                print = false;
+                fprintf(stderr, "AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1 reached\n");
+            }
+
+            const double rbratio = 2.0 - (
+                /*clamp_ratio*/
+                (dev->proc.ringbuffer->getNumReadableSamples() / kRingBufferDataFactord / dev->stats.rbFillTarget)
+                + AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1 - 1
+            ) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1;
+
+            const double balratio = std::fmax(0.9, std::fmin(1.1,
+                (rbratio + dev->stats.rbRatio * (AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2 - 1)) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2
+            ));
+
+            if (std::abs(dev->stats.rbRatio - balratio) > 0.000000002)
+            {
+                dev->stats.rbRatio = balratio;
+
+                if (dev->stats.framesDone > dev->config.sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2)
+                {
+                    static bool print2 = true;
+                    if (print2)
+                    {
+                        print2 = false;
+                        fprintf(stderr, "AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2 reached\n");
+                    }
+                    dev->hostproc.resampler->set_rratio(dev->stats.rbRatio);
+                }
+            }
+        }
+
+        static int counter = 0;
+        if (++counter == 2000)
+        {
+            counter = 0;
+            DEBUGPRINT("%08u | drift check %f", dev->stats.framesDone, dev->stats.rbRatio);
+        }
     }
     else
     {

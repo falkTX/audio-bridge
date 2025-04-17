@@ -325,9 +325,9 @@ static void* _audio_device_capture_thread(void* const arg)
             break;
         }
 
-//         pthread_mutex_lock(&impl->proc->ringbufferLock);
+        pthread_mutex_lock(&impl->proc->ringbufferLock);
         ok = impl->proc->ringbuffer->write(f32, err);
-//         pthread_mutex_unlock(&impl->proc->ringbufferLock);
+        pthread_mutex_unlock(&impl->proc->ringbufferLock);
 
         static int counter = 0;
         if (++counter == 250)
@@ -506,9 +506,9 @@ static void* _audio_device_playback_thread(void* const arg)
             state = kDeviceRunning;
         }
 
-//         pthread_mutex_lock(&impl->proc->ringbufferLock);
+        pthread_mutex_lock(&impl->proc->ringbufferLock);
         ok = impl->proc->ringbuffer->read(convBuffers, periodSize);
-//         pthread_mutex_unlock(&impl->proc->ringbufferLock);
+        pthread_mutex_unlock(&impl->proc->ringbufferLock);
 
         if (! ok)
         {
