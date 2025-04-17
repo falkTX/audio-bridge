@@ -267,6 +267,7 @@ static void* _audio_device_capture_thread(void* const arg)
         ok = impl->proc->ringbuffer->write(convBuffers, err);
         pthread_mutex_unlock(&impl->proc->ringbufferLock);
 
+       #if AUDIO_BRIDGE_DEBUG
         static int counter = 0;
         if (++counter == 256)
         {
@@ -274,6 +275,7 @@ static void* _audio_device_capture_thread(void* const arg)
             DEBUGPRINT("%08u | capture | check %u vs %u",
                        impl->frame, impl->proc->ringbuffer->getNumReadableSamples(), numBufferingSamples);
         }
+       #endif
 
         if (ok)
         {
@@ -448,12 +450,14 @@ static void* _audio_device_playback_thread(void* const arg)
 
         if (! ok)
         {
+           #if AUDIO_BRIDGE_DEBUG
             static int counter = 0;
             if (++counter == 50)
             {
                 counter = 0;
                 DEBUGPRINT("%08u | playback | WARNING | failed reading data", impl->frame);
             }
+           #endif
 
             state = kDeviceBuffering;
             impl->proc->reset.store(kDeviceResetStats);
@@ -463,6 +467,7 @@ static void* _audio_device_playback_thread(void* const arg)
             continue;
         }
 
+       #if AUDIO_BRIDGE_DEBUG
         static int counter = 0;
         if (++counter == 250)
         {
@@ -470,7 +475,8 @@ static void* _audio_device_playback_thread(void* const arg)
             DEBUGPRINT("%08u | playback | check %u vs %u",
                        impl->frame, impl->proc->ringbuffer->getNumReadableSamples() , numBufferingSamples);
         }
-#endif
+       #endif
+#endif // MUSIC_TEST
 
         if (impl->closing)
             break;

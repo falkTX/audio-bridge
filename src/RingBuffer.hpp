@@ -142,7 +142,7 @@ public:
 
             for (uint8_t c = 0; c < numChannels; ++c)
                 buffer.buf[c] = new float[p2samples];
-        } DISTRHO_SAFE_EXCEPTION_RETURN("HeapRingBuffer::createBuffer", false);
+        } DISTRHO_SAFE_EXCEPTION_RETURN("AudioRingBuffer::createBuffer", false);
 
         buffer.samples = p2samples;
         buffer.channels = numChannels;
@@ -197,7 +197,6 @@ public:
 
     /*
      * Reset the ring buffer read and write positions, marking the buffer as empty.
-     * Requires a buffer struct tied to this class.
      */
     void flush() noexcept
     {
@@ -222,7 +221,7 @@ public:
             if (! errorReading)
             {
                 errorReading = true;
-                d_stderr2("RingBuffer::tryRead(%p, %u): failed, not enough space", buffers, samples);
+                d_stderr2("AudioRingBuffer::tryRead(%p, %u): failed, not enough space", buffers, samples);
             }
             return false;
         }
@@ -278,7 +277,7 @@ public:
             if (! errorWriting)
             {
                 errorWriting = true;
-                d_stderr2("RingBuffer::tryWrite(%p, %u): failed, not enough space", buffers, samples);
+                d_stderr2("AudioRingBuffer::tryWrite(%p, %u): failed, not enough space", buffers, samples);
             }
             return false;
         }

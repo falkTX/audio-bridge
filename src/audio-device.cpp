@@ -8,8 +8,14 @@
 #include <cstdlib>
 #include <cstring>
 
+#if ! AUDIO_BRIDGE_DEBUG
+#undef DISTRHO_SAFE_ASSERT
+#define DISTRHO_SAFE_ASSERT(x)
+#endif
+
 // --------------------------------------------------------------------------------------------------------------------
 
+// reset resampler filters and process 1 empty buffer as to reduce initial latency
 static inline
 void clearAudioDeviceResampler(AudioDevice* const dev)
 {
@@ -27,19 +33,25 @@ void clearAudioDeviceResampler(AudioDevice* const dev)
     dev->hostproc.resampler->process();
 }
 
+// reset audio device stats and resampling ratio
+// triggered from kDeviceResetStats and kDeviceResetFull
 static inline
 void resetAudioDeviceStats(AudioDevice* const dev)
 {
     dev->stats.framesDone = 0;
     dev->hostproc.leftoverResampledFrames = 0;
 
-    // FIXME not good enough?
-    dev->stats.rbRatio = 1.0;
-    dev->hostproc.resampler->set_rratio(1.0);
-
-    clearAudioDeviceResampler(dev);
+    if (dev->stats.rbRatio != 1.0)
+    {
+        DEBUGPRINT("resetAudioDeviceStats to initial 1.0 ratio");
+        dev->stats.rbRatio = 1.0;
+        dev->hostproc.resampler->set_rratio(1.0);
+        clearAudioDeviceResampler(dev);
+    }
 }
 
+// reset/empty audio device ringbuffer
+// triggered from kDeviceResetStats and kDeviceResetFull
 static inline
 void resetAudioDeviceRingBuffer(AudioDevice* const dev)
 {
@@ -86,11 +98,9 @@ AudioDevice* initAudioDevice(const char* const deviceID,
     }
 
     dev->hostproc.resampler = new VResampler;
-    dev->hostproc.resampler->setup(static_cast<double>(dev->hwconfig.sampleRate) / sampleRate, numChannels,
+    dev->hostproc.resampler->setup(static_cast<double>(dev->hwconfig.sampleRate) / sampleRate,
+                                   numChannels,
                                    AUDIO_BRIDGE_RESAMPLE_QUALITY);
-
-    // TESTING
-    // dev->hostproc.resampler->set_rratio(1.1);
 
     dev->hostproc.leftoverResampledFrames = 0;
     dev->hostproc.tempBufferSize = bufferSize * 4;
@@ -101,11 +111,8 @@ AudioDevice* initAudioDevice(const char* const deviceID,
         dev->hostproc.tempBuffers[c] = new float [dev->hostproc.tempBufferSize];
 
     dev->stats.framesDone = 0;
-
     dev->stats.rbFillTarget = dev->proc.numBufferingSamples / kRingBufferDataFactor;
     dev->stats.rbRatio = 1.0;
-
-    DEBUGPRINT("Fill target is %f", dev->stats.rbFillTarget);
 
     clearAudioDeviceResampler(dev);
     return dev;
@@ -169,7 +176,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
         }
         else if (state == kDeviceRunning)
         {
-            float** const tempBuffers2 = dev->hostproc.tempBuffers2;
+            float** const buffers2 = dev->hostproc.tempBuffers2;
             uint32_t leftoverFrames = dev->hostproc.leftoverResampledFrames;
 
             for (uint32_t offset = 0; offset != numFrames;)
@@ -196,12 +203,12 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
                 if (ok)
                 {
                     for (uint8_t c = 0; c < numChannels; ++c)
-                        tempBuffers2[c] = buffers[c] + offset;
+                        buffers2[c] = buffers[c] + offset;
 
                     dev->hostproc.resampler->inp_count = remainingFrames;
                     dev->hostproc.resampler->out_count = remainingFrames;
                     dev->hostproc.resampler->inp_data = tempBuffers;
-                    dev->hostproc.resampler->out_data = tempBuffers2;
+                    dev->hostproc.resampler->out_data = buffers2;
                     dev->hostproc.resampler->process();
 
                     if (dev->hostproc.resampler->out_count != 0)
@@ -217,28 +224,24 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
                     }
                     else
                     {
-                        DISTRHO_SAFE_ASSERT(dev->hostproc.resampler->out_count == 0);
-
                         const uint16_t resampledFrames = remainingFrames - dev->hostproc.resampler->inp_count;
-
-                        offset += resampledFrames;
-                        DISTRHO_SAFE_ASSERT(offset <= numFrames);
 
                         if ((leftoverFrames = dev->hostproc.resampler->inp_count) != 0)
                         {
-                            /*
-                            DEBUGPRINT("out_count %u, inp_count %u, offset %u, leftoverFrames %u | %f",
-                                    dev->hostproc.resampler->out_count,
-                                    dev->hostproc.resampler->inp_count,
-                                    offset, leftoverFrames,
-                                    dev->hostproc.resampler->_ratio);
-                            */
-
                             for (uint8_t c = 0; c < numChannels; ++c)
                                 std::memmove(tempBuffers[c],
-                                            tempBuffers[c] + resampledFrames,
-                                            sizeof(float) * leftoverFrames);
+                                             tempBuffers[c] + resampledFrames,
+                                             sizeof(float) * leftoverFrames);
                         }
+
+                       #if AUDIO_BRIDGE_DEBUG && 0
+                        DEBUGPRINT("%08u | out_count %u, inp_count %u, offset %u, leftoverFrames %u",
+                                   dev->stats.framesDone,
+                                   dev->hostproc.resampler->out_count,
+                                   dev->hostproc.resampler->inp_count,
+                                   offset, leftoverFrames);
+                       #endif
+                        break;
                     }
                 }
                 else
@@ -257,6 +260,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
         }
     }
 
+   #if AUDIO_BRIDGE_DEBUG
     static bool lastok = false;
     if (lastok != ok)
     {
@@ -266,6 +270,8 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
 
     static bool print1 = true;
     static bool print2 = true;
+   #endif
+
     if (ok)
     {
         dev->stats.framesDone += numFrames;
@@ -273,15 +279,17 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
         if (state == kDeviceRunning &&
             dev->stats.framesDone > dev->config.sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1)
         {
+           #if AUDIO_BRIDGE_DEBUG
             if (print1)
             {
                 print1 = false;
                 DEBUGPRINT("AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1 reached");
             }
+           #endif
 
             const double rbratio = 2.0 - (
-                /*clamp_ratio*/
-                (dev->proc.ringbuffer->getNumReadableSamples() / kRingBufferDataFactor / dev->stats.rbFillTarget)
+                /* NOTE should we use clamp_ratio here? */
+                clamp_ratio(dev->proc.ringbuffer->getNumReadableSamples() / kRingBufferDataFactor / dev->stats.rbFillTarget)
                 + AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1 - 1
             ) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1;
 
@@ -292,22 +300,22 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
             if (std::abs(dev->stats.rbRatio - balratio) > 0.000000002)
             {
                 dev->stats.rbRatio = balratio;
-                // TESTING
-                // dev->stats.rbRatio = 0.999986;
-                // dev->stats.rbRatio = 1.1;
 
                 if (dev->stats.framesDone > dev->config.sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2)
                 {
+                   #if AUDIO_BRIDGE_DEBUG
                     if (print2)
                     {
                         print2 = false;
                         DEBUGPRINT("AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2 reached");
                     }
+                   #endif
                     dev->hostproc.resampler->set_rratio(dev->stats.rbRatio);
                 }
             }
         }
 
+       #if AUDIO_BRIDGE_DEBUG
         static int counter = 0;
         if (++counter == 2000)
         {
@@ -318,10 +326,13 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
                        dev->proc.ringbuffer->getNumReadableSamples() / kRingBufferDataFactor,
                        dev->stats.rbFillTarget);
         }
+       #endif
     }
     else
     {
+       #if AUDIO_BRIDGE_DEBUG
         print1 = print2 = true;
+       #endif
 
         if (state == kDeviceRunning)
         {

@@ -15,19 +15,18 @@
 
 // --------------------------------------------------------------------------------------------------------------------
 
+// print debug messages for development
+#define AUDIO_BRIDGE_DEBUG 0
+
 // how many seconds to wait until start trying to compensate for clock drift
-#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1  1 /* start ratio calculations */
-#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2 2 /* activate dynamic resampling */
+#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1  2 /* start ratio calculations */
+#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2 10 /* activate dynamic resampling */
 
 // how many steps to use for smoothing the clock-drift compensation filter
-// #define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1 1024
-// #define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2 8192
-#define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1 128
-#define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2 1024
-
-// how many audio buffer-size capture blocks to store until rolling starts
-// must be > 0
-// #define AUDIO_BRIDGE_CAPTURE_LATENCY_BLOCKS 8
+#define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1 1024
+#define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2 8192
+// #define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1 128
+// #define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2 1024
 
 // how many audio buffer-size blocks to keep in the capture ringbuffer
 #define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 8
@@ -41,19 +40,20 @@
 // priority to assign to audio capture thread
 #define AUDIO_BRIDGE_PLAYBACK_THREAD_PRIORITY 82
 
+// device buffer size to use (minimum)
 #define AUDIO_BRIDGE_DEVICE_BUFFER_SIZE 16
 // #define AUDIO_BRIDGE_DEVICE_BUFFER_SIZE 256
 
-// prefer to read in big blocks, higher latency but more stable capture
-// #define AUDIO_BRIDGE_CAPTURE_BLOCK_SIZE_MULT 8
-
 // resample quality from 8 to 96
-#define AUDIO_BRIDGE_RESAMPLE_QUALITY 96
+#define AUDIO_BRIDGE_RESAMPLE_QUALITY 8
 
 // --------------------------------------------------------------------------------------------------------------------
 
+#if AUDIO_BRIDGE_DEBUG
 #define DEBUGPRINT(...) { fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); }
-// #define DEBUGPRINT(...) { }
+#else
+#define DEBUGPRINT(...) { }
+#endif
 
 // --------------------------------------------------------------------------------------------------------------------
 

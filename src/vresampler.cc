@@ -24,7 +24,6 @@
 #include <string.h>
 #include <math.h>
 
-#undef ENABLE_VEC4
 #if defined(__SSE2_MATH__)
 # define ENABLE_VEC4
 # include <xmmintrin.h>
