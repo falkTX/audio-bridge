@@ -41,6 +41,15 @@ void resetAudioDeviceStats(AudioDevice* const dev)
     dev->stats.framesDone = 0;
     dev->hostproc.leftoverResampledFrames = 0;
 
+   #if AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
+    if (dev->hostproc.gainEnabled)
+    {
+        dev->hostproc.gainEnabled = false;
+        dev->hostproc.gain.setTargetValue(0.f);
+        dev->hostproc.gain.clearToTargetValue();
+    }
+   #endif
+
     if (dev->stats.rbRatio != 1.0)
     {
         DEBUGPRINT("resetAudioDeviceStats to initial 1.0 ratio");
@@ -66,7 +75,7 @@ AudioDevice* initAudioDevice(const char* const deviceID,
                              const bool playback,
                              const uint16_t bufferSize,
                              const uint32_t sampleRate,
-                             const bool enabled)
+                             const bool enabled [[maybe_unused]])
 {
     AudioDevice* const dev = new AudioDevice;
     dev->config.deviceID = strdup(deviceID);
@@ -74,8 +83,10 @@ AudioDevice* initAudioDevice(const char* const deviceID,
     dev->config.bufferSize = bufferSize;
     dev->config.sampleRate = sampleRate;
 
-    dev->enabled = enabled;
     dev->proc.state = kDeviceInitializing;
+   #if AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
+    dev->enabled = enabled;
+   #endif
 
     if ((dev->impl = initAudioDeviceImpl(dev, dev->hwconfig)) == nullptr)
     {
@@ -96,6 +107,12 @@ AudioDevice* initAudioDevice(const char* const deviceID,
         pthread_mutex_init(&dev->proc.ringbufferLock, &attr);
         pthread_mutexattr_destroy(&attr);
     }
+
+   #if AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
+    dev->hostproc.gain.setSampleRate(sampleRate);
+    dev->hostproc.gain.setTimeConstant(0.5f);
+    dev->hostproc.gainEnabled = true; // initial value to force flush to zero
+   #endif
 
     dev->hostproc.resampler = new VResampler;
     dev->hostproc.resampler->setup(static_cast<double>(dev->hwconfig.sampleRate) / sampleRate,
@@ -139,6 +156,9 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
     const DeviceState state = static_cast<DeviceState>(dev->proc.state.load());
     float** tempBuffers = dev->hostproc.tempBuffers;
     bool ok = false;
+   #if AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
+    float gain;
+   #endif
 
     if (dev->config.playback)
     {
@@ -149,6 +169,14 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
         }
         else if (state >= kDeviceBuffering)
         {
+           #if AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
+            if (dev->hostproc.gainEnabled != dev->enabled)
+            {
+                dev->hostproc.gainEnabled = dev->enabled;
+                dev->hostproc.gain.setTargetValue(dev->enabled ? 1.f : 0.f);
+            }
+           #endif
+
             const uint32_t tempBufferSize = dev->hostproc.tempBufferSize;
 
             dev->hostproc.resampler->inp_count = numFrames;
@@ -159,6 +187,17 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
             DISTRHO_SAFE_ASSERT(dev->hostproc.resampler->inp_count == 0);
 
             const uint16_t resampledFrames = tempBufferSize - dev->hostproc.resampler->out_count;
+
+           #if AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
+            const uint8_t numChannels = dev->hwconfig.numChannels;
+            for (uint16_t i = 0; i < resampledFrames; ++i)
+            {
+                gain = dev->hostproc.gain.next();
+
+                for (uint8_t c = 0; c < numChannels; ++c)
+                    tempBuffers[c][i] *= gain;
+            }
+           #endif
 
             pthread_mutex_lock(&dev->proc.ringbufferLock);
             ok = dev->proc.ringbuffer->write(tempBuffers, resampledFrames);
@@ -178,6 +217,14 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
         }
         else if (state == kDeviceRunning)
         {
+           #if AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
+            if (dev->hostproc.gainEnabled != dev->enabled)
+            {
+                dev->hostproc.gainEnabled = dev->enabled;
+                dev->hostproc.gain.setTargetValue(dev->enabled ? 1.f : 0.f);
+            }
+           #endif
+
             float** const buffers2 = dev->hostproc.tempBuffers2;
             uint32_t leftoverFrames = dev->hostproc.leftoverResampledFrames;
 
@@ -222,6 +269,16 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
                         offset += resampledFrames;
                         DISTRHO_SAFE_ASSERT(offset <= numFrames);
 
+                       #if AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
+                        for (uint16_t i = 0; i < resampledFrames; ++i)
+                        {
+                            gain = dev->hostproc.gain.next();
+
+                            for (uint8_t c = 0; c < numChannels; ++c)
+                                buffers2[c][i] *= gain;
+                        }
+                       #endif
+
                         leftoverFrames = 0;
                     }
                     else
@@ -235,6 +292,16 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
                                              tempBuffers[c] + resampledFrames,
                                              sizeof(float) * leftoverFrames);
                         }
+
+                       #if AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
+                        for (uint16_t i = 0; i < resampledFrames; ++i)
+                        {
+                            gain = dev->hostproc.gain.next();
+
+                            for (uint8_t c = 0; c < numChannels; ++c)
+                                buffers2[c][i] *= gain;
+                        }
+                       #endif
 
                        #if AUDIO_BRIDGE_DEBUG && 0
                         DEBUGPRINT("%08u | out_count %u, inp_count %u, offset %u, leftoverFrames %u",

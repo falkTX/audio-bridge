@@ -6,10 +6,11 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+
 #include <pthread.h>
 
 #include "RingBuffer.hpp"
-// #include "ValueSmoother.hpp"
+#include "ValueSmoother.hpp"
 
 #include "zita-resampler/vresampler.h"
 
@@ -47,12 +48,20 @@
 // resample quality from 8 to 96
 #define AUDIO_BRIDGE_RESAMPLE_QUALITY 8
 
+// enable smooth audio ramping when starting fresh
+#define AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING 0
+
 // --------------------------------------------------------------------------------------------------------------------
 
 #if AUDIO_BRIDGE_DEBUG
 #define DEBUGPRINT(...) { fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); }
 #else
 #define DEBUGPRINT(...) { }
+#endif
+
+#ifdef AUDIO_BRIDGE_LV2_PLUGIN
+#undef AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
+#define AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING 1
 #endif
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -137,6 +146,10 @@ struct AudioDevice {
         uint32_t tempBufferSize;
         float** tempBuffers;
         float** tempBuffers2;
+       #if AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
+        ExponentialValueSmoother gain;
+        bool gainEnabled;
+       #endif
     } hostproc;
 
     struct Stats {
@@ -148,8 +161,10 @@ struct AudioDevice {
     struct Impl;
     Impl* impl;
 
+   #if AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
     // lv2 enabled control, for on/off (enable/bypass) control
     bool enabled;
+   #endif
 };
 
 // --------------------------------------------------------------------------------------------------------------------

@@ -1,24 +1,15 @@
 // SPDX-FileCopyrightText: 2021-2025 Filipe Coelho <falktx@falktx.com>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// #undef DEBUG
-// #undef NDEBUG
-// #define DEBUG 1
-
 #include "audio-device.hpp"
 #include "audio-device-impl.hpp"
 #include "audio-utils.hpp"
 
-#include <ctime>
-#include <cstring>
 #include <memory>
 
-//#define ALSA_PCM_NEW_HW_PARAMS_API
-//#define ALSA_PCM_NEW_SW_PARAMS_API
 #include <alsa/asoundlib.h>
 #include <pthread.h>
-
-// #define MUSIC_TEST
+#include <sched.h>
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -70,16 +61,10 @@ struct AudioDevice::Impl {
 
 // --------------------------------------------------------------------------------------------------------------------
 
-#if 0
 // TODO cleanup, see what is needed
-static int _xrun_recovery(snd_pcm_t *handle, int err)
+static int _xrun_recovery(snd_pcm_t *handle, bool& closing, int err)
 {
-    // static int count = 0;
-    // if ((count % 200) == 0)
-    {
-        // count = 1;
-        DEBUGPRINT("stream recovery: %s", snd_strerror(err));
-    }
+    DEBUGPRINT("stream recovery: %s", snd_strerror(err));
 
     if (err == -EPIPE)
     {
@@ -91,8 +76,11 @@ static int _xrun_recovery(snd_pcm_t *handle, int err)
     }
     else if (err == -ESTRPIPE)
     {
-        while ((err = snd_pcm_resume(handle)) == -EAGAIN)
+        while ((err = snd_pcm_resume(handle)) == -EAGAIN && ! closing)
             sleep(1);   /* wait until the suspend flag is released */
+
+        if (closing)
+            return 0;
 
         if (err < 0)
         {
@@ -106,7 +94,6 @@ static int _xrun_recovery(snd_pcm_t *handle, int err)
 
     return err;
 }
-#endif
 
 static void* _audio_device_capture_thread(void* const arg)
 {
@@ -226,23 +213,20 @@ static void* _audio_device_capture_thread(void* const arg)
 
         if (err < 0)
         {
-//             restart();
-
-            /*
-            for (uint8_t c=0; c<channels; ++c)
-                dev->ringbuffer->clearData();
-            */
+            impl->proc->state.store(kDeviceStarting);
+            impl->proc->reset.store(kDeviceResetFull);
 
             DEBUGPRINT("%08u | capture | Read error %s", impl->frame, snd_strerror(err));
 
             // TODO offline recovery
-//             if (_xrun_recovery(impl->pcm, err) < 0)
+            if (_xrun_recovery(impl->pcm, impl->closing, err) < 0)
             {
-//                 DEBUGPRINT("%08u | capture | xrun_recovery error: %s", impl->frame, snd_strerror(err));
+                DEBUGPRINT("%08u | capture | xrun_recovery error: %s", impl->frame, snd_strerror(err));
+                impl->closing = true;
                 break;
             }
 
-//             continue;
+            continue;
         }
 
         if (state == kDeviceStarted)
@@ -321,38 +305,9 @@ static void* _audio_device_playback_thread(void* const arg)
     uint8_t* const zeros = new uint8_t [periodSize * sampleSize * numChannels];
     std::memset(zeros, 0, periodSize * sampleSize * numChannels);
 
-#ifdef MUSIC_TEST
-    float *musicFull, *musicR;
-    size_t music_size;
-    size_t music_pos = 0;
-   #ifdef AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
-    FILE* const f = fopen("/root/out.raw", "rb");
-   #else
-    FILE* const f = fopen("/home/falktx/Source/falkTX/audio-bridge/out.raw", "rb");
-   #endif
-    assert(f);
-    fseek(f, 0, SEEK_END);
-    music_size = ftell(f);
-    assert(music_size % sizeof(float) == 0);
-    music_size /= sizeof(float);
-    fseek(f, 0, SEEK_SET);
-    musicFull = new float [music_size];
-    fread(musicFull, sizeof(float), music_size, f);
-    fclose(f);
-
-    music_size /= 2;
-
-    musicR = new float [music_size];
-    for (size_t i = 0; i < music_size; ++i)
-    {
-        musicR[i] = musicFull[i * 2 + 1];
-        musicFull[i] = musicFull[i * 2];
-    }
-#else
     float** convBuffers = new float* [numChannels];
     for (uint8_t i = 0; i < numChannels; ++i)
         convBuffers[i] = new float [periodSize];
-#endif
 
     simd::init();
 
@@ -427,23 +382,14 @@ static void* _audio_device_playback_thread(void* const arg)
             continue;
         }
 
-#ifdef MUSIC_TEST
-        static constexpr const float zero[128] = {};
-        const float* convBuffers[3] = {
-            musicFull + music_pos,
-            musicR + music_pos,
-            zero,
-        };
-
-        if ((music_pos += periodSize) >= music_size)
-            music_pos = 0;
-#else
         if (state == kDeviceBuffering)
         {
             if (impl->proc->ringbuffer->getNumReadableSamples() < numBufferingSamples)
             {
-//                 DEBUGPRINT("%08u | playback | kDeviceBuffering waiting 1 cycle because ringbuffer not ready, %u",
-//                             impl->frame, impl->proc->ringbuffer->getNumReadableSamples());
+               #if AUDIO_BRIDGE_DEBUG && 0
+                DEBUGPRINT("%08u | playback | kDeviceBuffering waiting 1 cycle because ringbuffer not ready, %u",
+                           impl->frame, impl->proc->ringbuffer->getNumReadableSamples());
+               #endif
 
                 snd_pcm_mmap_writei(impl->pcm, zeros, periodSize);
                 sched_yield();
@@ -487,7 +433,6 @@ static void* _audio_device_playback_thread(void* const arg)
                        impl->frame, impl->proc->ringbuffer->getNumReadableSamples() , numBufferingSamples);
         }
        #endif
-#endif // MUSIC_TEST
 
         if (impl->closing)
             break;
@@ -533,34 +478,34 @@ static void* _audio_device_playback_thread(void* const arg)
         while (! impl->closing && frames != 0)
         {
             err = snd_pcm_mmap_writei(impl->pcm, ptr, frames);
-//             DEBUGPRINT("write %ld of %u", err, frames);
 
             if (err < 0)
             {
                 if (err == -EAGAIN)
                 {
-                    // deviceTimedWait(dev);
-//                     DEBUGPRINT("%08u | playback | kDeviceBuffering waiting 1 cycle", impl->frame);
+                   #if AUDIO_BRIDGE_DEBUG && 0
+                    DEBUGPRINT("%08u | playback | kDeviceBuffering waiting 1 cycle", impl->frame);
+                   #endif
+                    sched_yield();
                     snd_pcm_wait(impl->pcm, -1);
-//                     usleep(0);
-//                     sched_yield();
                     continue;
                 }
 
-                // restart();
+                impl->proc->state.store(kDeviceStarting);
+                impl->proc->reset.store(kDeviceResetFull);
 
                 DEBUGPRINT("%08u | playback | Write error: %s", impl->frame, snd_strerror(err));
 
-//                 if (_xrun_recovery(impl->pcm, err) < 0)
+                if (_xrun_recovery(impl->pcm, impl->closing, err) < 0)
                 {
-//                     DEBUGPRINT("playback | xrun_recovery error: %s", snd_strerror(err));
-                    goto end;
+                    DEBUGPRINT("playback | xrun recovery error: %s", snd_strerror(err));
+                    impl->closing = true;
                 }
 
                 break;
             }
 
-            // FIXME check against snd_pcm_sw_params_set_avail_min ??
+            // FIXME does this ever happen now ??
             if (static_cast<uint16_t>(err) != frames)
             {
                 DEBUGPRINT("%08u | playback | Incomplete write %ld of %u", impl->frame, err, frames);
@@ -568,30 +513,19 @@ static void* _audio_device_playback_thread(void* const arg)
                 ptr += err * numChannels * sampleSize;
                 frames -= err;
 
-                // deviceTimedWait(dev);
-                usleep(0);
                 sched_yield();
+                usleep(0);
                 continue;
             }
 
             break;
         }
-
-//         DEBUGPRINT("%08u | playback | DEBUG | writing done", impl->frame);
     }
 
-end:
-#ifndef MUSIC_TEST
-    for (uint8_t i = 0; i < numChannels; ++i)
-        delete[] convBuffers[i];
-
-    delete[] convBuffers;
-#endif
-
+    impl->disconnected = true;
     delete[] raw;
     delete[] zeros;
 
-    impl->disconnected = true;
     return nullptr;
 }
 
@@ -704,7 +638,7 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     {
         if ((err = snd_pcm_hw_params_set_rate(pcm, params, rate, 0)) != 0)
         {
-            // DEBUGPRINT("snd_pcm_hw_params_set_rate fail %s", snd_strerror(err));
+            DEBUGPRINT("snd_pcm_hw_params_set_rate fail %s", snd_strerror(err));
             continue;
         }
 
@@ -867,16 +801,8 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     impl->fullBufferSize = hwconfig.fullBufferSize;
 
     dev->proc.numBufferingSamples = std::max<uint32_t>(dev->config.bufferSize, dev->hwconfig.fullBufferSize);
-
-    if (dev->config.playback)
-    {
-        dev->proc.numBufferingSamples *= AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS;
-    }
-    else
-    {
-        dev->proc.numBufferingSamples *= AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS;
-    }
-    // dev->proc.numBufferingSamples = 512;
+    dev->proc.numBufferingSamples *= dev->config.playback ? AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS
+                                                          : AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS;
 
     {
         pthread_attr_t attr;

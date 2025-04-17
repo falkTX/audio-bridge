@@ -6,10 +6,8 @@
 #include <cmath>
 #include <cstdint>
 
-#include <sched.h>
-
 #if defined(__SSE2_MATH__)
-# include <xmmintrin.h>
+#include <xmmintrin.h>
 #endif
 
 // --------------------------------------------------------------------------------------------------------------------

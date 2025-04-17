@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2021-2024 Filipe Coelho <falktx@falktx.com>
+# SPDX-FileCopyrightText: 2021-2025 Filipe Coelho <falktx@falktx.com>
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 cmake_minimum_required(VERSION 3.15)
@@ -135,16 +135,21 @@ configure_file(res/modgui/stylesheet.css audio-bridge.lv2/modgui/stylesheet.css 
 configure_file(res/modgui/thumbnail-capture.png audio-bridge.lv2/modgui/thumbnail-capture.png COPYONLY)
 configure_file(res/modgui/thumbnail-playback.png audio-bridge.lv2/modgui/thumbnail-playback.png COPYONLY)
 
-target_link_options(lv2-audio-bridge
-  PRIVATE
-    -Wl,-no-undefined
-)
-
 set_target_properties(lv2-audio-bridge
   PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY audio-bridge.lv2
     OUTPUT_NAME audio-bridge
     PREFIX ""
+)
+
+target_compile_definitions(lv2-audio-bridge
+  PRIVATE
+    AUDIO_BRIDGE_LV2_PLUGIN
+)
+
+target_link_options(lv2-audio-bridge
+  PRIVATE
+    -Wl,-no-undefined
 )
 
 target_link_libraries(lv2-audio-bridge
