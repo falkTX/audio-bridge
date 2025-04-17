@@ -165,7 +165,7 @@ struct PluginData {
             if (*controlports[kControlStats] > 0.5f)
             {
                 *controlports[kControlRatioActive] = clamp_ratio(
-                    dev->proc.ringbuffer->getNumReadableSamples() / kRingBufferDataFactord / dev->stats.rbFillTarget);
+                    dev->proc.ringbuffer->getNumReadableSamples() / kRingBufferDataFactor / dev->stats.rbFillTarget);
                 *controlports[kControlRatioFiltered] = dev->stats.rbRatio;
             }
             else

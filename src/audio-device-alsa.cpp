@@ -187,6 +187,8 @@ static void* _audio_device_capture_thread(void* const arg)
     for (uint8_t i = 0; i < numChannels; ++i)
         f32[i] = new float [periodSize];
 
+    simd::init();
+
     bool ok;
     snd_pcm_sframes_t err;
     while (! impl->closing)
@@ -404,6 +406,8 @@ static void* _audio_device_playback_thread(void* const arg)
     for (uint8_t i = 0; i < numChannels; ++i)
         convBuffers[i] = new float [periodSize];
 #endif
+
+    simd::init();
 
     bool ok;
     snd_pcm_sframes_t err;

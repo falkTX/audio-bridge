@@ -96,7 +96,7 @@ AudioDevice* initAudioDevice(const char* const deviceID,
 
     dev->stats.framesDone = 0;
 
-    dev->stats.rbFillTarget = dev->proc.numBufferingSamples / kRingBufferDataFactord;
+    dev->stats.rbFillTarget = dev->proc.numBufferingSamples / kRingBufferDataFactor;
     fprintf(stderr, "Fill target is %f\n", dev->stats.rbFillTarget);
     dev->stats.rbRatio = 1.0;
 
@@ -259,7 +259,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
 
             const double rbratio = 2.0 - (
                 /*clamp_ratio*/
-                (dev->proc.ringbuffer->getNumReadableSamples() / kRingBufferDataFactord / dev->stats.rbFillTarget)
+                (dev->proc.ringbuffer->getNumReadableSamples() / kRingBufferDataFactor / dev->stats.rbFillTarget)
                 + AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1 - 1
             ) / AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1;
 

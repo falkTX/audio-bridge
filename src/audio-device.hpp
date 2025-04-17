@@ -67,8 +67,7 @@ enum DeviceState {
     kDeviceRunning,
 };
 
-static constexpr const uint8_t kRingBufferDataFactor = 32;
-static constexpr const double kRingBufferDataFactord = kRingBufferDataFactor;
+static constexpr const double kRingBufferDataFactor = 32;
 
 static inline constexpr
 uint8_t getSampleSizeFromFormat(const uint8_t format)
