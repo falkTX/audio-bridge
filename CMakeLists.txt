@@ -71,8 +71,8 @@ target_link_libraries(jack-audio-bridge
 target_sources(jack-audio-bridge
   PRIVATE
     src/audio-device.cpp
-    src/audio-device-alsa.cpp
     src/audio-device-discovery.cpp
+    src/audio-device-impl-alsa.cpp
     src/jack-client.cpp
     src/resampler-table.cc
     src/vresampler.cc
@@ -109,8 +109,8 @@ target_link_options(jack-int-audio-bridge
 target_sources(jack-int-audio-bridge
   PRIVATE
     src/audio-device.cpp
-    src/audio-device-alsa.cpp
     src/audio-device-discovery.cpp
+    src/audio-device-impl-alsa.cpp
     src/jack-client.cpp
     src/resampler-table.cc
     src/vresampler.cc
@@ -161,8 +161,8 @@ target_link_libraries(lv2-audio-bridge
 target_sources(lv2-audio-bridge
   PRIVATE
     src/audio-device.cpp
-    src/audio-device-alsa.cpp
     src/audio-device-discovery.cpp
+    src/audio-device-impl-alsa.cpp
     src/lv2-plugin.cpp
     src/resampler-table.cc
     src/vresampler.cc
