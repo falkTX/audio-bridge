@@ -22,7 +22,8 @@
 
 // --------------------------------------------------------------------------------------------------------------------
 
-static constexpr const unsigned kNumPeriodsToTry[] = { 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+static constexpr const uint kNumPeriodsMin = 3;
+static constexpr const uint kNumPeriodsMax = 12;
 
 static constexpr const snd_pcm_format_t kSampleFormatsToTry[] = {
     SND_PCM_FORMAT_S32,
@@ -31,7 +32,7 @@ static constexpr const snd_pcm_format_t kSampleFormatsToTry[] = {
     SND_PCM_FORMAT_S16,
 };
 
-static constexpr const unsigned kSampleRatesToTry[] = { 48000, 44100, 96000, 88200 };
+static constexpr const uint kSampleRatesToTry[] = { 48000, 44100, 96000, 88200 };
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -49,8 +50,10 @@ struct AudioDevice::Impl {
     // direct pointer
     Process* proc;
 
+   #if AUDIO_BRIDGE_DEBUG
     // monotonic frame counter
     uint32_t frame = 0;
+   #endif
 
     // ALSA PCM handle
     snd_pcm_t* pcm = nullptr;
@@ -67,6 +70,7 @@ struct AudioDevice::Impl {
 
 // --------------------------------------------------------------------------------------------------------------------
 
+#if 0
 // TODO cleanup, see what is needed
 static int _xrun_recovery(snd_pcm_t *handle, int err)
 {
@@ -102,6 +106,7 @@ static int _xrun_recovery(snd_pcm_t *handle, int err)
 
     return err;
 }
+#endif
 
 static void* _audio_device_capture_thread(void* const arg)
 {
@@ -733,7 +738,7 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     // num periods + period size
 
     uintParam = 0;
-    for (unsigned periods : kNumPeriodsToTry)
+    for (uint periods = kNumPeriodsMin; periods <= kNumPeriodsMax; ++periods)
     {
 //         ulongParam = AUDIO_BRIDGE_DEVICE_BUFFER_SIZE * periods * 16;
 //         if ((err = snd_pcm_hw_params_set_buffer_size_max(pcm, params, &ulongParam)) != 0)
@@ -908,10 +913,11 @@ void closeAudioDeviceImpl(AudioDevice::Impl* const impl)
     delete impl;
 }
 
-bool runAudioDevicePostImpl(AudioDevice::Impl* const impl, const uint16_t numFrames)
+bool runAudioDevicePostImpl(AudioDevice::Impl* const impl, const uint16_t numFrames [[maybe_unused]])
 {
+   #if AUDIO_BRIDGE_DEBUG
     impl->frame += numFrames;
-
+   #endif
     return !impl->disconnected;
 }
 

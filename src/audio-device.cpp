@@ -51,7 +51,7 @@ void resetAudioDeviceStats(AudioDevice* const dev)
 }
 
 // reset/empty audio device ringbuffer
-// triggered from kDeviceResetStats and kDeviceResetFull
+// triggered from kDeviceResetFull
 static inline
 void resetAudioDeviceRingBuffer(AudioDevice* const dev)
 {
