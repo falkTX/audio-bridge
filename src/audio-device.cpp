@@ -115,7 +115,8 @@ AudioDevice* initAudioDevice(const char* const deviceID,
    #endif
 
     dev->hostproc.resampler = new VResampler;
-    dev->hostproc.resampler->setup(static_cast<double>(dev->hwconfig.sampleRate) / sampleRate,
+    dev->hostproc.resampler->setup(playback ? static_cast<double>(dev->hwconfig.sampleRate) / sampleRate
+                                            : static_cast<double>(sampleRate) / dev->hwconfig.sampleRate,
                                    numChannels,
                                    AUDIO_BRIDGE_RESAMPLE_QUALITY);
 

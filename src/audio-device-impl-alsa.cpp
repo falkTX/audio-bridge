@@ -622,7 +622,7 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     {
         if ((err = snd_pcm_hw_params_set_rate(pcm, params, rate, 0)) != 0)
         {
-            DEBUGPRINT("snd_pcm_hw_params_set_rate fail %s", snd_strerror(err));
+            DEBUGPRINT("snd_pcm_hw_params_set_rate %u fail %s", rate, snd_strerror(err));
             continue;
         }
 

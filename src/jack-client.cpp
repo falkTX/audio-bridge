@@ -81,7 +81,7 @@ struct ClientData {
             const uint32_t sampleRate = jack_get_sample_rate(jack.client);
             DEBUGPRINT("JACK bufferSize %u, sampleRate %u", bufferSize, sampleRate);
 
-            dev = initAudioDevice(deviceID, playback, bufferSize, sampleRate);
+            dev = initAudioDevice(deviceID, bufferSize, sampleRate, playback);
 
             if (dev != nullptr)
             {
