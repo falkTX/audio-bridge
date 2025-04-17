@@ -928,8 +928,7 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     {
         dev->proc.numBufferingSamples *= AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS;
     }
-
-    dev->proc.numBufferingSamples = 512;
+    // dev->proc.numBufferingSamples = 512;
 
     {
         pthread_attr_t attr;
@@ -938,7 +937,8 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
         pthread_attr_setscope(&attr, PTHREAD_SCOPE_SYSTEM);
         pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
         sched_param sched = {};
-        sched.sched_priority = dev->config.playback ? 69 : 70;
+        sched.sched_priority = dev->config.playback ? AUDIO_BRIDGE_PLAYBACK_THREAD_PRIORITY
+                                                    : AUDIO_BRIDGE_CAPTURE_THREAD_PRIORITY;
         pthread_attr_setschedparam(&attr, &sched);
 
         void* (*const audio_device_thread)(void*) = dev->config.playback
