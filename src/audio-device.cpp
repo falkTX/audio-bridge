@@ -336,7 +336,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
         print1 = print2 = true;
        #endif
 
-        if (state == kDeviceRunning)
+        if (dev->config.playback ? state >= kDeviceBuffering : state == kDeviceRunning)
         {
             dev->proc.state.store(kDeviceStarting);
             resetAudioDeviceRingBuffer(dev);

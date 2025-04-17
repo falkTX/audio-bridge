@@ -16,7 +16,7 @@
 // --------------------------------------------------------------------------------------------------------------------
 
 // print debug messages for development
-#define AUDIO_BRIDGE_DEBUG 1
+#define AUDIO_BRIDGE_DEBUG 0
 
 // how many seconds to wait until start trying to compensate for clock drift
 #define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1  2 /* start ratio calculations */

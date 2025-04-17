@@ -746,13 +746,16 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     uintParam = 0;
     for (uint periods = kNumPeriodsMin; periods <= kNumPeriodsMax; ++periods)
     {
-//         ulongParam = AUDIO_BRIDGE_DEVICE_BUFFER_SIZE * periods * 16;
-//         if ((err = snd_pcm_hw_params_set_buffer_size_max(pcm, params, &ulongParam)) != 0)
-//         {
-//             DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_max fail %u %u %s",
-//                         periods, AUDIO_BRIDGE_DEVICE_BUFFER_SIZE, snd_strerror(err));
-//             continue;
-//         }
+        if (dev->config.playback)
+        {
+            ulongParam = AUDIO_BRIDGE_DEVICE_BUFFER_SIZE * periods * 16;
+            if ((err = snd_pcm_hw_params_set_buffer_size_max(pcm, params, &ulongParam)) != 0)
+            {
+                DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_max fail %u %u %s",
+                            periods, AUDIO_BRIDGE_DEVICE_BUFFER_SIZE, snd_strerror(err));
+                continue;
+            }
+        }
         ulongParam = AUDIO_BRIDGE_DEVICE_BUFFER_SIZE * periods;
         if ((err = snd_pcm_hw_params_set_buffer_size_min(pcm, params, &ulongParam)) != 0)
         {
