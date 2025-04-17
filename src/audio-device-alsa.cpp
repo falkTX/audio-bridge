@@ -139,7 +139,7 @@ static int _xrun_recovery(snd_pcm_t *handle, int err)
     // if ((count % 200) == 0)
     {
         // count = 1;
-        printf("stream recovery: %s\n", snd_strerror(err));
+        DEBUGPRINT("stream recovery: %s", snd_strerror(err));
     }
 
     if (err == -EPIPE)
@@ -147,7 +147,7 @@ static int _xrun_recovery(snd_pcm_t *handle, int err)
         /* under-run */
         err = snd_pcm_prepare(handle);
         if (err < 0)
-            printf("Can't recovery from underrun, prepare failed: %s\n", snd_strerror(err));
+            DEBUGPRINT("Can't recovery from underrun, prepare failed: %s", snd_strerror(err));
         return 0;
     }
     else if (err == -ESTRPIPE)
@@ -159,7 +159,7 @@ static int _xrun_recovery(snd_pcm_t *handle, int err)
         {
             err = snd_pcm_prepare(handle);
             if (err < 0)
-                printf("Can't recovery from suspend, prepare failed: %s\n", snd_strerror(err));
+                DEBUGPRINT("Can't recovery from suspend, prepare failed: %s", snd_strerror(err));
         }
 
         return 0;
@@ -203,14 +203,14 @@ static void* _audio_device_capture_thread(void* const arg)
             if (err == -EPIPE)
             {
                 snd_pcm_prepare(impl->pcm);
-                // printf("%08u | capture | initial pipe error: %s\n", frame, snd_strerror(err));
+                // DEBUGPRINT("%08u | capture | initial pipe error: %s", frame, snd_strerror(err));
                 // started = false;
                 snd_pcm_wait(impl->pcm, -1);
                 continue;
             }
             if (err != -EAGAIN)
             {
-                printf("%08u | capture | initial read error: %s\n", impl->frame, snd_strerror(err));
+                DEBUGPRINT("%08u | capture | initial read error: %s", impl->frame, snd_strerror(err));
                 break;
             }
 
@@ -255,7 +255,7 @@ static void* _audio_device_capture_thread(void* const arg)
 //                 deviceTimedWait(dev);
                 continue;
             default:
-                printf("%08u | capture | initial write error: %s\n", impl->frame, snd_strerror(err));
+                DEBUGPRINT("%08u | capture | initial write error: %s", impl->frame, snd_strerror(err));
                 break;
             }
         }
@@ -294,7 +294,7 @@ static void* _audio_device_capture_thread(void* const arg)
             // TODO offline recovery
 //             if (_xrun_recovery(impl->pcm, err) < 0)
             {
-                printf("%08u | capture | xrun_recovery error: %s\n", impl->frame, snd_strerror(err));
+                DEBUGPRINT("%08u | capture | xrun_recovery error: %s", impl->frame, snd_strerror(err));
                 break;
             }
 
@@ -423,7 +423,7 @@ static void* _audio_device_playback_thread(void* const arg)
 
             if (err != -EAGAIN)
             {
-                printf("%08u | playback | initial write error: %s\n", impl->frame, snd_strerror(err));
+                DEBUGPRINT("%08u | playback | initial write error: %s", impl->frame, snd_strerror(err));
                 break;
             }
 
@@ -467,7 +467,7 @@ static void* _audio_device_playback_thread(void* const arg)
 //                 sched_yield();
                 continue;
             default:
-                printf("%08u | playback | initial write error: %s\n", impl->frame, snd_strerror(err));
+                DEBUGPRINT("%08u | playback | initial write error: %s", impl->frame, snd_strerror(err));
                 break;
             }
         }
@@ -601,11 +601,11 @@ static void* _audio_device_playback_thread(void* const arg)
 
                 // restart();
 
-                printf("%08u | playback | Write error: %s\n", impl->frame, snd_strerror(err));
+                DEBUGPRINT("%08u | playback | Write error: %s", impl->frame, snd_strerror(err));
 
 //                 if (_xrun_recovery(impl->pcm, err) < 0)
                 {
-//                     printf("playback | xrun_recovery error: %s\n", snd_strerror(err));
+//                     DEBUGPRINT("playback | xrun_recovery error: %s", snd_strerror(err));
                     goto end;
                 }
 

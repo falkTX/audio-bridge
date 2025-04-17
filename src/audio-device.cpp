@@ -97,8 +97,9 @@ AudioDevice* initAudioDevice(const char* const deviceID,
     dev->stats.framesDone = 0;
 
     dev->stats.rbFillTarget = dev->proc.numBufferingSamples / kRingBufferDataFactor;
-    fprintf(stderr, "Fill target is %f\n", dev->stats.rbFillTarget);
     dev->stats.rbRatio = 1.0;
+
+    DEBUGPRINT("Fill target is %f", dev->stats.rbFillTarget);
 
     clearAudioDeviceResampler(dev);
     return dev;
@@ -254,7 +255,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
             if (print)
             {
                 print = false;
-                fprintf(stderr, "AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1 reached\n");
+                DEBUGPRINT("AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1 reached");
             }
 
             const double rbratio = 2.0 - (
@@ -277,7 +278,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
                     if (print2)
                     {
                         print2 = false;
-                        fprintf(stderr, "AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2 reached\n");
+                        DEBUGPRINT("AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2 reached");
                     }
                     dev->hostproc.resampler->set_rratio(dev->stats.rbRatio);
                 }
