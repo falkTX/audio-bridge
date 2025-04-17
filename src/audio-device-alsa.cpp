@@ -35,71 +35,6 @@ static constexpr const unsigned kSampleRatesToTry[] = { 48000, 44100, 96000, 882
 
 // --------------------------------------------------------------------------------------------------------------------
 
-static const char* SND_PCM_FORMAT_STRING(const snd_pcm_format_t format)
-{
-    switch (format)
-    {
-    #define RET_STR(F) case F: return #F;
-    RET_STR(SND_PCM_FORMAT_UNKNOWN)
-    RET_STR(SND_PCM_FORMAT_S8)
-    RET_STR(SND_PCM_FORMAT_U8)
-    RET_STR(SND_PCM_FORMAT_S16_LE)
-    RET_STR(SND_PCM_FORMAT_S16_BE)
-    RET_STR(SND_PCM_FORMAT_U16_LE)
-    RET_STR(SND_PCM_FORMAT_U16_BE)
-    RET_STR(SND_PCM_FORMAT_S24_LE)
-    RET_STR(SND_PCM_FORMAT_S24_BE)
-    RET_STR(SND_PCM_FORMAT_U24_LE)
-    RET_STR(SND_PCM_FORMAT_U24_BE)
-    RET_STR(SND_PCM_FORMAT_S32_LE)
-    RET_STR(SND_PCM_FORMAT_S32_BE)
-    RET_STR(SND_PCM_FORMAT_U32_LE)
-    RET_STR(SND_PCM_FORMAT_U32_BE)
-    RET_STR(SND_PCM_FORMAT_FLOAT_LE)
-    RET_STR(SND_PCM_FORMAT_FLOAT_BE)
-    RET_STR(SND_PCM_FORMAT_FLOAT64_LE)
-    RET_STR(SND_PCM_FORMAT_FLOAT64_BE)
-    RET_STR(SND_PCM_FORMAT_IEC958_SUBFRAME_LE)
-    RET_STR(SND_PCM_FORMAT_IEC958_SUBFRAME_BE)
-    RET_STR(SND_PCM_FORMAT_MU_LAW)
-    RET_STR(SND_PCM_FORMAT_A_LAW)
-    RET_STR(SND_PCM_FORMAT_IMA_ADPCM)
-    RET_STR(SND_PCM_FORMAT_MPEG)
-    RET_STR(SND_PCM_FORMAT_GSM)
-    RET_STR(SND_PCM_FORMAT_S20_LE)
-    RET_STR(SND_PCM_FORMAT_S20_BE)
-    RET_STR(SND_PCM_FORMAT_U20_LE)
-    RET_STR(SND_PCM_FORMAT_U20_BE)
-    RET_STR(SND_PCM_FORMAT_SPECIAL)
-    RET_STR(SND_PCM_FORMAT_S24_3LE)
-    RET_STR(SND_PCM_FORMAT_S24_3BE)
-    RET_STR(SND_PCM_FORMAT_U24_3LE)
-    RET_STR(SND_PCM_FORMAT_U24_3BE)
-    RET_STR(SND_PCM_FORMAT_S20_3LE)
-    RET_STR(SND_PCM_FORMAT_S20_3BE)
-    RET_STR(SND_PCM_FORMAT_U20_3LE)
-    RET_STR(SND_PCM_FORMAT_U20_3BE)
-    RET_STR(SND_PCM_FORMAT_S18_3LE)
-    RET_STR(SND_PCM_FORMAT_S18_3BE)
-    RET_STR(SND_PCM_FORMAT_U18_3LE)
-    RET_STR(SND_PCM_FORMAT_U18_3BE)
-    RET_STR(SND_PCM_FORMAT_G723_24)
-    RET_STR(SND_PCM_FORMAT_G723_24_1B)
-    RET_STR(SND_PCM_FORMAT_G723_40)
-    RET_STR(SND_PCM_FORMAT_G723_40_1B)
-    RET_STR(SND_PCM_FORMAT_DSD_U8)
-    RET_STR(SND_PCM_FORMAT_DSD_U16_LE)
-    RET_STR(SND_PCM_FORMAT_DSD_U32_LE)
-    RET_STR(SND_PCM_FORMAT_DSD_U16_BE)
-    RET_STR(SND_PCM_FORMAT_DSD_U32_BE)
-    #undef RET_STR
-    }
-
-    return "";
-}
-
-// --------------------------------------------------------------------------------------------------------------------
-
 struct AudioDevice::Impl {
     // config copy
     bool playback;
@@ -183,9 +118,9 @@ static void* _audio_device_capture_thread(void* const arg)
 
     uint8_t* const raw = new uint8_t [periodSize * sampleSize * numChannels];
 
-    float** f32 = new float* [numChannels];
+    float** convBuffers = new float* [numChannels];
     for (uint8_t i = 0; i < numChannels; ++i)
-        f32[i] = new float [periodSize];
+        convBuffers[i] = new float [periodSize];
 
     simd::init();
 
@@ -202,9 +137,9 @@ static void* _audio_device_capture_thread(void* const arg)
 
             if (err == -EPIPE)
             {
+                DEBUGPRINT("%08u | capture | initial pipe error: %s", impl->frame, snd_strerror(err));
                 snd_pcm_prepare(impl->pcm);
-                // DEBUGPRINT("%08u | capture | initial pipe error: %s", frame, snd_strerror(err));
-                // started = false;
+                sched_yield();
                 snd_pcm_wait(impl->pcm, -1);
                 continue;
             }
@@ -217,12 +152,13 @@ static void* _audio_device_capture_thread(void* const arg)
             if (started)
             {
                 DEBUGPRINT("%08u | capture | can read data? removing kDeviceInitializing", impl->frame);
-                // restart();
                 state = kDeviceStarting;
+                impl->proc->reset.store(kDeviceResetFull);
             }
             else
             {
                 DEBUGPRINT("%08u | capture | kDeviceInitializing waiting 1 cycle", impl->frame);
+                sched_yield();
                 snd_pcm_wait(impl->pcm, -1);
                 continue;
             }
@@ -242,17 +178,15 @@ static void* _audio_device_capture_thread(void* const arg)
                 snd_pcm_rewind(impl->pcm, 1);
                 break;
             case -EAGAIN:
-                // deviceTimedWait(dev);
                 DEBUGPRINT("%08u | capture | kDeviceStarting waiting 1 cycle", impl->frame);
+                sched_yield();
                 snd_pcm_wait(impl->pcm, -1);
-//                 usleep(0);
-//                 sched_yield();
                 continue;
             case -EPIPE:
                 DEBUGPRINT("%08u | capture | EPIPE while kDeviceStarting", impl->frame);
                 snd_pcm_prepare(impl->pcm);
+                sched_yield();
                 snd_pcm_wait(impl->pcm, -1);
-//                 deviceTimedWait(dev);
                 continue;
             default:
                 DEBUGPRINT("%08u | capture | initial write error: %s", impl->frame, snd_strerror(err));
@@ -272,12 +206,9 @@ static void* _audio_device_capture_thread(void* const arg)
             // fall-through
         case -EAGAIN:
         case 0:
-//             deviceTimedWait(dev);
+            sched_yield();
             snd_pcm_wait(impl->pcm, -1);
             continue;
-//         case 0:
-//             // deviceTimedWait(dev);
-//             continue;
         }
 
         if (err < 0)
@@ -294,7 +225,7 @@ static void* _audio_device_capture_thread(void* const arg)
             // TODO offline recovery
 //             if (_xrun_recovery(impl->pcm, err) < 0)
             {
-                DEBUGPRINT("%08u | capture | xrun_recovery error: %s", impl->frame, snd_strerror(err));
+//                 DEBUGPRINT("%08u | capture | xrun_recovery error: %s", impl->frame, snd_strerror(err));
                 break;
             }
 
@@ -304,6 +235,7 @@ static void* _audio_device_capture_thread(void* const arg)
         if (state == kDeviceStarted)
         {
             // wait for host side to be ready
+            sched_yield();
             snd_pcm_wait(impl->pcm, -1);
             continue;
         }
@@ -311,16 +243,16 @@ static void* _audio_device_capture_thread(void* const arg)
         switch (impl->format)
         {
         case kSampleFormat16:
-            int2float::s16(f32, raw, numChannels, err);
+            int2float::s16(convBuffers, raw, numChannels, err);
             break;
         case kSampleFormat24:
-            int2float::s24(f32, raw, numChannels, err);
+            int2float::s24(convBuffers, raw, numChannels, err);
             break;
         case kSampleFormat24LE3:
-            int2float::s24le3(f32, raw, numChannels, err);
+            int2float::s24le3(convBuffers, raw, numChannels, err);
             break;
         case kSampleFormat32:
-            int2float::s32(f32, raw, numChannels, err);
+            int2float::s32(convBuffers, raw, numChannels, err);
             break;
         default:
             DEBUGPRINT("unknown format");
@@ -328,15 +260,15 @@ static void* _audio_device_capture_thread(void* const arg)
         }
 
         pthread_mutex_lock(&impl->proc->ringbufferLock);
-        ok = impl->proc->ringbuffer->write(f32, err);
+        ok = impl->proc->ringbuffer->write(convBuffers, err);
         pthread_mutex_unlock(&impl->proc->ringbufferLock);
 
         static int counter = 0;
-        if (++counter == 250)
+        if (++counter == 256)
         {
             counter = 0;
             DEBUGPRINT("%08u | capture | check %u vs %u",
-                       impl->frame, impl->proc->ringbuffer->getNumReadableSamples() , numBufferingSamples);
+                       impl->frame, impl->proc->ringbuffer->getNumReadableSamples(), numBufferingSamples);
         }
 
         if (ok)
@@ -347,10 +279,10 @@ static void* _audio_device_capture_thread(void* const arg)
         else
         {
             DEBUGPRINT("%08u | capture | failed writing data", impl->frame);
-            sched_yield();
 
             state = kDeviceStarting;
             impl->proc->reset.store(kDeviceResetFull);
+            sched_yield();
             snd_pcm_wait(impl->pcm, -1);
         }
     }
@@ -373,6 +305,8 @@ static void* _audio_device_playback_thread(void* const arg)
                sampleSize, numChannels, periodSize);
 
     uint8_t* const raw = new uint8_t [periodSize * sampleSize * numChannels];
+    uint8_t* const zeros = new uint8_t [periodSize * sampleSize * numChannels];
+    std::memset(zeros, 0, periodSize * sampleSize * numChannels);
 
 #ifdef MUSIC_TEST
     float *musicFull, *musicR;
@@ -417,8 +351,7 @@ static void* _audio_device_playback_thread(void* const arg)
         {
             // write silence until alsa buffers are full
             bool started = false;
-            std::memset(raw, 0, periodSize * sampleSize * numChannels);
-            while ((err = snd_pcm_mmap_writei(impl->pcm, raw, periodSize)) > 0)
+            while ((err = snd_pcm_mmap_writei(impl->pcm, zeros, periodSize)) > 0)
                 started = true;
 
             if (err != -EAGAIN)
@@ -430,17 +363,14 @@ static void* _audio_device_playback_thread(void* const arg)
             if (started)
             {
                 DEBUGPRINT("%08u | playback | can write data? removing kDeviceInitializing", impl->frame);
-                // restart();
-//                 music_pos = 0;
                 state = kDeviceStarting;
+                impl->proc->reset.store(kDeviceResetFull);
             }
             else
             {
-                // deviceTimedWait(dev);
                 DEBUGPRINT("%08u | playback | kDeviceInitializing waiting 1 cycle", impl->frame);
+                sched_yield();
                 snd_pcm_wait(impl->pcm, -1);
-//                 usleep(0);
-//                 sched_yield();
                 continue;
             }
         }
@@ -460,11 +390,9 @@ static void* _audio_device_playback_thread(void* const arg)
                 snd_pcm_rewind(impl->pcm, 1);
                 break;
             case -EAGAIN:
-                // deviceTimedWait(dev);
                 DEBUGPRINT("%08u | playback | kDeviceStarting waiting 1 cycle", impl->frame);
+                sched_yield();
                 snd_pcm_wait(impl->pcm, -1);
-//                 usleep(0);
-//                 sched_yield();
                 continue;
             default:
                 DEBUGPRINT("%08u | playback | initial write error: %s", impl->frame, snd_strerror(err));
@@ -475,8 +403,8 @@ static void* _audio_device_playback_thread(void* const arg)
         if (state == kDeviceStarted)
         {
             // wait for host side to be ready
-            std::memset(raw, 0, periodSize * sampleSize * numChannels);
-            snd_pcm_mmap_writei(impl->pcm, raw, periodSize);
+            snd_pcm_mmap_writei(impl->pcm, zeros, periodSize);
+            sched_yield();
             snd_pcm_wait(impl->pcm, -1);
             continue;
         }
@@ -499,8 +427,8 @@ static void* _audio_device_playback_thread(void* const arg)
 //                 DEBUGPRINT("%08u | playback | kDeviceBuffering waiting 1 cycle because ringbuffer not ready, %u",
 //                             impl->frame, impl->proc->ringbuffer->getNumReadableSamples());
 
-                std::memset(raw, 0, periodSize * sampleSize * numChannels);
-                snd_pcm_mmap_writei(impl->pcm, raw, periodSize);
+                snd_pcm_mmap_writei(impl->pcm, zeros, periodSize);
+                sched_yield();
                 snd_pcm_wait(impl->pcm, -1);
                 continue;
             }
@@ -522,12 +450,11 @@ static void* _audio_device_playback_thread(void* const arg)
                 counter = 0;
                 DEBUGPRINT("%08u | playback | WARNING | failed reading data", impl->frame);
             }
-            sched_yield();
 
             state = kDeviceBuffering;
-            impl->proc->reset.store(true);
-            std::memset(raw, 0, periodSize * sampleSize * numChannels);
-            snd_pcm_mmap_writei(impl->pcm, raw, periodSize);
+            impl->proc->reset.store(kDeviceResetStats);
+            snd_pcm_mmap_writei(impl->pcm, zeros, periodSize);
+            sched_yield();
             snd_pcm_wait(impl->pcm, -1);
             continue;
         }
@@ -641,6 +568,7 @@ end:
 #endif
 
     delete[] raw;
+    delete[] zeros;
 
     impl->disconnected = true;
     return nullptr;
@@ -654,10 +582,6 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     impl->playback = dev->config.playback;
     impl->bufferSize = dev->config.bufferSize;
     impl->proc = &dev->proc;
-
-#if 0
-    dev.hints = kDeviceInitializing|kDeviceStarting|kDeviceBuffering;
-#endif
 
     int err;
     const snd_pcm_stream_t mode = dev->config.playback ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE;
@@ -716,7 +640,7 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     {
         if ((err = snd_pcm_hw_params_set_format(pcm, params, format)) != 0)
         {
-            DEBUGPRINT("snd_pcm_hw_params_set_format fail %u:%s %s", format, SND_PCM_FORMAT_STRING(format), snd_strerror(err));
+            DEBUGPRINT("snd_pcm_hw_params_set_format fail %u:%s %s", format, snd_pcm_format_name(format), snd_strerror(err));
             continue;
         }
 
@@ -736,11 +660,11 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
             break;
         default:
             DEBUGPRINT("snd_pcm_hw_params_set_format fail unimplemented format %u:%s",
-                       format, SND_PCM_FORMAT_STRING(format));
+                       format, snd_pcm_format_name(format));
             continue;
         }
 
-        DEBUGPRINT("snd_pcm_hw_params_set_format %s", SND_PCM_FORMAT_STRING(format));
+        DEBUGPRINT("snd_pcm_hw_params_set_format %s", snd_pcm_format_name(format));
         break;
     }
 
