@@ -8,3 +8,5 @@
 AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* dev, AudioDevice::HWConfig& hwconfig);
 void closeAudioDeviceImpl(AudioDevice::Impl* impl);
 bool runAudioDevicePostImpl(AudioDevice::Impl* impl, uint16_t numFrames);
+
+bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* impl);

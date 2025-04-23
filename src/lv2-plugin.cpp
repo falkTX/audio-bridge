@@ -164,9 +164,16 @@ struct PluginData {
 
             if (*controlports[kControlStats] > 0.5f)
             {
+               #if AUDIO_BRIDGE_UDEV
+                const double balratio = 1.0 - static_cast<double>(dev->stats.ppm) / 1000000.0;
+                *controlports[kControlRatioActive] = *controlports[kControlRatioFiltered] = balratio;
+               #elif AUDIO_BRIDGE_ASYNC
                 *controlports[kControlRatioActive] = clamp_ratio(
                     dev->proc.ringbuffer->getNumReadableSamples() / kRingBufferDataFactor / dev->stats.rbFillTarget);
                 *controlports[kControlRatioFiltered] = dev->stats.rbRatio;
+               #else
+                *controlports[kControlRatioActive] = *controlports[kControlRatioFiltered] = 1.f;
+               #endif
             }
             else
             {

@@ -23,6 +23,9 @@
 // NOTE messages are mixed for capture and playback, do not enable while running both
 #define AUDIO_BRIDGE_DEBUG 0
 
+// run audio in async mode, using separate thread, ringbuffer and dynamic resampling
+#define AUDIO_BRIDGE_ASYNC 1
+
 // how many seconds to wait until start trying to compensate for clock drift
 #define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1  2 /* start ratio calculations */
 #define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2 10 /* activate dynamic resampling */
@@ -34,13 +37,13 @@
 // #define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2 1024
 
 // how many audio buffer-size blocks to keep in the capture ringbuffer
-#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 8
+#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 4
 
 // priority to assign to audio capture thread
 #define AUDIO_BRIDGE_CAPTURE_THREAD_PRIORITY 83
 
 // how many audio buffer-size blocks to keep in the playback ringbuffer
-#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 8
+#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 4
 
 // priority to assign to audio capture thread
 #define AUDIO_BRIDGE_PLAYBACK_THREAD_PRIORITY 82
@@ -63,9 +66,23 @@
 #define DEBUGPRINT(...) { }
 #endif
 
+// always enable level smoothing for LV2 plugin
 #ifdef AUDIO_BRIDGE_LV2_PLUGIN
 #undef AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
 #define AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING 1
+#endif
+
+// use udev for dynamic resampling stats
+#if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(__MOD_DEVICES__)
+#define AUDIO_BRIDGE_UDEV 1
+#else
+#define AUDIO_BRIDGE_UDEV 0
+#endif
+
+// ensure we don't use clock-drift filters for udev approach
+#if AUDIO_BRIDGE_UDEV
+#undef AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1
+#undef AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2
 #endif
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -80,7 +97,9 @@ enum SampleFormat {
 
 enum DeviceReset {
     kDeviceResetNone = 0,
+   #if AUDIO_BRIDGE_ASYNC
     kDeviceResetStats,
+   #endif
     kDeviceResetFull,
 };
 
@@ -89,6 +108,9 @@ enum DeviceState {
     kDeviceStarting,
     kDeviceStarted,
     kDeviceBuffering,
+   #if ! AUDIO_BRIDGE_ASYNC
+    kDeviceBufferings = kDeviceBuffering + 16,
+   #endif
     kDeviceRunning,
 };
 
@@ -136,12 +158,20 @@ struct AudioDevice {
     // shared process data between host code and device implementations
     mutable struct Process {
         AudioRingBuffer* ringbuffer;
+       #if AUDIO_BRIDGE_ASYNC
         pthread_mutex_t ringbufferLock;
+       #endif
         std::atomic<int> reset = { kDeviceResetNone };
         std::atomic<int> state = { kDeviceInitializing };
+       #if AUDIO_BRIDGE_ASYNC
         uint32_t numBufferingSamples;
+       #endif
+       #if AUDIO_BRIDGE_UDEV
+        int ppm;
+       #endif
     } proc;
 
+   #if AUDIO_BRIDGE_ASYNC
     // host process data
     struct {
         VResampler* resampler;
@@ -154,12 +184,17 @@ struct AudioDevice {
         bool gainEnabled;
        #endif
     } hostproc;
+   #endif
 
     // statistics for clock drift and dynamic resampling
     struct Stats {
         uint32_t framesDone;
+       #if AUDIO_BRIDGE_UDEV
+        int ppm;
+       #elif AUDIO_BRIDGE_ASYNC
         double rbFillTarget;
         double rbRatio;
+       #endif
     } stats;
 
     // private device-specific implementation (ALSA, etc)

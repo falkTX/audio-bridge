@@ -11,8 +11,9 @@
 #include <pthread.h>
 #include <sched.h>
 
-#if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
+#if AUDIO_BRIDGE_UDEV
 #include <libudev.h>
+#include <sys/time.h>
 #endif
 
 // --------------------------------------------------------------------------------------------------------------------
@@ -53,14 +54,23 @@ struct AudioDevice::Impl {
     // ALSA PCM handle
     snd_pcm_t* pcm = nullptr;
 
-   #if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
+   #if AUDIO_BRIDGE_UDEV
     // dynamic sample rate changes
     struct udev* udev = nullptr;
     struct udev_monitor* udev_mon = nullptr;
+    pthread_t udev_thread;
    #endif
 
+   #if AUDIO_BRIDGE_ASYNC
     // sync primitives
     pthread_t thread;
+   #else
+    // buffer for reading alsa data in RT
+    uint8_t* rawBuffer;
+
+    // buffer for converting raw buffer into float
+    float** floatBuffers;
+   #endif
 
     // whether audio device is closing down, triggered by `closeAudioDeviceImpl`
     bool closing = false;
@@ -71,34 +81,62 @@ struct AudioDevice::Impl {
 
 // --------------------------------------------------------------------------------------------------------------------
 
-#if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
-static bool _sample_rate_changed(AudioDevice::Impl* const impl)
+#if AUDIO_BRIDGE_UDEV
+static void* _audio_device_udev_thread(void* const arg)
 {
-    if (impl->udev_mon == nullptr)
-        return false;
+    AudioDevice::Impl* const impl = static_cast<AudioDevice::Impl*>(arg);
 
-    struct udev_device* dev;
-    while ((dev = udev_monitor_receive_device(impl->udev_mon)) != nullptr)
+    const int fd = udev_monitor_get_fd(impl->udev_mon);
+
+    fd_set rfds;
+    FD_ZERO(&rfds);
+
+    DEBUGPRINT("%08u | udev thread started", impl->frame);
+
+    for (int ret; ! impl->closing;)
     {
-        if (const char* const usbstate = udev_device_get_property_value(dev, "USB_STATE"))
+        struct timeval tv = { 1, 0 };
+        FD_SET(fd, &rfds);
+
+        ret = select(fd + 1, &rfds, nullptr, nullptr, &tv);
+        // DEBUGPRINT("%08u | udev ret %d", impl->frame, ret);
+
+        if (ret < 0)
+            break;
+        if (ret == 0)
+            continue;
+
+        DEBUGPRINT("%08u | new udev event!", impl->frame);
+
+        struct udev_device* dev;
+        while ((dev = udev_monitor_receive_device(impl->udev_mon)) != nullptr)
         {
-            if (std::strcmp(usbstate, "SET_SAMPLE_RATE") == 0)
-            {
-                udev_device_unref(dev);
-                return true;
-            }
            #if AUDIO_BRIDGE_DEBUG
-            if (std::strcmp(usbstate, "SET_AUDIO_CLK") == 0)
-            {
-                const char* const val = udev_device_get_property_value(dev, "PPM");
-                DEBUGPRINT("%08u | capture | got new SET_AUDIO_CLK %s", impl->frame, val);
-            }
+            struct udev_list_entry* entry = udev_device_get_properties_list_entry(dev);
+            DEBUGPRINT("%08u | new udev device message %s", impl->frame, udev_list_entry_get_name(entry));
            #endif
+
+            if (const char* const usbstate = udev_device_get_property_value(dev, "USB_STATE"))
+            {
+                if (std::strcmp(usbstate, "SET_SAMPLE_RATE") == 0)
+                {
+                    impl->closing = true;
+                    udev_device_unref(dev);
+                    break;
+                }
+                if (std::strcmp(usbstate, "SET_AUDIO_CLK") == 0)
+                {
+                    const char* const val = udev_device_get_property_value(dev, "PPM");
+                    impl->proc->ppm = std::atoi(val);
+                    DEBUGPRINT("%08u | capture | got new SET_AUDIO_CLK %s", impl->frame, val);
+                }
+            }
+            udev_device_unref(dev);
         }
-        udev_device_unref(dev);
     }
 
-    return false;
+    DEBUGPRINT("%08u | udev thread exit", impl->frame);
+    return nullptr;
 }
 #endif
 
@@ -136,6 +174,7 @@ static int _xrun_recovery(snd_pcm_t *handle, bool& closing, int err)
     return err;
 }
 
+#if AUDIO_BRIDGE_ASYNC
 static void* _audio_device_capture_thread(void* const arg)
 {
     AudioDevice::Impl* const impl = static_cast<AudioDevice::Impl*>(arg);
@@ -160,15 +199,6 @@ static void* _audio_device_capture_thread(void* const arg)
     while (! impl->closing)
     {
         DeviceState state = static_cast<DeviceState>(impl->proc->state.load());
-
-       #if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
-        // check if sample rate changed, requiring reopening audio card
-        if (_sample_rate_changed(impl))
-        {
-            impl->closing = true;
-            break;
-        }
-       #endif
 
         if (state == kDeviceInitializing)
         {
@@ -235,7 +265,7 @@ static void* _audio_device_capture_thread(void* const arg)
                     continue;
                 default:
                     impl->closing = true;
-                    DEBUGPRINT("%08u | capture | initial write error: %s", impl->frame, snd_strerror(err));
+                    DEBUGPRINT("%08u | capture | starting read error: %s", impl->frame, snd_strerror(err));
                     break;
                 }
 
@@ -562,6 +592,7 @@ static void* _audio_device_playback_thread(void* const arg)
 
     return nullptr;
 }
+#endif // AUDIO_BRIDGE_ASYNC
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -834,11 +865,13 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     impl->periodSize = hwconfig.periodSize;
     impl->fullBufferSize = hwconfig.fullBufferSize;
 
+   #if AUDIO_BRIDGE_ASYNC
     dev->proc.numBufferingSamples = std::max<uint32_t>(dev->config.bufferSize, dev->hwconfig.fullBufferSize);
     dev->proc.numBufferingSamples *= dev->config.playback ? AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS
                                                           : AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS;
+   #endif
 
-   #if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
+   #if AUDIO_BRIDGE_UDEV
     if (struct udev* const udev = udev_new())
     {
         if (struct udev_monitor* const udev_mon = udev_monitor_new_from_netlink(udev, "kernel"))
@@ -848,6 +881,13 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
 
             impl->udev = udev;
             impl->udev_mon = udev_mon;
+
+            if (pthread_create(&impl->udev_thread, nullptr, _audio_device_udev_thread, impl.get()) != 0)
+            {
+                udev_monitor_unref(impl->udev_mon);
+                udev_unref(udev);
+                goto error;
+            }
         }
         else
         {
@@ -857,6 +897,7 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
    #endif
 
     {
+       #if AUDIO_BRIDGE_ASYNC
         pthread_attr_t attr;
         pthread_attr_init(&attr);
         pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
@@ -881,6 +922,16 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
             }
         }
         pthread_attr_destroy(&attr);
+       #else
+        const uint8_t sampleSize = getSampleSizeFromFormat(impl->format);
+        const uint8_t numChannels = impl->numChannels;
+        const uint16_t periodSize = impl->periodSize;
+
+        impl->rawBuffer = new uint8_t [periodSize * sampleSize * numChannels];
+        impl->floatBuffers = new float* [numChannels];
+        for (uint8_t c = 0; c < numChannels; ++c)
+            impl->floatBuffers[c] = new float [periodSize];
+       #endif
     }
 
     return impl.release();
@@ -893,19 +944,29 @@ error:
 void closeAudioDeviceImpl(AudioDevice::Impl* const impl)
 {
     impl->closing = true;
+
+   #if AUDIO_BRIDGE_ASYNC
     pthread_join(impl->thread, nullptr);
+   #else
+    for (uint8_t c = 0; c < impl->numChannels; ++c)
+            delete[] impl->floatBuffers[c];
+    delete[] impl->floatBuffers;
+    delete[] impl->rawBuffer;
+   #endif
 
-    snd_pcm_close(impl->pcm);
-
-   #if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
+   #if AUDIO_BRIDGE_UDEV
     if (impl->udev != nullptr)
     {
+        pthread_join(impl->udev_thread, nullptr);
+
         if (impl->udev_mon != nullptr)
             udev_monitor_unref(impl->udev_mon);
 
         udev_unref(impl->udev);
     }
    #endif
+
+    snd_pcm_close(impl->pcm);
 
     delete impl;
 }
@@ -917,5 +978,141 @@ bool runAudioDevicePostImpl(AudioDevice::Impl* const impl, const uint16_t numFra
    #endif
     return !impl->disconnected;
 }
+
+// --------------------------------------------------------------------------------------------------------------------
+
+#if ! AUDIO_BRIDGE_ASYNC
+bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* const impl)
+{
+    snd_pcm_sframes_t err;
+    DeviceState state = static_cast<DeviceState>(impl->proc->state.load());
+
+    const uint8_t numChannels = impl->numChannels;
+    const uint16_t periodSize = impl->periodSize;
+
+    if (state == kDeviceInitializing)
+    {
+        // read until alsa buffers are empty
+        bool started = false;
+        while ((err = snd_pcm_mmap_readi(impl->pcm, impl->rawBuffer, periodSize)) > 0)
+            started = true;
+
+        if (err != -EAGAIN)
+        {
+            DEBUGPRINT("%08u | capture | initial read error: %s", impl->frame, snd_strerror(err));
+            impl->closing = true;
+            return false;
+        }
+
+        if (started)
+        {
+            DEBUGPRINT("%08u | capture | can read data? kDeviceInitializing -> kDeviceStarting", impl->frame);
+            state = kDeviceStarting;
+            impl->proc->state.store(kDeviceStarting);
+            impl->proc->reset.store(kDeviceResetFull);
+        }
+        else
+        {
+            // DEBUGPRINT("%08u | capture | kDeviceInitializing waiting 1 cycle", impl->frame);
+            return false;
+        }
+    }
+
+    if (state == kDeviceStarting)
+    {
+        // check if device is running
+        err = snd_pcm_avail(impl->pcm);
+
+        if (err > 0)
+        {
+            DEBUGPRINT("%08u | capture | device is running, kDeviceStarting -> kDeviceStarted", impl->frame);
+            state = kDeviceStarted;
+            impl->proc->state.store(kDeviceStarted);
+        }
+        else
+        {
+            switch (err)
+            {
+            case 0:
+                DEBUGPRINT("%08u | capture | kDeviceStarting waiting 1 cycle", impl->frame);
+                return false;
+            default:
+                DEBUGPRINT("%08u | capture | starting read error: %s", impl->frame, snd_strerror(err));
+                impl->closing = true;
+                return false;
+            }
+        }
+    }
+
+    err = snd_pcm_mmap_readi(impl->pcm, impl->rawBuffer, periodSize);
+
+    switch (err)
+    {
+    case -EAGAIN:
+    case 0:
+        DEBUGPRINT("%08u | capture | device is running but read 0 frames", impl->frame);
+        impl->proc->state.store(kDeviceInitializing);
+        impl->proc->reset.store(kDeviceResetFull);
+        return false;
+    }
+
+    if (err < 0)
+    {
+        impl->proc->state.store(kDeviceInitializing);
+        impl->proc->reset.store(kDeviceResetFull);
+
+        DEBUGPRINT("%08u | capture | Read error %s", impl->frame, snd_strerror(err));
+
+        // TODO offline recovery
+        if (_xrun_recovery(impl->pcm, impl->closing, err) < 0)
+        {
+            DEBUGPRINT("%08u | capture | xrun_recovery error: %s", impl->frame, snd_strerror(err));
+            impl->closing = true;
+        }
+
+        return false;
+    }
+
+    switch (impl->format)
+    {
+    case kSampleFormat16:
+        int2float::s16(impl->floatBuffers, impl->rawBuffer, numChannels, err);
+        break;
+    case kSampleFormat24:
+        int2float::s24(impl->floatBuffers, impl->rawBuffer, numChannels, err);
+        break;
+    case kSampleFormat24LE3:
+        int2float::s24le3(impl->floatBuffers, impl->rawBuffer, numChannels, err);
+        break;
+    case kSampleFormat32:
+        int2float::s32(impl->floatBuffers, impl->rawBuffer, numChannels, err);
+        break;
+    default:
+        DEBUGPRINT("unknown format");
+        break;
+    }
+
+    if (impl->proc->ringbuffer->write(impl->floatBuffers, err))
+    {
+        switch (state)
+        {
+        case kDeviceStarted ... kDeviceRunning - 1:
+            impl->proc->state.store(state + 1);
+            break;
+        default:
+            break;
+        }
+    }
+    else
+    {
+        impl->proc->state.store(kDeviceInitializing);
+        impl->proc->reset.store(kDeviceResetFull);
+        DEBUGPRINT("%08u | capture | ringbuffer full", impl->frame);
+        return false;
+    }
+
+    return true;
+}
+#endif
 
 // --------------------------------------------------------------------------------------------------------------------
