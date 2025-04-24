@@ -14,8 +14,14 @@
 
 #include "zita-resampler/vresampler.h"
 
-// TESTING
-// #define _DARKGLASS_DEVICE_PABLITO
+// --------------------------------------------------------------------------------------------------------------------
+
+// pre-tuned values
+#ifdef _MOD_DEVICE_DWARF
+#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 8
+#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 8
+#define AUDIO_BRIDGE_DEVICE_BUFFER_SIZE 64
+#endif
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -37,20 +43,25 @@
 // #define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2 1024
 
 // how many audio buffer-size blocks to keep in the capture ringbuffer
+#ifndef AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS
 #define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 4
+#endif
 
 // priority to assign to audio capture thread
 #define AUDIO_BRIDGE_CAPTURE_THREAD_PRIORITY 83
 
 // how many audio buffer-size blocks to keep in the playback ringbuffer
+#ifndef AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS
 #define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 4
+#endif
 
 // priority to assign to audio capture thread
 #define AUDIO_BRIDGE_PLAYBACK_THREAD_PRIORITY 82
 
 // device buffer size to use (minimum)
+#ifndef AUDIO_BRIDGE_DEVICE_BUFFER_SIZE
 #define AUDIO_BRIDGE_DEVICE_BUFFER_SIZE 16
-// #define AUDIO_BRIDGE_DEVICE_BUFFER_SIZE 256
+#endif
 
 // resample quality from 8 to 96
 #define AUDIO_BRIDGE_RESAMPLE_QUALITY 8
