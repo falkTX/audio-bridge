@@ -73,7 +73,7 @@
 #endif
 
 // use udev for dynamic resampling stats
-#if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(__MOD_DEVICES__)
+#if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
 #define AUDIO_BRIDGE_UDEV 1
 #else
 #define AUDIO_BRIDGE_UDEV 0
