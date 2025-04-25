@@ -17,6 +17,13 @@
 // --------------------------------------------------------------------------------------------------------------------
 
 // pre-tuned values
+#ifdef _DARKGLASS_DEVICE_PABLITO
+#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 2
+#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 2
+#define AUDIO_BRIDGE_DEVICE_BUFFER_SIZE 16
+#endif
+
+// pre-tuned values
 #ifdef _MOD_DEVICE_DWARF
 #define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 8
 #define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 8
@@ -44,7 +51,7 @@
 
 // how many audio buffer-size blocks to keep in the capture ringbuffer
 #ifndef AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS
-#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 4
+#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 2
 #endif
 
 // priority to assign to audio capture thread
@@ -52,7 +59,7 @@
 
 // how many audio buffer-size blocks to keep in the playback ringbuffer
 #ifndef AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS
-#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 4
+#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 2
 #endif
 
 // priority to assign to audio capture thread
@@ -92,6 +99,8 @@
 
 // ensure we don't use clock-drift filters for udev approach
 #if AUDIO_BRIDGE_UDEV
+#undef AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1
+#undef AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2
 #undef AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1
 #undef AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2
 #endif

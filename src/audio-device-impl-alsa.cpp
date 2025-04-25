@@ -18,8 +18,13 @@
 
 // --------------------------------------------------------------------------------------------------------------------
 
+#ifdef _DARKGLASS_DEVICE_PABLITO
+static constexpr const uint kNumPeriodsCapture = 4; // 64 frames
+static constexpr const uint kNumPeriodsPlayback = 9; // 144 frames
+#else
 static constexpr const uint kNumPeriodsMin = 3;
 static constexpr const uint kNumPeriodsMax = 12;
+#endif
 
 static constexpr const snd_pcm_format_t kSampleFormatsToTry[] = {
     SND_PCM_FORMAT_S32,
@@ -743,6 +748,38 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     // num periods + period size
 
     uintParam = 0;
+
+#ifdef _DARKGLASS_DEVICE_PABLITO
+    if (dev->config.playback)
+    {
+        ulongParam = 0;
+        if ((err = snd_pcm_hw_params_set_buffer_size_min(pcm, params, &ulongParam)) != 0)
+        {
+            DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_min fail %u %u %s",
+                       0, AUDIO_BRIDGE_DEVICE_BUFFER_SIZE, snd_strerror(err));
+            goto error;
+        }
+        ulongParam = AUDIO_BRIDGE_DEVICE_BUFFER_SIZE * kNumPeriodsPlayback;
+        if ((err = snd_pcm_hw_params_set_buffer_size_max(pcm, params, &ulongParam)) != 0)
+        {
+            DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_max fail %u %u %s",
+                       kNumPeriodsPlayback, AUDIO_BRIDGE_DEVICE_BUFFER_SIZE, snd_strerror(err));
+            goto error;
+        }
+        uintParam = kNumPeriodsPlayback;
+    }
+    else
+    {
+        ulongParam = AUDIO_BRIDGE_DEVICE_BUFFER_SIZE * kNumPeriodsCapture;
+        if ((err = snd_pcm_hw_params_set_buffer_size_minmax(pcm, params, &ulongParam, &ulongParam)) != 0)
+        {
+            DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_minmax fail %u %u %s",
+                       kNumPeriodsCapture, AUDIO_BRIDGE_DEVICE_BUFFER_SIZE, snd_strerror(err));
+            goto error;
+        }
+        uintParam = kNumPeriodsCapture;
+    }
+#else
     for (uint periods = kNumPeriodsMin; periods <= kNumPeriodsMax; ++periods)
     {
         if (dev->config.playback)
@@ -751,22 +788,26 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
             if ((err = snd_pcm_hw_params_set_buffer_size_max(pcm, params, &ulongParam)) != 0)
             {
                 DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_max fail %u %u %s",
-                            periods, AUDIO_BRIDGE_DEVICE_BUFFER_SIZE, snd_strerror(err));
+                           periods, AUDIO_BRIDGE_DEVICE_BUFFER_SIZE, snd_strerror(err));
                 continue;
             }
         }
-        ulongParam = AUDIO_BRIDGE_DEVICE_BUFFER_SIZE * periods;
-        if ((err = snd_pcm_hw_params_set_buffer_size_min(pcm, params, &ulongParam)) != 0)
+        else
         {
-            DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_min fail %u %u %s",
+            ulongParam = AUDIO_BRIDGE_DEVICE_BUFFER_SIZE * periods;
+            if ((err = snd_pcm_hw_params_set_buffer_size_minmax(pcm, params, &ulongParam, &ulongParam)) != 0)
+            {
+                DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_minmax fail %u %u %s",
                         periods, AUDIO_BRIDGE_DEVICE_BUFFER_SIZE, snd_strerror(err));
-            continue;
+                continue;
+            }
         }
 
         DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_min/max %u %lu", periods, ulongParam);
         uintParam = periods;
         break;
     }
+#endif
 
     if (uintParam == 0)
     {
