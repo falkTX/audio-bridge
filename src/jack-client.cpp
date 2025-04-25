@@ -245,7 +245,13 @@ static bool activate_jack_capture(ClientData* const d)
         jack_connect(client, "mod-usbgadget_c:p4", "mod-host:in2");
     }
    #elif defined(_DARKGLASS_DEVICE_PABLITO)
-    jack_connect(client, "usbgadget-capture:p9", "anagram-input:usb");
+    jack_connect(client, "usbgadget-capture:p3", "system:playback_1");
+    jack_connect(client, "usbgadget-capture:p4", "system:playback_2");
+    jack_connect(client, "usbgadget-capture:p5", "system:playback_3");
+    jack_connect(client, "usbgadget-capture:p6", "system:playback_4");
+    jack_connect(client, "usbgadget-capture:p7", "system:playback_7");
+    jack_connect(client, "usbgadget-capture:p8", "system:playback_8");
+    jack_connect(client, "usbgadget-capture:p9", "anagram-input:usbin");
    #endif
   #endif
 
@@ -279,7 +285,9 @@ static bool activate_jack_playback(ClientData* const d)
     jack_connect(client, "mod-monitor:out_1", "mod-usbgadget_p:p3");
     jack_connect(client, "mod-monitor:out_2", "mod-usbgadget_p:p4");
    #elif defined(_DARKGLASS_DEVICE_PABLITO)
-    jack_connect(client, "anagram-input:out", "usbgadget-playback:p3");
+    jack_connect(client, "anagram-output:out1", "usbgadget-playback:p1");
+    jack_connect(client, "anagram-output:out2", "usbgadget-playback:p2");
+    jack_connect(client, "anagram-input:usbout", "usbgadget-playback:p3");
    #endif
   #endif
 
