@@ -388,7 +388,9 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
         if (dev->stats.ppm != dev->proc.ppm)
         {
             dev->stats.ppm = dev->proc.ppm;
-            const double balratio = 1.0 - static_cast<double>(dev->stats.ppm) / 1000000.0;
+            const double balratio = dev->config.playback
+                                  ? 1.0 + static_cast<double>(dev->stats.ppm) / 1000000.0
+                                  : 1.0 - static_cast<double>(dev->stats.ppm) / 1000000.0;
             dev->hostproc.resampler->set_rratio(balratio);
             DEBUGPRINT("%08u | drift check %.8f | %u",
                        dev->stats.framesDone,
