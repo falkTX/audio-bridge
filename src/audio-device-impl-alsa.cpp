@@ -741,7 +741,7 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     }
 
     snd_pcm_hw_params_get_channels(params, &uintParam);
-    DEBUGPRINT("num channels %u | %u", uintParam, hwconfig.numChannels);
+    DEBUGPRINT("num channels req: %u, got: %u", hwconfig.numChannels, uintParam);
     hwconfig.numChannels = uintParam;
 
     // ----------------------------------------------------------------------------------------------------------------
@@ -820,15 +820,15 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     hwconfig.fullBufferSize = AUDIO_BRIDGE_DEVICE_BUFFER_SIZE * uintParam;
 
     snd_pcm_hw_params_get_periods(params, &uintParam, nullptr);
-    DEBUGPRINT("num periods %u | %u", uintParam, hwconfig.numPeriods);
+    DEBUGPRINT("num periods req: %u, got: %u", hwconfig.numPeriods, uintParam);
     hwconfig.numPeriods = uintParam;
 
     snd_pcm_hw_params_get_period_size(params, &ulongParam, nullptr);
-    DEBUGPRINT("period size %lu | %u", ulongParam, hwconfig.periodSize);
+    DEBUGPRINT("period size req: %u, got: %lu", hwconfig.periodSize, ulongParam);
     hwconfig.periodSize = ulongParam;
 
     snd_pcm_hw_params_get_buffer_size(params, &ulongParam);
-    DEBUGPRINT("full buffer size %lu | %u", ulongParam, hwconfig.fullBufferSize);
+    DEBUGPRINT("full buffer size %u, got: %lu", hwconfig.fullBufferSize, ulongParam);
     hwconfig.fullBufferSize = ulongParam;
 
     // ----------------------------------------------------------------------------------------------------------------
