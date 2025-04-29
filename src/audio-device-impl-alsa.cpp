@@ -129,12 +129,14 @@ static void* _audio_device_udev_thread(void* const arg)
                     udev_device_unref(dev);
                     break;
                 }
+                /*
                 if (std::strcmp(usbstate, "SET_AUDIO_CLK") == 0)
                 {
                     const char* const val = udev_device_get_property_value(dev, "PPM");
                     impl->proc->ppm = std::atoi(val);
                     DEBUGPRINT("%08u | capture | got new SET_AUDIO_CLK %s", impl->frame, val);
                 }
+                */
             }
             udev_device_unref(dev);
         }
