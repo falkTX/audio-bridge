@@ -350,7 +350,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
             dev->hostproc.leftoverResampledFrames = leftoverFrames;
         }
        #else
-        ok = runAudioDeviceCaptureSyncImpl(dev->impl);
+        ok = runAudioDeviceCaptureSyncImpl(dev->impl, numFrames);
 
         if (ok && state == kDeviceRunning)
         {

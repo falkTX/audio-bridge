@@ -34,10 +34,10 @@
 
 // print debug messages for development
 // NOTE messages are mixed for capture and playback, do not enable while running both
-#define AUDIO_BRIDGE_DEBUG 0
+#define AUDIO_BRIDGE_DEBUG 1
 
 // run audio in async mode, using separate thread, ringbuffer and dynamic resampling
-#define AUDIO_BRIDGE_ASYNC 1
+#define AUDIO_BRIDGE_ASYNC 0
 
 // how many seconds to wait until start trying to compensate for clock drift
 #define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1  2 /* start ratio calculations */
@@ -129,7 +129,7 @@ enum DeviceState {
     kDeviceStarted,
     kDeviceBuffering,
    #if ! AUDIO_BRIDGE_ASYNC
-    kDeviceBufferings = kDeviceBuffering + 16,
+//     kDeviceBufferings = kDeviceBuffering + 16,
    #endif
     kDeviceRunning,
 };
