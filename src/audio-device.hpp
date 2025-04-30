@@ -19,6 +19,7 @@
 // pre-tuned values
 #ifdef _DARKGLASS_DEVICE_PABLITO
 #define AUDIO_BRIDGE_ASYNC 0
+#define AUDIO_BRIDGE_UDEV 0
 #define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 2
 #define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 2
 #define AUDIO_BRIDGE_DEVICE_BUFFER_SIZE 16
@@ -82,6 +83,11 @@
 #define AUDIO_BRIDGE_RESAMPLE_QUALITY 8
 #endif
 
+// use udev for dynamic resampling stats
+#ifndef AUDIO_BRIDGE_UDEV
+#define AUDIO_BRIDGE_UDEV 0
+#endif
+
 // enable smooth audio ramping when starting fresh
 #define AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING 0
 
@@ -98,9 +104,6 @@
 #undef AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
 #define AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING 1
 #endif
-
-// use udev for dynamic resampling stats
-#define AUDIO_BRIDGE_UDEV 0
 
 // ensure we don't use clock-drift filters for sync or udev approach
 #if AUDIO_BRIDGE_UDEV || ! AUDIO_BRIDGE_ASYNC

@@ -2,10 +2,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "audio-device.hpp"
+#ifdef AUDIO_BRIDGE_ALSA
 #include "audio-device-discovery.hpp"
+#endif
+
+#include <cstdlib>
+#include <cstring>
 
 #include <jack/jack.h>
-#include <cstring>
 #include <unistd.h>
 
 struct ClientData;
