@@ -10,14 +10,10 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <unistd.h>
-// #include <sched.h>
-
-#define PAGE_SIZE 1024
-
-#define USABLE_KERNEL_BUFFER_SIZE (PAGE_SIZE - sizeof(int) * 4)
 
 // --------------------------------------------------------------------------------------------------------------------
 
+// data shared with kernel
 struct uac_mmap_data {
     uint8_t active_kernel;
     uint8_t active_userspace;
@@ -43,6 +39,7 @@ struct AudioDevice::Impl {
     uint32_t frame = 0;
    #endif
 
+    // direct kernel memory access
     int fd;
     uac_mmap_data* mdata;
 
