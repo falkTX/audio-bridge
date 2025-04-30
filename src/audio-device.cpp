@@ -63,21 +63,17 @@ void resetAudioDeviceStats(AudioDevice* const dev)
    #endif
 }
 
-#endif // AUDIO_BRIDGE_ASYNC
-
 // reset/empty audio device ringbuffer
 // triggered from kDeviceResetFull
 static inline
 void resetAudioDeviceRingBuffer(AudioDevice* const dev)
 {
-#if AUDIO_BRIDGE_ASYNC
     pthread_mutex_lock(&dev->proc.ringbufferLock);
-#endif
     dev->proc.ringbuffer->flush();
-#if AUDIO_BRIDGE_ASYNC
     pthread_mutex_unlock(&dev->proc.ringbufferLock);
-#endif
 }
+
+#endif // AUDIO_BRIDGE_ASYNC
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -107,13 +103,13 @@ AudioDevice* initAudioDevice(const char* const deviceID,
         return nullptr;
     }
 
+  #if AUDIO_BRIDGE_ASYNC
     const uint8_t numChannels = dev->hwconfig.numChannels;
 
     const uint32_t ringbufferSize = std::max(sampleRate, dev->hwconfig.sampleRate);
     dev->proc.ringbuffer = new AudioRingBuffer;
     dev->proc.ringbuffer->createBuffer(numChannels, ringbufferSize);
 
-  #if AUDIO_BRIDGE_ASYNC
     {
         pthread_mutexattr_t attr;
         pthread_mutexattr_init(&attr);
@@ -158,6 +154,10 @@ AudioDevice* initAudioDevice(const char* const deviceID,
 
 bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t numFrames)
 {
+    bool ok = false;
+    const uint8_t numChannels = dev->hwconfig.numChannels;
+
+#if AUDIO_BRIDGE_ASYNC
     if (const DeviceReset reset = static_cast<DeviceReset>(dev->proc.reset.load()))
     {
         switch (reset)
@@ -166,28 +166,22 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
             break;
         case kDeviceResetFull:
             resetAudioDeviceRingBuffer(dev);
-       #if AUDIO_BRIDGE_ASYNC
             [[fallthrough]];
         case kDeviceResetStats:
             resetAudioDeviceStats(dev);
-       #endif
             break;
         }
         dev->proc.reset.store(kDeviceResetNone);
     }
 
     const DeviceState state = static_cast<DeviceState>(dev->proc.state.load());
-    bool ok = false;
-  #if AUDIO_BRIDGE_ASYNC
     float** tempBuffers = dev->hostproc.tempBuffers;
    #if AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
     float gain;
    #endif
-  #endif
 
     if (dev->config.playback)
     {
-       #if AUDIO_BRIDGE_ASYNC
         if (state == kDeviceStarted)
         {
             DEBUGPRINT("%08u | playback | host is running, kDeviceStarted -> kDeviceBuffering", dev->stats.framesDone);
@@ -215,7 +209,6 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
             const uint16_t resampledFrames = tempBufferSize - dev->hostproc.resampler->out_count;
 
            #if AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
-            const uint8_t numChannels = dev->hwconfig.numChannels;
             for (uint16_t i = 0; i < resampledFrames; ++i)
             {
                 gain = dev->hostproc.gain.next();
@@ -231,13 +224,9 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
 
             DISTRHO_SAFE_ASSERT(ok);
         }
-       #endif
     }
     else
     {
-        const uint8_t numChannels = dev->hwconfig.numChannels;
-
-       #if AUDIO_BRIDGE_ASYNC
         if (state == kDeviceStarted)
         {
             DEBUGPRINT("%08u | capture | host is running, kDeviceStarted -> kDeviceBuffering", dev->stats.framesDone);
@@ -349,14 +338,6 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
             }
             dev->hostproc.leftoverResampledFrames = leftoverFrames;
         }
-       #else
-        ok = runAudioDeviceCaptureSyncImpl(dev->impl, numFrames);
-
-        if (ok && state == kDeviceRunning)
-        {
-            ok = dev->proc.ringbuffer->read(buffers, numFrames);
-        }
-       #endif
 
         if (! ok)
         {
@@ -364,6 +345,22 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
                 std::memset(buffers[c], 0, sizeof(float) * numFrames);
         }
     }
+   #else // AUDIO_BRIDGE_ASYNC
+    if (dev->config.playback)
+    {
+        ok = runAudioDevicePlaybackSyncImpl(dev->impl, buffers, numFrames);
+    }
+    else
+    {
+        ok = runAudioDeviceCaptureSyncImpl(dev->impl, buffers, numFrames);
+
+        if (! ok)
+        {
+            for (uint8_t c = 0; c < numChannels; ++c)
+                std::memset(buffers[c], 0, sizeof(float) * numFrames);
+        }
+    }
+   #endif // AUDIO_BRIDGE_ASYNC
 
   #if AUDIO_BRIDGE_DEBUG
     static bool lastok = false;
@@ -476,9 +473,9 @@ void closeAudioDevice(AudioDevice* const dev)
 {
     closeAudioDeviceImpl(dev->impl);
 
+   #if AUDIO_BRIDGE_ASYNC
     delete dev->proc.ringbuffer;
 
-   #if AUDIO_BRIDGE_ASYNC
     delete dev->hostproc.resampler;
     pthread_mutex_destroy(&dev->proc.ringbufferLock);
 

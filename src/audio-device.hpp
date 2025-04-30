@@ -18,8 +18,8 @@
 
 // pre-tuned values
 #ifdef _DARKGLASS_DEVICE_PABLITO
-#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 4
-#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 4
+#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 2
+#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 2
 #define AUDIO_BRIDGE_DEVICE_BUFFER_SIZE 16
 #endif
 
@@ -34,7 +34,7 @@
 
 // print debug messages for development
 // NOTE messages are mixed for capture and playback, do not enable while running both
-#define AUDIO_BRIDGE_DEBUG 1
+#define AUDIO_BRIDGE_DEBUG 0
 
 // run audio in async mode, using separate thread, ringbuffer and dynamic resampling
 #define AUDIO_BRIDGE_ASYNC 0
@@ -126,24 +126,32 @@ enum DeviceReset {
 enum DeviceState {
     kDeviceInitializing = 0,
     kDeviceStarting,
+   #if AUDIO_BRIDGE_ASYNC
     kDeviceStarted,
-    kDeviceBuffering,
-   #if ! AUDIO_BRIDGE_ASYNC
-//     kDeviceBufferings = kDeviceBuffering + 16,
    #endif
+    kDeviceBuffering,
     kDeviceRunning,
 };
 
 static constexpr const double kRingBufferDataFactor = 32;
 
 static inline constexpr
-uint8_t getSampleSizeFromFormat(const uint8_t format)
+uint8_t getSampleSizeFromFormat(const SampleFormat format)
 {
     return format == kSampleFormat16 ? sizeof(int16_t) :
            format == kSampleFormat24 ? sizeof(int32_t) :
            format == kSampleFormat24LE3 ? 3 :
            format == kSampleFormat32 ? sizeof(int32_t) :
            0;
+}
+
+static inline constexpr
+SampleFormat getSampleFormatFromSize(const uint8_t size)
+{
+    return size == 2 ? kSampleFormat16 :
+           size == 3 ? kSampleFormat24LE3 :
+           size == 4 ? kSampleFormat32 :
+           kSampleFormatInvalid;
 }
 
 static inline constexpr
@@ -177,13 +185,11 @@ struct AudioDevice {
 
     // shared process data between host code and device implementations
     mutable struct Process {
-        AudioRingBuffer* ringbuffer;
-       #if AUDIO_BRIDGE_ASYNC
-        pthread_mutex_t ringbufferLock;
-       #endif
-        std::atomic<int> reset = { kDeviceResetNone };
         std::atomic<int> state = { kDeviceInitializing };
        #if AUDIO_BRIDGE_ASYNC
+        AudioRingBuffer* ringbuffer;
+        pthread_mutex_t ringbufferLock;
+        std::atomic<int> reset = { kDeviceResetNone };
         uint32_t numBufferingSamples;
        #endif
        #if AUDIO_BRIDGE_UDEV
