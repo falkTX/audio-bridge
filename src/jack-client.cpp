@@ -256,6 +256,11 @@ static bool activate_jack_capture(ClientData* const d)
     jack_connect(client, "usbgadget-capture:p7", "system:playback_7");
     jack_connect(client, "usbgadget-capture:p8", "system:playback_8");
     jack_connect(client, "usbgadget-capture:p9", "anagram-input:usbin");
+    if (jack_port_by_name(client, "effect_9992:inUSBL") != nullptr)
+    {
+        jack_connect(client, "usbgadget-capture:p1", "effect_9992:inUSBL");
+        jack_connect(client, "usbgadget-capture:p2", "effect_9992:inUSBR");
+    }
    #endif
   #endif
 
