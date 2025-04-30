@@ -34,7 +34,7 @@
 
 // print debug messages for development
 // NOTE messages are mixed for capture and playback, do not enable while running both
-#define AUDIO_BRIDGE_DEBUG 0
+#define AUDIO_BRIDGE_DEBUG 1
 
 // run audio in async mode, using separate thread, ringbuffer and dynamic resampling
 #define AUDIO_BRIDGE_ASYNC 0
@@ -124,12 +124,12 @@ enum DeviceReset {
 };
 
 enum DeviceState {
+   #if AUDIO_BRIDGE_ASYNC
     kDeviceInitializing = 0,
     kDeviceStarting,
-   #if AUDIO_BRIDGE_ASYNC
     kDeviceStarted,
-   #endif
     kDeviceBuffering,
+   #endif
     kDeviceRunning,
 };
 
@@ -183,21 +183,19 @@ struct AudioDevice {
         uint32_t sampleRate;
     } hwconfig;
 
+   #if AUDIO_BRIDGE_ASYNC
     // shared process data between host code and device implementations
     mutable struct Process {
         std::atomic<int> state = { kDeviceInitializing };
-       #if AUDIO_BRIDGE_ASYNC
         AudioRingBuffer* ringbuffer;
         pthread_mutex_t ringbufferLock;
         std::atomic<int> reset = { kDeviceResetNone };
         uint32_t numBufferingSamples;
-       #endif
        #if AUDIO_BRIDGE_UDEV
         int ppm;
        #endif
     } proc;
 
-   #if AUDIO_BRIDGE_ASYNC
     // host process data
     struct {
         VResampler* resampler;

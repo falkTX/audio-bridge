@@ -89,10 +89,12 @@ AudioDevice* initAudioDevice(const char* const deviceID,
     dev->config.bufferSize = bufferSize;
     dev->config.sampleRate = sampleRate;
 
+  #if AUDIO_BRIDGE_ASYNC
     dev->proc.state = kDeviceInitializing;
    #if AUDIO_BRIDGE_UDEV
     dev->proc.ppm = 0;
    #endif
+  #endif
    #if AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
     dev->enabled = enabled;
    #endif
@@ -345,7 +347,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
                 std::memset(buffers[c], 0, sizeof(float) * numFrames);
         }
     }
-   #else // AUDIO_BRIDGE_ASYNC
+#else // AUDIO_BRIDGE_ASYNC
     if (dev->config.playback)
     {
         ok = runAudioDevicePlaybackSyncImpl(dev->impl, buffers, numFrames);
@@ -360,14 +362,26 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
                 std::memset(buffers[c], 0, sizeof(float) * numFrames);
         }
     }
-   #endif // AUDIO_BRIDGE_ASYNC
+#endif // AUDIO_BRIDGE_ASYNC
 
   #if AUDIO_BRIDGE_DEBUG
-    static bool lastok = false;
-    if (lastok != ok)
+    static bool lastok_c = false;
+    static bool lastok_p = false;
+    if (dev->config.playback)
     {
-        DEBUGPRINT("%08u | -------------------------------------- is ok %d", dev->stats.framesDone, ok);
-        lastok = ok;
+        if (lastok_p != ok)
+        {
+            DEBUGPRINT("%010u | -------------------------------------- is ok %d", dev->stats.framesDone, ok);
+            lastok_p = ok;
+        }
+    }
+    else
+    {
+        if (lastok_c != ok)
+        {
+            DEBUGPRINT("%010u | -------------------------------------- is ok %d", dev->stats.framesDone, ok);
+            lastok_c = ok;
+        }
     }
 
    #if AUDIO_BRIDGE_ASYNC

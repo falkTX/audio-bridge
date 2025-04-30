@@ -31,9 +31,6 @@ struct AudioDevice::Impl {
     bool playback;
     uint16_t sampleRate;
 
-    // direct pointer
-    Process* proc;
-
    #if AUDIO_BRIDGE_DEBUG
     // monotonic frame counter
     uint32_t frame = 0;
@@ -43,11 +40,11 @@ struct AudioDevice::Impl {
     int fd;
     uac_mmap_data* mdata;
 
-    // buffer for reading alsa data in RT
+    // buffer for read/write ringbuffer data into
     uint8_t* rawBuffer;
 
-    // whether audio device is closing down, triggered by `closeAudioDeviceImpl`
-    bool closing = false;
+    // whether audio processing has been called at least once
+    bool started = false;
 
     // whether audio device has been disconnected
     bool disconnected = false;
@@ -60,7 +57,6 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     std::unique_ptr<AudioDevice::Impl> impl = std::unique_ptr<AudioDevice::Impl>(new AudioDevice::Impl);
     impl->playback = dev->config.playback;
     impl->sampleRate = dev->config.sampleRate;
-    impl->proc = &dev->proc;
 
     // ----------------------------------------------------------------------------------------------------------------
 
@@ -75,6 +71,12 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     if (read(fd, &fdata, sizeof(fdata)) != sizeof(fdata))
     {
         DEBUGPRINT("failed to read uac proc file");
+        close(fd);
+        return nullptr;
+    }
+
+    if (fdata.active_kernel == 0)
+    {
         close(fd);
         return nullptr;
     }
@@ -113,8 +115,6 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
 
 void closeAudioDeviceImpl(AudioDevice::Impl* const impl)
 {
-    impl->closing = true;
-
     delete[] impl->rawBuffer;
 
     const size_t mmap_size = sizeof(uac_mmap_data) + impl->mdata->buffer_size;
@@ -139,98 +139,58 @@ bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* const impl, float* buffers
 {
     uac_mmap_data* const mdata = impl->mdata;
 
-    if (mdata->active_kernel == 0 || mdata->sample_rate != impl->sampleRate)
+    if (mdata->active_kernel == 0)
     {
-        impl->closing = true;
+        DEBUGPRINT("%08u | capture | kernel is not ready, closing", impl->frame);
+        impl->disconnected = true;
         return false;
     }
-
-    DeviceState state = static_cast<DeviceState>(impl->proc->state.load());
+    if (mdata->sample_rate != impl->sampleRate)
+    {
+        DEBUGPRINT("%08u | capture | sample rate changed, closing", impl->frame);
+        impl->disconnected = true;
+        return false;
+    }
 
     const uint32_t numChannels = mdata->num_channels;
     const uint32_t sampleSize = mdata->data_size;
     const uint32_t bufferSize = mdata->buffer_size;
 
-    if (state == kDeviceInitializing)
+    if (! impl->started)
     {
-        if (mdata->active_kernel != 0)
-        {
-            DEBUGPRINT("%08u | capture | kernel is ready kDeviceInitializing -> kDeviceStarting", impl->frame);
-            state = kDeviceStarting;
-            impl->proc->state.store(kDeviceStarting);
-        }
-        else
-        {
-            // DEBUGPRINT("%08u | capture | kernel is not ready, waiting 1 cycle", impl->frame);
-            return false;
-        }
-    }
-
-    if (state == kDeviceStarting)
-    {
-        DEBUGPRINT("%08u | capture | kernel is ready kDeviceStarting -> kDeviceBuffering", impl->frame);
+        DEBUGPRINT("%08u | capture | kernel is ready, starting", impl->frame);
+        impl->started = true;
         mdata->active_userspace = 2;
-        state = kDeviceBuffering;
-        impl->proc->state.store(kDeviceBuffering);
         return false;
     }
 
-    const uint32_t numFramesBytes = numFrames * numChannels * sampleSize;
+    const int32_t numFramesBytes = numFrames * numChannels * sampleSize;
     uint32_t bufpos_kernel = mdata->bufpos_kernel;
+    uint32_t bufpos_userspace;
+    int32_t distance, pending;
 
     __atomic_thread_fence(__ATOMIC_ACQUIRE);
-    uint32_t bufpos_userspace = mdata->bufpos_userspace;
+    bufpos_userspace = mdata->bufpos_userspace;
+    distance = (bufpos_kernel - bufpos_userspace) % bufferSize;
 
-//     if (state == kDeviceBuffering)
+    if (distance < numFramesBytes)
     {
-        uint32_t distance = (bufpos_kernel - bufpos_userspace) % bufferSize;
+        DEBUGPRINT("%08u | capture | out of data | %u", impl->frame, distance / sampleSize / numChannels);
+        bufpos_userspace = (bufpos_kernel - numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS) % bufferSize;
 
-        if (distance < numFramesBytes)
-        {
-            DEBUGPRINT("%08u | capture | out of data | %u", impl->frame, distance / sampleSize / numChannels);
-            bufpos_userspace = (bufpos_kernel - numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS) % bufferSize;
-
-            if (const uint32_t rest = bufpos_userspace % (numChannels * sampleSize))
-                bufpos_userspace -= rest;
-
-            if ((bufpos_kernel % (numChannels * sampleSize)) != 0)
-            {
-                DEBUGPRINT("%08u | capture | bufpos_kernel1 %u (numChannels * sampleSize) %u",
-                           impl->frame, bufpos_userspace, numChannels * sampleSize);
-                abort();
-            }
-            if ((bufpos_userspace % (numChannels * sampleSize)) != 0)
-            {
-                DEBUGPRINT("%08u | capture | bufpos_userspace1 %u (numChannels * sampleSize) %u",
-                           impl->frame, bufpos_userspace, numChannels * sampleSize);
-                abort();
-            }
-        }
-
-        while (distance > numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS + numFramesBytes * 4)
-        {
-            DEBUGPRINT("%08u | capture | too much data | %u", impl->frame, distance / sampleSize / numChannels);
-            // skip ahead one audio cycle
-            bufpos_userspace = (bufpos_userspace + numFramesBytes) % bufferSize;
-            distance -= numFramesBytes;
-
-            if ((bufpos_userspace % numChannels * sampleSize) != 0)
-            {
-                DEBUGPRINT("%08u | capture | bufpos_userspace2 %u numChannels * sampleSize %u",
-                           impl->frame, bufpos_userspace, numChannels * sampleSize);
-                abort();
-            }
-        }
-
-        if (state == kDeviceBuffering)
-        {
-            DEBUGPRINT("%08u | capture | kernel has enough samples kDeviceBuffering -> kDeviceRunning | %u", impl->frame, distance / sampleSize / numChannels);
-            state = kDeviceRunning;
-            impl->proc->state.store(kDeviceRunning);
-        }
+        if ((pending = bufpos_userspace % (numChannels * sampleSize)) != 0)
+            bufpos_userspace -= pending;
     }
 
-    uint32_t pending = bufferSize - bufpos_userspace;
+    while (distance > numFramesBytes * (AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS + 4))
+    {
+        DEBUGPRINT("%08u | capture | too much data | %u", impl->frame, distance / sampleSize / numChannels);
+        // skip ahead one audio cycle
+        bufpos_userspace = (bufpos_userspace + numFramesBytes) % bufferSize;
+        distance -= numFramesBytes;
+    }
+
+    pending = bufferSize - bufpos_userspace;
 
     if (pending < numFramesBytes)
     {
@@ -244,13 +204,6 @@ bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* const impl, float* buffers
 
     __atomic_thread_fence(__ATOMIC_RELEASE);
     mdata->bufpos_userspace = (bufpos_userspace + numFramesBytes) % bufferSize;
-
-    if ((mdata->bufpos_userspace % numChannels * sampleSize) != 0)
-    {
-        DEBUGPRINT("%08u | capture | bufpos_userspace3 %u numChannels * sampleSize %u",
-                    impl->frame, mdata->bufpos_userspace, numChannels * sampleSize);
-        abort();
-    }
 
     switch (mdata->data_size)
     {
@@ -277,28 +230,25 @@ bool runAudioDevicePlaybackSyncImpl(AudioDevice::Impl* impl, float* buffers[], u
 {
     uac_mmap_data* const mdata = impl->mdata;
 
-    if (mdata->active_kernel == 0 || mdata->sample_rate != impl->sampleRate)
+    if (mdata->active_kernel == 0)
     {
-        impl->closing = true;
+        DEBUGPRINT("%08u | playback | kernel is not ready, closing", impl->frame);
+        impl->disconnected = true;
+        return false;
+    }
+    if (mdata->sample_rate != impl->sampleRate)
+    {
+        DEBUGPRINT("%08u | playback | sample rate changed, closing", impl->frame);
+        impl->disconnected = true;
         return false;
     }
 
-    DeviceState state = static_cast<DeviceState>(impl->proc->state.load());
-
-    if (state == kDeviceInitializing)
+    if (! impl->started)
     {
-        if (mdata->active_kernel != 0)
-        {
-            DEBUGPRINT("%08u | capture | kernel is ready kDeviceInitializing -> kDeviceBuffering", impl->frame);
-            mdata->active_userspace = 2;
-            state = kDeviceBuffering;
-            impl->proc->state.store(kDeviceBuffering);
-        }
-        else
-        {
-            // DEBUGPRINT("%08u | capture | kernel is not ready, waiting 1 cycle", impl->frame);
-            return false;
-        }
+        DEBUGPRINT("%08u | playback | kernel is ready, starting", impl->frame);
+        impl->started = true;
+        mdata->active_userspace = 2;
+        return false;
     }
 
     const uint32_t numChannels = mdata->num_channels;
@@ -321,62 +271,34 @@ bool runAudioDevicePlaybackSyncImpl(AudioDevice::Impl* impl, float* buffers[], u
         return false;
     }
 
-    const uint32_t numFramesBytes = numFrames * numChannels * sampleSize;
+    const int32_t numFramesBytes = numFrames * numChannels * sampleSize;
     uint32_t bufpos_kernel = mdata->bufpos_kernel;
+    uint32_t bufpos_userspace;
+    int32_t distance, pending;
 
     __atomic_thread_fence(__ATOMIC_ACQUIRE);
-    uint32_t bufpos_userspace = mdata->bufpos_userspace;
+    bufpos_userspace = mdata->bufpos_userspace;
 
-//     if (state == kDeviceBuffering)
+    distance = (bufpos_userspace - bufpos_kernel) % bufferSize;
+
+    if (distance < numFramesBytes)
     {
-        uint32_t distance = (bufpos_userspace - bufpos_kernel) % bufferSize;
-
-        if (distance < numFramesBytes)
-        {
-            DEBUGPRINT("%08u | playback | out of data | %u", impl->frame, distance / sampleSize / numChannels);
-            bufpos_userspace = (bufpos_kernel + numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS) % bufferSize;
-
-            if ((bufpos_kernel % (numChannels * sampleSize)) != 0)
-            {
-                DEBUGPRINT("%08u | playback | bufpos_kernel1 %u (numChannels * sampleSize) %u",
-                           impl->frame, bufpos_userspace, numChannels * sampleSize);
-                abort();
-            }
-            if ((bufpos_userspace % (numChannels * sampleSize)) != 0)
-            {
-                DEBUGPRINT("%08u | playback | bufpos_userspace1 %u (numChannels * sampleSize) %u",
-                           impl->frame, bufpos_userspace, numChannels * sampleSize);
-                abort();
-            }
-        }
-
-        while (distance > numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS + numFramesBytes * 4)
-        {
-            DEBUGPRINT("%08u | playback | too much data | %u", impl->frame, distance / sampleSize / numChannels);
-            // skip ahead one audio cycle
-            bufpos_userspace = (bufpos_userspace - numFramesBytes) % bufferSize;
-            distance -= numFramesBytes;
-
-            if (const uint32_t rest = bufpos_userspace % (numChannels * sampleSize))
-                bufpos_userspace -= rest;
-
-            if ((bufpos_userspace % numChannels * sampleSize) != 0)
-            {
-                DEBUGPRINT("%08u | capture | bufpos_userspace2 %u numChannels * sampleSize %u",
-                           impl->frame, bufpos_userspace, numChannels * sampleSize);
-                abort();
-            }
-        }
-
-        if (state == kDeviceBuffering)
-        {
-            DEBUGPRINT("%08u | playback | wrote enough samples kDeviceBuffering -> kDeviceRunning | %u", impl->frame, distance / sampleSize / numChannels);
-            state = kDeviceRunning;
-            impl->proc->state.store(kDeviceRunning);
-        }
+        DEBUGPRINT("%08u | playback | out of data | %u", impl->frame, distance / sampleSize / numChannels);
+        bufpos_userspace = (bufpos_kernel + numFramesBytes * AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS) % bufferSize;
     }
 
-    uint32_t pending = bufferSize - bufpos_userspace;
+    while (distance > numFramesBytes * (AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS + 4))
+    {
+        DEBUGPRINT("%08u | playback | too much data | %u", impl->frame, distance / sampleSize / numChannels);
+        // skip ahead one audio cycle
+        bufpos_userspace = (bufpos_userspace - numFramesBytes) % bufferSize;
+        distance -= numFramesBytes;
+
+        if ((pending = bufpos_userspace % (numChannels * sampleSize)) != 0)
+            bufpos_userspace -= pending;
+    }
+
+    pending = bufferSize - bufpos_userspace;
 
     if (pending < numFramesBytes)
     {
@@ -390,13 +312,6 @@ bool runAudioDevicePlaybackSyncImpl(AudioDevice::Impl* impl, float* buffers[], u
 
     __atomic_thread_fence(__ATOMIC_RELEASE);
     mdata->bufpos_userspace = (bufpos_userspace + numFramesBytes) % bufferSize;
-
-    if ((mdata->bufpos_userspace % numChannels * sampleSize) != 0)
-    {
-        DEBUGPRINT("%08u | capture | bufpos_userspace2 %u numChannels * sampleSize %u",
-                    impl->frame, mdata->bufpos_userspace, numChannels * sampleSize);
-        abort();
-    }
 
     return true;
 }

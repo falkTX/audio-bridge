@@ -156,7 +156,11 @@ struct PluginData {
 
         if (dev != nullptr)
         {
+           #if AUDIO_BRIDGE_ASYNC
             *controlports[kControlState] = dev->proc.state + 1;
+           #else
+            *controlports[kControlState] = kDeviceRunning + 1;
+           #endif
             *controlports[kControlNumChannels] = dev->hwconfig.numChannels;
             *controlports[kControlNumPeriods] = dev->hwconfig.numPeriods;
             *controlports[kControlPeriodSize] = dev->hwconfig.periodSize;
