@@ -18,6 +18,7 @@
 
 // pre-tuned values
 #ifdef _DARKGLASS_DEVICE_PABLITO
+#define AUDIO_BRIDGE_ASYNC 0
 #define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 2
 #define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 2
 #define AUDIO_BRIDGE_DEVICE_BUFFER_SIZE 16
@@ -37,7 +38,9 @@
 #define AUDIO_BRIDGE_DEBUG 1
 
 // run audio in async mode, using separate thread, ringbuffer and dynamic resampling
+#ifndef AUDIO_BRIDGE_ASYNC
 #define AUDIO_BRIDGE_ASYNC 0
+#endif
 
 // how many seconds to wait until start trying to compensate for clock drift
 #define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1  2 /* start ratio calculations */
@@ -55,7 +58,9 @@
 #endif
 
 // priority to assign to audio capture thread
-#define AUDIO_BRIDGE_CAPTURE_THREAD_PRIORITY 83
+#ifndef AUDIO_BRIDGE_CAPTURE_THREAD_PRIORITY
+#define AUDIO_BRIDGE_CAPTURE_THREAD_PRIORITY 71
+#endif
 
 // how many audio buffer-size blocks to keep in the playback ringbuffer
 #ifndef AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS
@@ -63,7 +68,9 @@
 #endif
 
 // priority to assign to audio capture thread
-#define AUDIO_BRIDGE_PLAYBACK_THREAD_PRIORITY 82
+#ifndef AUDIO_BRIDGE_PLAYBACK_THREAD_PRIORITY
+#define AUDIO_BRIDGE_PLAYBACK_THREAD_PRIORITY 70
+#endif
 
 // device buffer size to use (minimum)
 #ifndef AUDIO_BRIDGE_DEVICE_BUFFER_SIZE
@@ -71,7 +78,9 @@
 #endif
 
 // resample quality from 8 to 96
+#ifndef AUDIO_BRIDGE_RESAMPLE_QUALITY
 #define AUDIO_BRIDGE_RESAMPLE_QUALITY 8
+#endif
 
 // enable smooth audio ramping when starting fresh
 #define AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING 0
@@ -91,14 +100,10 @@
 #endif
 
 // use udev for dynamic resampling stats
-#if defined(AUDIO_BRIDGE_INTERNAL_JACK_CLIENT) && defined(_DARKGLASS_DEVICE_PABLITO)
-#define AUDIO_BRIDGE_UDEV 1
-#else
 #define AUDIO_BRIDGE_UDEV 0
-#endif
 
-// ensure we don't use clock-drift filters for udev approach
-#if AUDIO_BRIDGE_UDEV
+// ensure we don't use clock-drift filters for sync or udev approach
+#if AUDIO_BRIDGE_UDEV || ! AUDIO_BRIDGE_ASYNC
 #undef AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1
 #undef AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2
 #undef AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1

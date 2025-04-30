@@ -18,15 +18,32 @@ set(CMAKE_VISIBILITY_INLINES_HIDDEN TRUE)
 set_property(GLOBAL PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 
 #######################################################################################################################
+# Build options
+
+set(AUDIO_BRIDGE_ASYNC TRUE CACHE BOOL "Use async approach (default)")
+set(AUDIO_BRIDGE_LINUX_MMAP FALSE CACHE BOOL "Use custom Linux mmap buffer instead of ALSA")
+set(AUDIO_BRIDGE_UDEV FALSE CACHE BOOL "Enable libudev support")
+
+if(NOT AUDIO_BRIDGE_LINUX_MMAP)
+set(AUDIO_BRIDGE_ALSA TRUE)
+endif()
+
+#######################################################################################################################
 # Find dependencies
 
 find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
 
-pkg_check_modules(ALSA IMPORTED_TARGET REQUIRED alsa)
 pkg_check_modules(JACK IMPORTED_TARGET REQUIRED jack)
 pkg_check_modules(LV2 IMPORTED_TARGET REQUIRED lv2)
+
+if(AUDIO_BRIDGE_ALSA)
+pkg_check_modules(ALSA IMPORTED_TARGET REQUIRED alsa)
+endif()
+
+if(AUDIO_BRIDGE_UDEV)
 pkg_check_modules(UDEV IMPORTED_TARGET REQUIRED libudev)
+endif()
 
 #######################################################################################################################
 # Utilities
@@ -36,6 +53,8 @@ function(set_common_target_properties TARGET)
     PRIVATE
       _REENTRANT
       _POSIX_PTHREAD_SEMANTICS
+      $<$<BOOL:${AUDIO_BRIDGE_ASYNC}>:AUDIO_BRIDGE_ASYNC>
+      $<$<BOOL:${AUDIO_BRIDGE_UDEV}>:AUDIO_BRIDGE_UDEV>
   )
 
   target_compile_options(${TARGET}
@@ -53,7 +72,8 @@ function(set_common_target_properties TARGET)
   target_link_libraries(${TARGET}
     PRIVATE
       ${CMAKE_THREAD_LIBS_INIT}
-      PkgConfig::ALSA
+      $<$<BOOL:${AUDIO_BRIDGE_ALSA}>:PkgConfig::ALSA>
+      $<$<BOOL:${AUDIO_BRIDGE_UDEV}>:PkgConfig::UDEV>
   )
 endfunction()
 
@@ -64,6 +84,11 @@ add_executable(jack-audio-bridge)
 
 set_common_target_properties(jack-audio-bridge)
 
+target_compile_definitions(jack-audio-bridge
+  PRIVATE
+    AUDIO_BRIDGE_EXTERNAL_JACK_CLIENT
+)
+
 target_link_libraries(jack-audio-bridge
   PRIVATE
     PkgConfig::JACK
@@ -72,12 +97,12 @@ target_link_libraries(jack-audio-bridge
 target_sources(jack-audio-bridge
   PRIVATE
     src/audio-device.cpp
-    src/audio-device-discovery.cpp
-    #src/audio-device-impl-alsa.cpp
-    src/audio-device-impl-linux-mmap.cpp
     src/jack-client.cpp
-    src/resampler-table.cc
-    src/vresampler.cc
+    $<$<BOOL:${AUDIO_BRIDGE_ALSA}>:src/audio-device-discovery.cpp>
+    $<$<BOOL:${AUDIO_BRIDGE_ALSA}>:src/audio-device-impl-alsa.cpp>
+    $<$<BOOL:${AUDIO_BRIDGE_ALSA}>:src/resampler-table.cc>
+    $<$<BOOL:${AUDIO_BRIDGE_ALSA}>:src/vresampler.cc>
+    $<$<BOOL:${AUDIO_BRIDGE_LINUX_MMAP}>:src/audio-device-impl-linux-mmap.cpp>
 )
 
 #######################################################################################################################
@@ -101,7 +126,6 @@ target_compile_definitions(jack-int-audio-bridge
 target_link_libraries(jack-int-audio-bridge
   PRIVATE
     PkgConfig::JACK
-    PkgConfig::UDEV
 )
 
 target_link_options(jack-int-audio-bridge
@@ -112,12 +136,12 @@ target_link_options(jack-int-audio-bridge
 target_sources(jack-int-audio-bridge
   PRIVATE
     src/audio-device.cpp
-    src/audio-device-discovery.cpp
-    #src/audio-device-impl-alsa.cpp
-    src/audio-device-impl-linux-mmap.cpp
     src/jack-client.cpp
-    src/resampler-table.cc
-    src/vresampler.cc
+    $<$<BOOL:${AUDIO_BRIDGE_ALSA}>:src/audio-device-discovery.cpp>
+    $<$<BOOL:${AUDIO_BRIDGE_ALSA}>:src/audio-device-impl-alsa.cpp>
+    $<$<BOOL:${AUDIO_BRIDGE_ALSA}>:src/resampler-table.cc>
+    $<$<BOOL:${AUDIO_BRIDGE_ALSA}>:src/vresampler.cc>
+    $<$<BOOL:${AUDIO_BRIDGE_LINUX_MMAP}>:src/audio-device-impl-linux-mmap.cpp>
 )
 
 #######################################################################################################################
@@ -165,16 +189,18 @@ target_link_libraries(lv2-audio-bridge
 target_sources(lv2-audio-bridge
   PRIVATE
     src/audio-device.cpp
-    src/audio-device-discovery.cpp
-    #src/audio-device-impl-alsa.cpp
-    src/audio-device-impl-linux-mmap.cpp
     src/lv2-plugin.cpp
-    src/resampler-table.cc
-    src/vresampler.cc
+    $<$<BOOL:${AUDIO_BRIDGE_ALSA}>:src/audio-device-discovery.cpp>
+    $<$<BOOL:${AUDIO_BRIDGE_ALSA}>:src/audio-device-impl-alsa.cpp>
+    $<$<BOOL:${AUDIO_BRIDGE_ALSA}>:src/resampler-table.cc>
+    $<$<BOOL:${AUDIO_BRIDGE_ALSA}>:src/vresampler.cc>
+    $<$<BOOL:${AUDIO_BRIDGE_LINUX_MMAP}>:src/audio-device-impl-linux-mmap.cpp>
 )
 
 #######################################################################################################################
 # Setup tests
+
+if(AUDIO_BRIDGE_ALSA)
 
 add_executable(audio-bridge-test)
 
@@ -185,5 +211,7 @@ target_sources(audio-bridge-test
     src/audio-device-discovery.cpp
     src/tests.cpp
 )
+
+endif()
 
 #######################################################################################################################
