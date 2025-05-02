@@ -165,12 +165,10 @@ bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* const impl, float* buffers
     }
 
     const int32_t numFramesBytes = numFrames * numChannels * sampleSize;
-    uint32_t bufpos_kernel = mdata->bufpos_kernel;
-    uint32_t bufpos_userspace;
+    uint32_t bufpos_kernel = __atomic_load_n(&mdata->bufpos_kernel, __ATOMIC_ACQUIRE);
+    uint32_t bufpos_userspace = mdata->bufpos_userspace;
     int32_t distance, pending;
 
-    __atomic_thread_fence(__ATOMIC_ACQUIRE);
-    bufpos_userspace = mdata->bufpos_userspace;
     distance = (bufpos_kernel - bufpos_userspace) % bufferSize;
 
     if (distance < numFramesBytes)
@@ -202,8 +200,8 @@ bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* const impl, float* buffers
         std::memcpy(impl->rawBuffer, mdata->buffer + bufpos_userspace, numFramesBytes);
     }
 
-    __atomic_thread_fence(__ATOMIC_RELEASE);
-    mdata->bufpos_userspace = (bufpos_userspace + numFramesBytes) % bufferSize;
+    bufpos_userspace = (bufpos_userspace + numFramesBytes) % bufferSize;
+    __atomic_store_n(&mdata->bufpos_userspace, bufpos_userspace, __ATOMIC_RELEASE);
 
     switch (mdata->data_size)
     {
