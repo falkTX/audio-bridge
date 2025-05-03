@@ -51,11 +51,12 @@ struct ClientData {
 
     void runInternal()
     {
+        bool needsToInitialise = numChannels != 0;
    #else
     void runExternal(const char* const deviceID)
     {
+        bool needsToInitialise = true;
    #endif
-        bool needsToInitialise = numChannels != 0;
 
         if (! needsToInitialise)
         {
@@ -81,7 +82,8 @@ struct ClientData {
 
             const uint16_t bufferSize = jack_get_buffer_size(jack.client);
             const uint32_t sampleRate = jack_get_sample_rate(jack.client);
-            // DEBUGPRINT("JACK bufferSize %u, sampleRate %u", bufferSize, sampleRate);
+            // DEBUGPRINT("JACK %s, bufferSize %u, sampleRate %u",
+            //            jack_get_client_name(jack.client), bufferSize, sampleRate);
 
             dev = initAudioDevice(deviceID, bufferSize, sampleRate, playback);
 
@@ -248,7 +250,15 @@ static bool activate_jack_capture(ClientData* const d)
         jack_connect(client, "mod-usbgadget_c:p4", "mod-peakmeter:in_2");
         jack_connect(client, "mod-usbgadget_c:p4", "mod-host:in2");
     }
+   #elif defined(_DARKGLASS_DEVICE_PABLITO) && defined(AUDIO_BRIDGE_ALSA)
+    // bluetooth audio
+    if (jack_port_by_name(client, "effect_9992:inUSBL") != nullptr)
+    {
+        jack_connect(client, "audio-bridge-capture:p1", "effect_9992:inUSBL");
+        jack_connect(client, "audio-bridge-capture:p2", "effect_9992:inUSBR");
+    }
    #elif defined(_DARKGLASS_DEVICE_PABLITO)
+    // usb audio
     jack_connect(client, "usbgadget-capture:p3", "system:playback_1");
     jack_connect(client, "usbgadget-capture:p4", "system:playback_2");
     jack_connect(client, "usbgadget-capture:p5", "system:playback_3");

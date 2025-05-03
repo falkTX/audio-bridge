@@ -18,11 +18,17 @@
 
 // pre-tuned values
 #ifdef _DARKGLASS_DEVICE_PABLITO
+#ifdef AUDIO_BRIDGE_ALSA
+#define AUDIO_BRIDGE_ASYNC 1
+#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 8
+#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 8
+#else
 #define AUDIO_BRIDGE_ASYNC 0
-#define AUDIO_BRIDGE_UDEV 0
 #define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 2
 #define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 2
+#endif
 #define AUDIO_BRIDGE_DEVICE_BUFFER_SIZE 16
+#define AUDIO_BRIDGE_UDEV 0
 #endif
 
 // pre-tuned values
@@ -40,7 +46,7 @@
 
 // run audio in async mode, using separate thread, ringbuffer and dynamic resampling
 #ifndef AUDIO_BRIDGE_ASYNC
-#define AUDIO_BRIDGE_ASYNC 0
+#define AUDIO_BRIDGE_ASYNC 1
 #endif
 
 // how many seconds to wait until start trying to compensate for clock drift
@@ -55,7 +61,7 @@
 
 // how many audio buffer-size blocks to keep in the capture ringbuffer
 #ifndef AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS
-#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 2
+#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 4
 #endif
 
 // priority to assign to audio capture thread
@@ -65,7 +71,7 @@
 
 // how many audio buffer-size blocks to keep in the playback ringbuffer
 #ifndef AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS
-#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 2
+#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 4
 #endif
 
 // priority to assign to audio capture thread

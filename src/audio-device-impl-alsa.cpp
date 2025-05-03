@@ -18,8 +18,13 @@
 
 // --------------------------------------------------------------------------------------------------------------------
 
+#ifdef _DARKGLASS_DEVICE_PABLITO
+static constexpr const uint kNumPeriodsCapture = 32;
+static constexpr const uint kNumPeriodsPlayback = 9;
+#else
 static constexpr const uint kNumPeriodsMin = 3;
 static constexpr const uint kNumPeriodsMax = 12;
+#endif
 
 static constexpr const snd_pcm_format_t kSampleFormatsToTry[] = {
     SND_PCM_FORMAT_S32,
@@ -43,9 +48,6 @@ struct AudioDevice::Impl {
     uint16_t periodSize;
     uint32_t fullBufferSize;
 
-    // direct pointer
-    Process* proc;
-
    #if AUDIO_BRIDGE_DEBUG
     // monotonic frame counter
     uint32_t frame = 0;
@@ -62,6 +64,9 @@ struct AudioDevice::Impl {
    #endif
 
    #if AUDIO_BRIDGE_ASYNC
+    // direct pointer
+    Process* proc;
+
     // sync primitives
     pthread_t thread;
    #else
@@ -603,7 +608,9 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     std::unique_ptr<AudioDevice::Impl> impl = std::unique_ptr<AudioDevice::Impl>(new AudioDevice::Impl);
     impl->playback = dev->config.playback;
     impl->bufferSize = dev->config.bufferSize;
+   #if AUDIO_BRIDGE_ASYNC
     impl->proc = &dev->proc;
+   #endif
 
     int err;
     const snd_pcm_stream_t mode = dev->config.playback ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE;
@@ -768,10 +775,10 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     else
     {
         ulongParam = AUDIO_BRIDGE_DEVICE_BUFFER_SIZE * kNumPeriodsCapture;
-        if ((err = snd_pcm_hw_params_set_buffer_size_minmax(pcm, params, &ulongParam, &ulongParam)) != 0)
+        if ((err = snd_pcm_hw_params_set_buffer_size_min(pcm, params, &ulongParam)) != 0)
         {
-            DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_minmax fail %u %u %s",
-                       kNumPeriodsCapture, AUDIO_BRIDGE_DEVICE_BUFFER_SIZE, snd_strerror(err));
+            DEBUGPRINT("snd_pcm_hw_params_set_buffer_size_min fail %u %u %s",
+                       0, AUDIO_BRIDGE_DEVICE_BUFFER_SIZE, snd_strerror(err));
             goto error;
         }
         uintParam = kNumPeriodsCapture;
@@ -1016,5 +1023,18 @@ bool runAudioDevicePostImpl(AudioDevice::Impl* const impl, const uint16_t numFra
    #endif
     return !impl->disconnected;
 }
+
+// --------------------------------------------------------------------------------------------------------------------
+
+bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl*, float* [], uint16_t)
+{
+    return false;
+}
+
+bool runAudioDevicePlaybackSyncImpl(AudioDevice::Impl*, float* [], uint16_t)
+{
+    return false;
+}
+
 
 // --------------------------------------------------------------------------------------------------------------------
