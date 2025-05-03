@@ -173,8 +173,10 @@ static ClientData* init_capture(jack_client_t* client = nullptr)
   #ifdef AUDIO_BRIDGE_INTERNAL_JACK_CLIENT
    #if defined(_MOD_DEVICE_DUO) || defined(_MOD_DEVICE_DUOX) || defined(_MOD_DEVICE_DWARF)
     d->numChannels = access("/data/enable-usb-audio-4x4", F_OK) == 0 ? 4 : 2;
+   #elif defined(_DARKGLASS_DEVICE_PABLITO) && defined(AUDIO_BRIDGE_ALSA)
+    d->numChannels = 2; // bluetooth audio
    #elif defined(_DARKGLASS_DEVICE_PABLITO)
-    d->numChannels = 9;
+    d->numChannels = 9; // usb audio
    #endif
   #endif
 
@@ -199,7 +201,7 @@ static ClientData* init_playback(jack_client_t* client = nullptr)
    #if defined(_MOD_DEVICE_DUO) || defined(_MOD_DEVICE_DUOX) || defined(_MOD_DEVICE_DWARF)
     d->numChannels = 4;
    #elif defined(_DARKGLASS_DEVICE_PABLITO)
-    d->numChannels = 3;
+    d->numChannels = 3; // usb audio
    #endif
   #endif
 
@@ -254,8 +256,8 @@ static bool activate_jack_capture(ClientData* const d)
     // bluetooth audio
     if (jack_port_by_name(client, "effect_9992:inUSBL") != nullptr)
     {
-        jack_connect(client, "audio-bridge-capture:p1", "effect_9992:inUSBL");
-        jack_connect(client, "audio-bridge-capture:p2", "effect_9992:inUSBR");
+        jack_connect(client, "bluetooth-capture:p1", "effect_9992:inUSBL");
+        jack_connect(client, "bluetooth-capture:p2", "effect_9992:inUSBR");
     }
    #elif defined(_DARKGLASS_DEVICE_PABLITO)
     // usb audio

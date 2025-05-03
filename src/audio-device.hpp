@@ -19,11 +19,9 @@
 // pre-tuned values
 #ifdef _DARKGLASS_DEVICE_PABLITO
 #ifdef AUDIO_BRIDGE_ALSA
-#define AUDIO_BRIDGE_ASYNC 1
 #define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 8
 #define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 8
 #else
-#define AUDIO_BRIDGE_ASYNC 0
 #define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 2
 #define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 2
 #endif
@@ -43,11 +41,6 @@
 // print debug messages for development
 // NOTE messages are mixed for capture and playback, do not enable while running both
 #define AUDIO_BRIDGE_DEBUG 1
-
-// run audio in async mode, using separate thread, ringbuffer and dynamic resampling
-#ifndef AUDIO_BRIDGE_ASYNC
-#define AUDIO_BRIDGE_ASYNC 1
-#endif
 
 // how many seconds to wait until start trying to compensate for clock drift
 #define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1  2 /* start ratio calculations */
@@ -111,12 +104,25 @@
 #define AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING 1
 #endif
 
+// us async mode for alsa, sync mode for linux-mmap
+#ifdef AUDIO_BRIDGE_ALSA
+#define AUDIO_BRIDGE_ASYNC 1
+#else
+#define AUDIO_BRIDGE_ASYNC 0
+#endif
+
 // ensure we don't use clock-drift filters for sync or udev approach
 #if AUDIO_BRIDGE_UDEV || ! AUDIO_BRIDGE_ASYNC
 #undef AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1
 #undef AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2
 #undef AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1
 #undef AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2
+#endif
+
+// ensure we don't use separate threads for sync mode
+#if ! AUDIO_BRIDGE_ASYNC
+#undef AUDIO_BRIDGE_CAPTURE_THREAD_PRIORITY
+#undef AUDIO_BRIDGE_PLAYBACK_THREAD_PRIORITY
 #endif
 
 // --------------------------------------------------------------------------------------------------------------------
