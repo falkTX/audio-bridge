@@ -6,6 +6,12 @@ It is similar to other projects such as `alsa_in/out` and `zita-a2j/j2a`, but th
 Audio-Bridge provides a regular JACK command-line tool, an internal JACK client and an LV2 plugin.  
 Due to it targetting ALSA it will only run on Linux or systems where ALSA emulation is in place.
 
+The goals for the project are:
+
+ - Be usable as JACK internal client for Linux UAC2 gadget audio (embed Linux devices as USB Audio interfaces with low latency)
+ - Be usable as JACK internal client for [bluez-alsa](https://github.com/arkq/bluez-alsa/) (embed Linux devices as "bluetooth speakers")
+ - Be usable as generic LV2 plugin allowing the current host to send/receive external audio
+
 ## Usage
 
 Audio-Bridge will simply try to connect to the last available soundcard in playback mode.  
