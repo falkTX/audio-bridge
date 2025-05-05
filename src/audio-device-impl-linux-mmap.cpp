@@ -117,6 +117,8 @@ void closeAudioDeviceImpl(AudioDevice::Impl* const impl)
 {
     delete[] impl->rawBuffer;
 
+    impl->mdata->active_userspace = 0;
+
     const size_t mmap_size = sizeof(uac_mmap_data) + impl->mdata->buffer_size;
     munmap(impl->mdata, mmap_size);
 
@@ -134,6 +136,10 @@ bool runAudioDevicePostImpl(AudioDevice::Impl* const impl, const uint16_t numFra
 }
 
 // --------------------------------------------------------------------------------------------------------------------
+
+static constexpr inline int32_t positive_modulo(int32_t i, int32_t n) {
+    return (i % n + n) % n;
+}
 
 bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* const impl, float* buffers[], const uint16_t numFrames)
 {
@@ -155,34 +161,38 @@ bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* const impl, float* buffers
     const uint32_t numChannels = mdata->num_channels;
     const uint32_t sampleSize = mdata->data_size;
     const uint32_t bufferSize = mdata->buffer_size;
+    const int32_t numFramesBytes = numFrames * numChannels * sampleSize;
+    uint32_t bufpos_kernel, bufpos_userspace;
+    int32_t distance, pending;
+
+    bufpos_kernel = __atomic_load_n(&mdata->bufpos_kernel, __ATOMIC_ACQUIRE);
 
     if (! impl->started)
     {
         DEBUGPRINT("%08u | capture | kernel is ready, starting", impl->frame);
         impl->started = true;
         mdata->active_userspace = 2;
+
+        bufpos_userspace = positive_modulo(bufpos_kernel - numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS, bufferSize);
+        __atomic_store_n(&mdata->bufpos_userspace, bufpos_userspace, __ATOMIC_RELEASE);
+
         return false;
     }
 
-    const int32_t numFramesBytes = numFrames * numChannels * sampleSize;
-    uint32_t bufpos_kernel = __atomic_load_n(&mdata->bufpos_kernel, __ATOMIC_ACQUIRE);
-    uint32_t bufpos_userspace = mdata->bufpos_userspace;
-    int32_t distance, pending;
+    bufpos_userspace = mdata->bufpos_userspace;
+    distance = positive_modulo(bufpos_kernel - bufpos_userspace, bufferSize);
 
-    distance = (bufpos_kernel - bufpos_userspace) % bufferSize;
+    // fprintf(stderr, "\r%08u | capture | kernel is running, distance %d $", impl->frame, distance / sampleSize / numChannels);
 
     if (distance < numFramesBytes)
     {
-        DEBUGPRINT("%08u | capture | out of data | %u", impl->frame, distance / sampleSize / numChannels);
-        bufpos_userspace = (bufpos_kernel - numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS) % bufferSize;
-
-        if ((pending = bufpos_userspace % (numChannels * sampleSize)) != 0)
-            bufpos_userspace -= pending;
+        DEBUGPRINT("%08u | capture | out of data | %d", impl->frame, distance / sampleSize / numChannels);
+        bufpos_userspace = positive_modulo(bufpos_kernel - numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS, bufferSize);
     }
 
-    while (distance > numFramesBytes * (AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS + 4))
+    while (distance > numFramesBytes * (AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS + 2))
     {
-        DEBUGPRINT("%08u | capture | too much data | %u", impl->frame, distance / sampleSize / numChannels);
+        DEBUGPRINT("%08u | capture | too much data | %d", impl->frame, distance / sampleSize / numChannels);
         // skip ahead one audio cycle
         bufpos_userspace = (bufpos_userspace + numFramesBytes) % bufferSize;
         distance -= numFramesBytes;
@@ -241,17 +251,25 @@ bool runAudioDevicePlaybackSyncImpl(AudioDevice::Impl* impl, float* buffers[], u
         return false;
     }
 
+    const uint32_t numChannels = mdata->num_channels;
+    const uint32_t sampleSize = mdata->data_size;
+    const uint32_t bufferSize = mdata->buffer_size;
+    const int32_t numFramesBytes = numFrames * numChannels * sampleSize;
+    uint32_t bufpos_kernel, bufpos_userspace;
+    int32_t distance, pending;
+
     if (! impl->started)
     {
         DEBUGPRINT("%08u | playback | kernel is ready, starting", impl->frame);
         impl->started = true;
         mdata->active_userspace = 2;
+
+        bufpos_kernel = __atomic_load_n(&mdata->bufpos_kernel, __ATOMIC_ACQUIRE);
+        bufpos_userspace = positive_modulo(bufpos_kernel - numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS, bufferSize);
+        __atomic_store_n(&mdata->bufpos_userspace, bufpos_userspace, __ATOMIC_RELEASE);
+
         return false;
     }
-
-    const uint32_t numChannels = mdata->num_channels;
-    const uint32_t sampleSize = mdata->data_size;
-    const uint32_t bufferSize = mdata->buffer_size;
 
     switch (mdata->data_size)
     {
@@ -269,31 +287,22 @@ bool runAudioDevicePlaybackSyncImpl(AudioDevice::Impl* impl, float* buffers[], u
         return false;
     }
 
-    const int32_t numFramesBytes = numFrames * numChannels * sampleSize;
-    uint32_t bufpos_kernel = mdata->bufpos_kernel;
-    uint32_t bufpos_userspace;
-    int32_t distance, pending;
-
-    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    bufpos_kernel = __atomic_load_n(&mdata->bufpos_kernel, __ATOMIC_ACQUIRE);
     bufpos_userspace = mdata->bufpos_userspace;
-
-    distance = (bufpos_userspace - bufpos_kernel) % bufferSize;
+    distance = positive_modulo(bufpos_userspace - bufpos_kernel, bufferSize);
 
     if (distance < numFramesBytes)
     {
-        DEBUGPRINT("%08u | playback | out of data | %u", impl->frame, distance / sampleSize / numChannels);
+        DEBUGPRINT("%08u | playback | out of data | %d", impl->frame, distance / sampleSize / numChannels);
         bufpos_userspace = (bufpos_kernel + numFramesBytes * AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS) % bufferSize;
     }
 
     while (distance > numFramesBytes * (AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS + 4))
     {
-        DEBUGPRINT("%08u | playback | too much data | %u", impl->frame, distance / sampleSize / numChannels);
+        DEBUGPRINT("%08u | playback | too much data | %d", impl->frame, distance / sampleSize / numChannels);
         // skip ahead one audio cycle
-        bufpos_userspace = (bufpos_userspace - numFramesBytes) % bufferSize;
+        bufpos_userspace = positive_modulo(bufpos_userspace - numFramesBytes, bufferSize);
         distance -= numFramesBytes;
-
-        if ((pending = bufpos_userspace % (numChannels * sampleSize)) != 0)
-            bufpos_userspace -= pending;
     }
 
     pending = bufferSize - bufpos_userspace;
@@ -308,8 +317,8 @@ bool runAudioDevicePlaybackSyncImpl(AudioDevice::Impl* impl, float* buffers[], u
         std::memcpy(mdata->buffer + bufpos_userspace, impl->rawBuffer, numFramesBytes);
     }
 
-    __atomic_thread_fence(__ATOMIC_RELEASE);
-    mdata->bufpos_userspace = (bufpos_userspace + numFramesBytes) % bufferSize;
+    bufpos_userspace = (bufpos_userspace + numFramesBytes) % bufferSize;
+    __atomic_store_n(&mdata->bufpos_userspace, bufpos_userspace, __ATOMIC_RELEASE);
 
     return true;
 }
