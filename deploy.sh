@@ -14,4 +14,4 @@ source ~/Source/MOD/mod-plugin-builder/local.env darkglass-anagram
 cmake -S . -B build-aarch64 -DCMAKE_BUILD_TYPE=Release
 $(which cmake) --build build-aarch64 -j $(nproc)
 
-scp build-aarch64/jack-audio-bridge*.so root@192.168.51.1:/lib/jack/
+scp -O build-aarch64/jack-audio-bridge*.so root@192.168.51.1:/lib/jack/
