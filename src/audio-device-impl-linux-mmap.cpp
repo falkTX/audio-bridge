@@ -11,7 +11,11 @@
 #include <pthread.h>
 #include <unistd.h>
 
-#define NUM_PPMS 32
+// extra PPM average count
+#define NUM_PPMS 128
+
+// weight to give to extra PPM from userspace
+#define PPM_FACTOR 64
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -21,10 +25,10 @@ struct uac_mmap_data {
     uint8_t active_userspace;
     uint8_t data_size; // same as format
     uint8_t num_channels;
-    uint16_t sample_rate;
-    uint16_t buffer_size;
-    uint16_t bufpos_kernel;
-    uint16_t bufpos_userspace;
+    uint32_t sample_rate;
+    uint32_t buffer_size;
+    uint32_t bufpos_kernel;
+    uint32_t bufpos_userspace;
     int32_t extra_ppm;
     uint8_t buffer[];
 };
@@ -54,9 +58,18 @@ struct AudioDevice::Impl {
 
     // extra ppm to give to kernel
     struct {
-        int32_t ppms[NUM_PPMS] = {};
         int64_t sum = 0;
         int32_t idx = 0;
+        int32_t ppms[NUM_PPMS] = {};
+
+        void reset(const int32_t d)
+        {
+            for (int i = 0; i < NUM_PPMS; ++i)
+                ppms[i] = d;
+
+            idx = 0;
+            sum = static_cast<int64_t>(d) * NUM_PPMS;
+        }
     } distance;
 };
 
@@ -90,6 +103,27 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
         close(fd);
         return nullptr;
     }
+
+#ifdef _DARKGLASS_DEVICE_PABLITO
+    if (fdata.num_channels != (dev->config.playback ? 3 : 9))
+    {
+        DEBUGPRINT("wrong number of channels! %u", fdata.num_channels);
+        close(fd);
+        return nullptr;
+    }
+    if (fdata.data_size != 4)
+    {
+        DEBUGPRINT("wrong data size! %u", fdata.data_size);
+        close(fd);
+        return nullptr;
+    }
+    if ((fdata.buffer_size % (fdata.num_channels * fdata.data_size)) != 0)
+    {
+        DEBUGPRINT("wrong buffer size! %u | %u", fdata.buffer_size, fdata.num_channels * fdata.data_size);
+        close(fd);
+        return nullptr;
+    }
+#endif
 
     const size_t mmap_size = sizeof(uac_mmap_data) + fdata.buffer_size;
 
@@ -168,11 +202,12 @@ bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* const impl, float* buffers
         return false;
     }
 
+    static constexpr const int32_t kHalfRingBufferBlocks = AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS / 2;
     const uint32_t numChannels = mdata->num_channels;
     const uint32_t sampleSize = mdata->data_size;
     const uint32_t bufferSize = mdata->buffer_size;
     const int32_t numFramesBytes = numFrames * numChannels * sampleSize;
-    uint32_t bufpos_kernel, bufpos_userspace;
+    int32_t bufpos_kernel, bufpos_userspace;
     int32_t distance, pending;
 
     bufpos_kernel = __atomic_load_n(&mdata->bufpos_kernel, __ATOMIC_ACQUIRE);
@@ -183,33 +218,36 @@ bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* const impl, float* buffers
         impl->started = true;
         mdata->active_userspace = 2;
 
-        bufpos_userspace = positive_modulo(bufpos_kernel - numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS, bufferSize);
+        bufpos_userspace = positive_modulo(bufpos_kernel - numFramesBytes * kHalfRingBufferBlocks, bufferSize);
         __atomic_store_n(&mdata->bufpos_userspace, bufpos_userspace, __ATOMIC_RELEASE);
 
-        for (int i = 0; i < NUM_PPMS; ++i)
-            impl->distance.ppms[i] = numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS;
-
+        impl->distance.reset(numFrames * kHalfRingBufferBlocks);
         return false;
     }
 
     bufpos_userspace = mdata->bufpos_userspace;
     distance = positive_modulo(bufpos_kernel - bufpos_userspace, bufferSize);
 
-    // fprintf(stderr, "\r%08u | capture | kernel is running, distance %d, sum %ld, extra_ppm %d $ ",
-    //         impl->frame, distance / sampleSize / numChannels, impl->distance.sum, mdata->extra_ppm);
-
     if (distance < numFramesBytes)
     {
         DEBUGPRINT("%08u | capture | out of data | %d", impl->frame, distance / sampleSize / numChannels);
-        bufpos_userspace = positive_modulo(bufpos_kernel - numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS, bufferSize);
-    }
+        distance = numFramesBytes * kHalfRingBufferBlocks;
+        bufpos_userspace = positive_modulo(bufpos_kernel - distance, bufferSize);
 
-    while (distance > numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS * 2)
+        impl->distance.reset(distance / (numChannels * sampleSize));
+    }
+    else if (distance > numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS)
     {
         DEBUGPRINT("%08u | capture | too much data | %d", impl->frame, distance / sampleSize / numChannels);
-        // skip ahead one audio cycle
-        bufpos_userspace = (bufpos_userspace + numFramesBytes) % bufferSize;
-        distance -= numFramesBytes;
+
+        while (distance > numFramesBytes * kHalfRingBufferBlocks)
+        {
+            // skip ahead one audio cycle
+            bufpos_userspace = (bufpos_userspace + numFramesBytes) % bufferSize;
+            distance -= numFramesBytes;
+        }
+
+        impl->distance.reset(distance / (numChannels * sampleSize));
     }
 
     pending = bufferSize - bufpos_userspace;
@@ -228,11 +266,14 @@ bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* const impl, float* buffers
     __atomic_store_n(&mdata->bufpos_userspace, bufpos_userspace, __ATOMIC_RELEASE);
 
     {
+        distance /= numChannels * sampleSize;
+
         const int32_t idx = impl->distance.idx++ % NUM_PPMS;
         impl->distance.sum = impl->distance.sum - impl->distance.ppms[idx] + distance;
         impl->distance.ppms[idx] = distance;
 
-        mdata->extra_ppm = static_cast<double>(numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS - distance) * 8 / numFramesBytes;
+        mdata->extra_ppm = std::max(-1000.0, std::min(1000.0,
+            static_cast<double>(numFrames * kHalfRingBufferBlocks - distance) / numFrames * PPM_FACTOR));
     }
 
     switch (mdata->data_size)
@@ -250,6 +291,12 @@ bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* const impl, float* buffers
         DEBUGPRINT("unknown data size");
         return false;
     }
+
+//     fprintf(stderr, "\r%08u | capture | kernel is running, distance %d, sum %ld, extra_ppm FAKE %d $ ",
+//             impl->frame, distance, impl->distance.sum,
+//             mdata->extra_ppm
+//             // static_cast<double>(distance - numFrames * kHalfRingBufferBlocks) / numFrames * 8
+//             );
 
     return true;
 }
@@ -273,11 +320,12 @@ bool runAudioDevicePlaybackSyncImpl(AudioDevice::Impl* impl, float* buffers[], u
         return false;
     }
 
+    static constexpr const int32_t kHalfRingBufferBlocks = AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS / 2;
     const uint32_t numChannels = mdata->num_channels;
     const uint32_t sampleSize = mdata->data_size;
     const uint32_t bufferSize = mdata->buffer_size;
     const int32_t numFramesBytes = numFrames * numChannels * sampleSize;
-    uint32_t bufpos_kernel, bufpos_userspace;
+    int32_t bufpos_kernel, bufpos_userspace;
     int32_t distance, pending;
 
     if (! impl->started)
@@ -286,13 +334,12 @@ bool runAudioDevicePlaybackSyncImpl(AudioDevice::Impl* impl, float* buffers[], u
         impl->started = true;
         mdata->active_userspace = 2;
 
+        distance = numFramesBytes * kHalfRingBufferBlocks;
         bufpos_kernel = __atomic_load_n(&mdata->bufpos_kernel, __ATOMIC_ACQUIRE);
-        bufpos_userspace = (bufpos_kernel + numFramesBytes * AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS) % bufferSize;
+        bufpos_userspace = (bufpos_kernel + distance) % bufferSize;
         __atomic_store_n(&mdata->bufpos_userspace, bufpos_userspace, __ATOMIC_RELEASE);
 
-        for (int i = 0; i < NUM_PPMS; ++i)
-            impl->distance.ppms[i] = numFramesBytes * AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS;
-
+        impl->distance.reset(distance / (numChannels * sampleSize));
         return false;
     }
 
@@ -319,15 +366,24 @@ bool runAudioDevicePlaybackSyncImpl(AudioDevice::Impl* impl, float* buffers[], u
     if (distance < numFramesBytes)
     {
         DEBUGPRINT("%08u | playback | out of data | %d", impl->frame, distance / sampleSize / numChannels);
-        bufpos_userspace = (bufpos_kernel + numFramesBytes * AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS) % bufferSize;
+        distance = numFramesBytes * kHalfRingBufferBlocks;
+        bufpos_userspace = (bufpos_kernel + distance) % bufferSize;
+
+        impl->distance.reset(distance / (numChannels * sampleSize));
     }
 
-    while (distance > numFramesBytes * AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS * 2)
+    if (distance > numFramesBytes * AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS)
     {
         DEBUGPRINT("%08u | playback | too much data | %d", impl->frame, distance / sampleSize / numChannels);
-        // skip ahead one audio cycle
-        bufpos_userspace = positive_modulo(bufpos_userspace - numFramesBytes, bufferSize);
-        distance -= numFramesBytes;
+
+        while (distance > numFramesBytes * kHalfRingBufferBlocks)
+        {
+            // skip ahead one audio cycle
+            bufpos_userspace = positive_modulo(bufpos_userspace - numFramesBytes, bufferSize);
+            distance -= numFramesBytes;
+        }
+
+        impl->distance.reset(distance / (numChannels * sampleSize));
     }
 
     pending = bufferSize - bufpos_userspace;
@@ -346,11 +402,13 @@ bool runAudioDevicePlaybackSyncImpl(AudioDevice::Impl* impl, float* buffers[], u
     __atomic_store_n(&mdata->bufpos_userspace, bufpos_userspace, __ATOMIC_RELEASE);
 
     {
+        distance /= numChannels * sampleSize;
+
         const int32_t idx = impl->distance.idx++ % NUM_PPMS;
         impl->distance.sum = impl->distance.sum - impl->distance.ppms[idx] + distance;
         impl->distance.ppms[idx] = distance;
 
-        mdata->extra_ppm = static_cast<double>(distance - numFramesBytes * AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS) * 8 / numFramesBytes;
+        mdata->extra_ppm = static_cast<double>(distance - numFrames * kHalfRingBufferBlocks) / numFrames * PPM_FACTOR;
     }
 
     // fprintf(stderr, "\r%08u | playback | kernel is running, distance %d, sum %ld, extra_ppm %d $ ",
