@@ -20,8 +20,9 @@
 #ifdef _DARKGLASS_DEVICE_PABLITO
 #ifdef AUDIO_BRIDGE_ALSA
 // bluetooth audio (through bluez-alsa)
-#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 8
-#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 8
+#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 16
+#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 16
+#define AUDIO_BRIDGE_DEBUG 0
 #else
 // usb audio (through custom mmap buffer)
 #define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 8
@@ -42,7 +43,9 @@
 
 // print debug messages for development
 // NOTE messages are mixed for capture and playback, do not enable while running both
+#ifndef AUDIO_BRIDGE_DEBUG
 #define AUDIO_BRIDGE_DEBUG 1
+#endif
 
 // how many seconds to wait until start trying to compensate for clock drift
 #define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1  2 /* start ratio calculations */
