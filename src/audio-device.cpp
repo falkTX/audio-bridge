@@ -186,7 +186,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
     {
         if (state == kDeviceStarted)
         {
-            DEBUGPRINT("%08u | playback | host is running, kDeviceStarted -> kDeviceBuffering", dev->stats.framesDone);
+            DEBUGPRINT("%010u | playback | host is running, kDeviceStarted -> kDeviceBuffering", dev->stats.framesDone);
             dev->proc.state.store(kDeviceBuffering);
         }
         else if (state >= kDeviceBuffering)
@@ -231,7 +231,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
     {
         if (state == kDeviceStarted)
         {
-            DEBUGPRINT("%08u | capture | host is running, kDeviceStarted -> kDeviceBuffering", dev->stats.framesDone);
+            DEBUGPRINT("%010u | capture | host is running, kDeviceStarted -> kDeviceBuffering", dev->stats.framesDone);
             dev->proc.state.store(kDeviceBuffering);
         }
         else if (state == kDeviceRunning)
@@ -323,7 +323,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
                        #endif
 
                        #if AUDIO_BRIDGE_DEBUG && 0
-                        DEBUGPRINT("%08u | out_count %u, inp_count %u, offset %u, leftoverFrames %u",
+                        DEBUGPRINT("%010u | out_count %u, inp_count %u, offset %u, leftoverFrames %u",
                                    dev->stats.framesDone,
                                    dev->hostproc.resampler->out_count,
                                    dev->hostproc.resampler->inp_count,
@@ -371,7 +371,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
     {
         if (lastok_p != ok)
         {
-            DEBUGPRINT("%010u | -------------------------------------- is ok %d", dev->stats.framesDone, ok);
+            DEBUGPRINT("\n%010u | -------------------------------------- is ok %d", dev->stats.framesDone, ok);
             lastok_p = ok;
         }
     }
@@ -379,7 +379,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
     {
         if (lastok_c != ok)
         {
-            DEBUGPRINT("%010u | -------------------------------------- is ok %d", dev->stats.framesDone, ok);
+            DEBUGPRINT("\n%010u | -------------------------------------- is ok %d", dev->stats.framesDone, ok);
             lastok_c = ok;
         }
     }
@@ -403,7 +403,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
                                   ? 1.0 + static_cast<double>(dev->stats.ppm) / 1000000.0
                                   : 1.0 - static_cast<double>(dev->stats.ppm) / 1000000.0;
             dev->hostproc.resampler->set_rratio(balratio);
-            DEBUGPRINT("%08u | drift check %.8f | %u",
+            DEBUGPRINT("%010u | drift check %.8f | %u",
                        dev->stats.framesDone,
                        balratio,
                        dev->proc.ringbuffer->getNumReadableSamples());
@@ -452,7 +452,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
         if (++counter == 2000)
         {
             counter = 0;
-            DEBUGPRINT("%08u | drift check %f | %f vs %f",
+            DEBUGPRINT("%010u | drift check %f | %f vs %f",
                        dev->stats.framesDone,
                        dev->stats.rbRatio,
                        dev->proc.ringbuffer->getNumReadableSamples() / kRingBufferDataFactor,
