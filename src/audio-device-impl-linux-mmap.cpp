@@ -20,6 +20,9 @@
 // minimum/maximum possible value to use as extra PPM
 #define PPM_LIMIT 100
 
+// use same PPM value for both capture and playback
+#define CAPTURE_PLAYBACK_PPM_SYNC 1
+
 // --------------------------------------------------------------------------------------------------------------------
 
 // data shared with kernel
@@ -75,6 +78,13 @@ struct AudioDevice::Impl {
         }
     } distance;
 };
+
+#if CAPTURE_PLAYBACK_PPM_SYNC
+static struct {
+    int32_t value;
+    bool active;
+} s_extra_capture_ppm;
+#endif
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -157,11 +167,24 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     mdata->bufpos_userspace = 0;
     mdata->bufpos_kernel = 0;
 
+   #if CAPTURE_PLAYBACK_PPM_SYNC
+    if (! dev->config.playback)
+    {
+        s_extra_capture_ppm.value = 0;
+        s_extra_capture_ppm.active = true;
+    }
+   #endif
+
     return impl.release();
 }
 
 void closeAudioDeviceImpl(AudioDevice::Impl* const impl)
 {
+   #if CAPTURE_PLAYBACK_PPM_SYNC
+    if (! impl->playback)
+        s_extra_capture_ppm.active = false;
+   #endif
+
     delete[] impl->rawBuffer;
 
     impl->mdata->active_userspace = 0;
@@ -281,6 +304,9 @@ bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* const impl, float* buffers
 
         mdata->extra_ppm = std::max<double>(-PPM_LIMIT, std::min<double>(PPM_LIMIT,
             static_cast<double>(numFrames * (kHalfRingBufferBlocks + 1) - distance) / numFrames * PPM_FACTOR));
+       #if CAPTURE_PLAYBACK_PPM_SYNC
+        s_extra_capture_ppm.value = mdata->extra_ppm;
+       #endif
     }
 
     switch (mdata->data_size)
@@ -414,6 +440,17 @@ bool runAudioDevicePlaybackSyncImpl(AudioDevice::Impl* impl, float* buffers[], u
     bufpos_userspace = (bufpos_userspace + numFramesBytes) % bufferSize;
     __atomic_store_n(&mdata->bufpos_userspace, bufpos_userspace, __ATOMIC_RELEASE);
 
+   #if CAPTURE_PLAYBACK_PPM_SYNC
+    if (s_extra_capture_ppm.active)
+    {
+        mdata->extra_ppm = s_extra_capture_ppm.value;
+
+       #if AUDIO_BRIDGE_DEBUG
+        distance /= numChannels * sampleSize;
+       #endif
+    }
+    else
+   #endif
     {
         distance /= numChannels * sampleSize;
 

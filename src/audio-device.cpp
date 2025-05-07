@@ -371,7 +371,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
     {
         if (lastok_p != ok)
         {
-            DEBUGPRINT("\n%010u | -------------------------------------- is ok %d", dev->stats.framesDone, ok);
+            DEBUGPRINT("\n%010u | playback | -------------------------------------- is ok %d", dev->stats.framesDone, ok);
             lastok_p = ok;
         }
     }
@@ -379,7 +379,7 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
     {
         if (lastok_c != ok)
         {
-            DEBUGPRINT("\n%010u | -------------------------------------- is ok %d", dev->stats.framesDone, ok);
+            DEBUGPRINT("\n%010u | capture | -------------------------------------- is ok %d", dev->stats.framesDone, ok);
             lastok_c = ok;
         }
     }
