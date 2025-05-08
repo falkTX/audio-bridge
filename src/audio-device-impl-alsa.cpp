@@ -41,6 +41,7 @@ struct AudioDevice::Impl {
     // config copy
     bool playback;
     uint16_t bufferSize;
+    uint32_t sampleRate;
 
     // hwconfig copy
     SampleFormat format;
@@ -96,7 +97,7 @@ static void* _audio_device_udev_thread(void* const arg)
     fd_set rfds;
     FD_ZERO(&rfds);
 
-    DEBUGPRINT("%08u | udev thread started", impl->frame);
+    DEBUGPRINT("%010u | udev thread started", impl->frame);
 
     for (int ret; ! impl->closing;)
     {
@@ -104,21 +105,21 @@ static void* _audio_device_udev_thread(void* const arg)
         FD_SET(fd, &rfds);
 
         ret = select(fd + 1, &rfds, nullptr, nullptr, &tv);
-        // DEBUGPRINT("%08u | udev ret %d", impl->frame, ret);
+        // DEBUGPRINT("%010u | udev ret %d", impl->frame, ret);
 
         if (ret < 0)
             break;
         if (ret == 0)
             continue;
 
-        DEBUGPRINT("%08u | new udev event!", impl->frame);
+        DEBUGPRINT("%010u | new udev event!", impl->frame);
 
         struct udev_device* dev;
         while ((dev = udev_monitor_receive_device(impl->udev_mon)) != nullptr)
         {
            #if AUDIO_BRIDGE_DEBUG
             struct udev_list_entry* entry = udev_device_get_properties_list_entry(dev);
-            DEBUGPRINT("%08u | new udev device message %s", impl->frame, udev_list_entry_get_name(entry));
+            DEBUGPRINT("%010u | new udev device message %s", impl->frame, udev_list_entry_get_name(entry));
            #endif
 
             if (const char* const usbstate = udev_device_get_property_value(dev, "USB_STATE"))
@@ -134,7 +135,7 @@ static void* _audio_device_udev_thread(void* const arg)
                 {
                     const char* const val = udev_device_get_property_value(dev, "PPM");
                     impl->proc->ppm = std::atoi(val);
-                    DEBUGPRINT("%08u | capture | got new SET_AUDIO_CLK %s", impl->frame, val);
+                    DEBUGPRINT("%010u | capture | got new SET_AUDIO_CLK %s", impl->frame, val);
                 }
                 */
             }
@@ -142,7 +143,7 @@ static void* _audio_device_udev_thread(void* const arg)
         }
     }
 
-    DEBUGPRINT("%08u | udev thread exit", impl->frame);
+    DEBUGPRINT("%010u | udev thread exit", impl->frame);
     return nullptr;
 }
 #endif
@@ -189,6 +190,7 @@ static void* _audio_device_capture_thread(void* const arg)
     const uint8_t sampleSize = getSampleSizeFromFormat(impl->format);
     const uint8_t numChannels = impl->numChannels;
     const uint16_t periodSize = impl->periodSize;
+    const uint32_t sampleRate = impl->sampleRate;
     const uint32_t numBufferingSamples = impl->proc->numBufferingSamples;
     DEBUGPRINT("_audio_device_capture_thread sampleSize %u numChannels %u periodSize %u",
                sampleSize, numChannels, periodSize);
@@ -198,6 +200,8 @@ static void* _audio_device_capture_thread(void* const arg)
     float** convBuffers = new float* [numChannels];
     for (uint8_t i = 0; i < numChannels; ++i)
         convBuffers[i] = new float [periodSize];
+
+    uint32_t numAttemptsWaitingForStart = 0;
 
     simd::init();
 
@@ -214,9 +218,11 @@ static void* _audio_device_capture_thread(void* const arg)
             while ((err = snd_pcm_mmap_readi(impl->pcm, raw, periodSize)) > 0)
                 started = true;
 
+            numAttemptsWaitingForStart = 0;
+
             if (err == -EPIPE)
             {
-                DEBUGPRINT("%08u | capture | initial pipe error: %s", impl->frame, snd_strerror(err));
+                DEBUGPRINT("%010u | capture | initial pipe error: %s", impl->frame, snd_strerror(err));
                 snd_pcm_prepare(impl->pcm);
                 sched_yield();
                 snd_pcm_wait(impl->pcm, -1);
@@ -224,20 +230,20 @@ static void* _audio_device_capture_thread(void* const arg)
             }
             if (err != -EAGAIN)
             {
-                DEBUGPRINT("%08u | capture | initial read error: %s", impl->frame, snd_strerror(err));
+                DEBUGPRINT("%010u | capture | initial read error: %s", impl->frame, snd_strerror(err));
                 break;
             }
 
             if (started)
             {
-                DEBUGPRINT("%08u | capture | can read data? kDeviceInitializing -> kDeviceStarting", impl->frame);
+                DEBUGPRINT("%010u | capture | can read data? kDeviceInitializing -> kDeviceStarting", impl->frame);
                 state = kDeviceStarting;
                 impl->proc->state.store(kDeviceStarting);
                 impl->proc->reset.store(kDeviceResetFull);
             }
             else
             {
-                DEBUGPRINT("%08u | capture | kDeviceInitializing waiting 1 cycle", impl->frame);
+                DEBUGPRINT("%010u | capture | kDeviceInitializing waiting 1 cycle", impl->frame);
                 sched_yield();
                 snd_pcm_wait(impl->pcm, -1);
                 continue;
@@ -251,7 +257,7 @@ static void* _audio_device_capture_thread(void* const arg)
 
             if (err > 0)
             {
-                DEBUGPRINT("%08u | capture | device is running, kDeviceStarting -> kDeviceStarted", impl->frame);
+                DEBUGPRINT("%010u | capture | device is running, kDeviceStarting -> kDeviceStarted", impl->frame);
                 state = kDeviceStarted;
                 impl->proc->state.store(kDeviceStarted);
             }
@@ -260,19 +266,25 @@ static void* _audio_device_capture_thread(void* const arg)
                 switch (err)
                 {
                 case 0:
-                    DEBUGPRINT("%08u | capture | kDeviceStarting waiting 1 cycle", impl->frame);
+                    if (++numAttemptsWaitingForStart >= sampleRate / periodSize)
+                    {
+                        DEBUGPRINT("%010u | capture | kDeviceStarting took more than 1 second, closing", impl->frame);
+                        impl->closing = true;
+                        continue;
+                    }
+                    DEBUGPRINT("%010u | capture | kDeviceStarting waiting 1 cycle", impl->frame);
                     sched_yield();
                     snd_pcm_wait(impl->pcm, -1);
                     continue;
                 case -EPIPE:
-                    DEBUGPRINT("%08u | capture | EPIPE while kDeviceStarting", impl->frame);
+                    DEBUGPRINT("%010u | capture | EPIPE while kDeviceStarting", impl->frame);
                     snd_pcm_prepare(impl->pcm);
                     sched_yield();
                     snd_pcm_wait(impl->pcm, -1);
                     continue;
                 default:
                     impl->closing = true;
-                    DEBUGPRINT("%08u | capture | starting read error: %s", impl->frame, snd_strerror(err));
+                    DEBUGPRINT("%010u | capture | starting read error: %s", impl->frame, snd_strerror(err));
                     break;
                 }
 
@@ -281,6 +293,7 @@ static void* _audio_device_capture_thread(void* const arg)
             }
         }
 
+        numAttemptsWaitingForStart = 0;
         err = snd_pcm_mmap_readi(impl->pcm, raw, periodSize);
 
         if (impl->closing)
@@ -303,12 +316,12 @@ static void* _audio_device_capture_thread(void* const arg)
             impl->proc->state.store(kDeviceStarting);
             impl->proc->reset.store(kDeviceResetFull);
 
-            DEBUGPRINT("%08u | capture | Read error %s", impl->frame, snd_strerror(err));
+            DEBUGPRINT("%010u | capture | Read error %s", impl->frame, snd_strerror(err));
 
             // TODO offline recovery
             if (_xrun_recovery(impl->pcm, impl->closing, err) < 0)
             {
-                DEBUGPRINT("%08u | capture | xrun_recovery error: %s", impl->frame, snd_strerror(err));
+                DEBUGPRINT("%010u | capture | xrun_recovery error: %s", impl->frame, snd_strerror(err));
                 impl->closing = true;
                 break;
             }
@@ -352,7 +365,7 @@ static void* _audio_device_capture_thread(void* const arg)
         if (++counter == 256)
         {
             counter = 0;
-            DEBUGPRINT("%08u | capture | check %u vs %u",
+            DEBUGPRINT("%010u | capture | check %u vs %u",
                        impl->frame, impl->proc->ringbuffer->getNumReadableSamples(), numBufferingSamples);
         }
        #endif
@@ -364,7 +377,7 @@ static void* _audio_device_capture_thread(void* const arg)
         }
         else
         {
-            DEBUGPRINT("%08u | capture | failed writing data, ... -> kDeviceStarting", impl->frame);
+            DEBUGPRINT("%010u | capture | failed writing data, ... -> kDeviceStarting", impl->frame);
 
             impl->proc->state.store(kDeviceStarting);
             impl->proc->reset.store(kDeviceResetFull);
@@ -413,20 +426,20 @@ static void* _audio_device_playback_thread(void* const arg)
 
             if (err != -EAGAIN)
             {
-                DEBUGPRINT("%08u | playback | initial write error: %s", impl->frame, snd_strerror(err));
+                DEBUGPRINT("%010u | playback | initial write error: %s", impl->frame, snd_strerror(err));
                 break;
             }
 
             if (started)
             {
-                DEBUGPRINT("%08u | playback | can write data? kDeviceInitializing -> kDeviceStarting", impl->frame);
+                DEBUGPRINT("%010u | playback | can write data? kDeviceInitializing -> kDeviceStarting", impl->frame);
                 state = kDeviceStarting;
                 impl->proc->state.store(kDeviceStarting);
                 impl->proc->reset.store(kDeviceResetFull);
             }
             else
             {
-                DEBUGPRINT("%08u | playback | kDeviceInitializing waiting 1 cycle", impl->frame);
+                DEBUGPRINT("%010u | playback | kDeviceInitializing waiting 1 cycle", impl->frame);
                 sched_yield();
                 snd_pcm_wait(impl->pcm, -1);
                 continue;
@@ -440,7 +453,7 @@ static void* _audio_device_playback_thread(void* const arg)
 
             if (err > 0)
             {
-                DEBUGPRINT("%08u | playback | device is running, kDeviceStarting -> kDeviceStarted", impl->frame);
+                DEBUGPRINT("%010u | playback | device is running, kDeviceStarting -> kDeviceStarted", impl->frame);
                 state = kDeviceStarted;
                 impl->proc->state.store(kDeviceStarted);
             }
@@ -449,12 +462,12 @@ static void* _audio_device_playback_thread(void* const arg)
                 switch (err)
                 {
                 case 0:
-                    DEBUGPRINT("%08u | playback | kDeviceStarting waiting 1 cycle", impl->frame);
+                    DEBUGPRINT("%010u | playback | kDeviceStarting waiting 1 cycle", impl->frame);
                     sched_yield();
                     snd_pcm_wait(impl->pcm, -1);
                     continue;
                 default:
-                    DEBUGPRINT("%08u | playback | initial write error: %s", impl->frame, snd_strerror(err));
+                    DEBUGPRINT("%010u | playback | initial write error: %s", impl->frame, snd_strerror(err));
                     break;
                 }
             }
@@ -474,7 +487,7 @@ static void* _audio_device_playback_thread(void* const arg)
             if (impl->proc->ringbuffer->getNumReadableSamples() < numBufferingSamples)
             {
                #if AUDIO_BRIDGE_DEBUG && 0
-                DEBUGPRINT("%08u | playback | kDeviceBuffering waiting 1 cycle because ringbuffer not ready, %u",
+                DEBUGPRINT("%010u | playback | kDeviceBuffering waiting 1 cycle because ringbuffer not ready, %u",
                            impl->frame, impl->proc->ringbuffer->getNumReadableSamples());
                #endif
 
@@ -484,7 +497,7 @@ static void* _audio_device_playback_thread(void* const arg)
                 continue;
             }
 
-            DEBUGPRINT("%08u | playback | has enough ringbuffer data, kDeviceBuffering -> kDeviceRunning", impl->frame);
+            DEBUGPRINT("%010u | playback | has enough ringbuffer data, kDeviceBuffering -> kDeviceRunning", impl->frame);
             impl->proc->state.store(kDeviceRunning);
         }
 
@@ -499,7 +512,7 @@ static void* _audio_device_playback_thread(void* const arg)
             if (++counter == 50)
             {
                 counter = 0;
-                DEBUGPRINT("%08u | playback | WARNING | failed reading data", impl->frame);
+                DEBUGPRINT("%010u | playback | WARNING | failed reading data", impl->frame);
             }
            #endif
 
@@ -516,7 +529,7 @@ static void* _audio_device_playback_thread(void* const arg)
         if (++counter == 250)
         {
             counter = 0;
-            DEBUGPRINT("%08u | playback | check %u vs %u",
+            DEBUGPRINT("%010u | playback | check %u vs %u",
                        impl->frame, impl->proc->ringbuffer->getNumReadableSamples() , numBufferingSamples);
         }
        #endif
@@ -555,7 +568,7 @@ static void* _audio_device_playback_thread(void* const arg)
                 if (err == -EAGAIN)
                 {
                    #if AUDIO_BRIDGE_DEBUG && 0
-                    DEBUGPRINT("%08u | playback | kDeviceBuffering waiting 1 cycle", impl->frame);
+                    DEBUGPRINT("%010u | playback | kDeviceBuffering waiting 1 cycle", impl->frame);
                    #endif
                     sched_yield();
                     snd_pcm_wait(impl->pcm, -1);
@@ -565,7 +578,7 @@ static void* _audio_device_playback_thread(void* const arg)
                 impl->proc->state.store(kDeviceStarting);
                 impl->proc->reset.store(kDeviceResetFull);
 
-                DEBUGPRINT("%08u | playback | Write error: %s", impl->frame, snd_strerror(err));
+                DEBUGPRINT("%010u | playback | Write error: %s", impl->frame, snd_strerror(err));
 
                 if (_xrun_recovery(impl->pcm, impl->closing, err) < 0)
                 {
@@ -579,7 +592,7 @@ static void* _audio_device_playback_thread(void* const arg)
             // FIXME does this ever happen now ??
             if (static_cast<uint16_t>(err) != frames)
             {
-                DEBUGPRINT("%08u | playback | Incomplete write %ld of %u", impl->frame, err, frames);
+                DEBUGPRINT("%010u | playback | Incomplete write %ld of %u", impl->frame, err, frames);
 
                 ptr += err * numChannels * sampleSize;
                 frames -= err;
@@ -603,11 +616,16 @@ static void* _audio_device_playback_thread(void* const arg)
 
 // --------------------------------------------------------------------------------------------------------------------
 
+#if AUDIO_BRIDGE_DEBUG < 2
+static void _snd_lib_error_silence(const char*, int, const char*, int, const char*, ...) {}
+#endif
+
 AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice::HWConfig& hwconfig)
 {
     std::unique_ptr<AudioDevice::Impl> impl = std::unique_ptr<AudioDevice::Impl>(new AudioDevice::Impl);
     impl->playback = dev->config.playback;
     impl->bufferSize = dev->config.bufferSize;
+    impl->sampleRate = dev->config.sampleRate;
    #if AUDIO_BRIDGE_ASYNC
     impl->proc = &dev->proc;
    #endif
@@ -622,9 +640,23 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
                         | SND_PCM_NO_AUTO_FORMAT
                         | SND_PCM_NO_AUTO_RESAMPLE
                         | SND_PCM_NO_SOFTVOL;
-    if ((err = snd_pcm_open(&impl->pcm, dev->config.deviceID, mode, flags)) < 0)
+
+   #if AUDIO_BRIDGE_DEBUG < 2
+    // silence warnings when opening PCM
+    snd_lib_error_set_handler(_snd_lib_error_silence);
+   #endif
+
+    err = snd_pcm_open(&impl->pcm, dev->config.deviceID, mode, flags);
+
+   #if AUDIO_BRIDGE_DEBUG < 2
+    snd_lib_error_set_handler(nullptr);
+   #endif
+
+    if (err < 0)
     {
+       #if AUDIO_BRIDGE_DEBUG >= 2
         DEBUGPRINT("snd_pcm_open fail %d %s\n", dev->config.playback, snd_strerror(err));
+       #endif
         return nullptr;
     }
 

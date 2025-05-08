@@ -22,7 +22,10 @@
 // bluetooth audio (through bluez-alsa)
 #define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 16
 #define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 16
-#define AUDIO_BRIDGE_DEBUG 0
+#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1 1
+#define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2 5
+#define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1 64
+#define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2 512
 #else
 // usb audio (through custom mmap buffer)
 #define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 4
@@ -48,14 +51,20 @@
 #endif
 
 // how many seconds to wait until start trying to compensate for clock drift
+#ifndef AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1
 #define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_1  2 /* start ratio calculations */
+#endif
+#ifndef AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2
 #define AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2 10 /* activate dynamic resampling */
+#endif
 
 // how many steps to use for smoothing the clock-drift compensation filter
+#ifndef AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1
 #define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1 1024
+#endif
+#ifndef AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2
 #define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2 8192
-// #define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_1 128
-// #define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2 1024
+#endif
 
 // how many audio buffer-size blocks to keep in the capture ringbuffer
 #ifndef AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS

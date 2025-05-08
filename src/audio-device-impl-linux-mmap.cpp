@@ -89,7 +89,9 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     int fd = open(dev->config.playback ? "/proc/uac2p" : "/proc/uac2c", O_RDWR | O_SYNC);
     if (fd < 0)
     {
+       #if AUDIO_BRIDGE_DEBUG >= 2
         DEBUGPRINT("failed to open uac proc file");
+       #endif
         return nullptr;
     }
 
@@ -107,7 +109,7 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
         return nullptr;
     }
 
-#ifdef _DARKGLASS_DEVICE_PABLITO
+   #ifdef _DARKGLASS_DEVICE_PABLITO
     if (fdata.num_channels != (dev->config.playback ? 3 : 9))
     {
         DEBUGPRINT("wrong number of channels! %u", fdata.num_channels);
@@ -120,13 +122,14 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
         close(fd);
         return nullptr;
     }
+   #endif
+
     if ((fdata.buffer_size % (fdata.num_channels * fdata.data_size)) != 0)
     {
         DEBUGPRINT("wrong buffer size! %u | %u", fdata.buffer_size, fdata.num_channels * fdata.data_size);
         close(fd);
         return nullptr;
     }
-#endif
 
     const size_t mmap_size = sizeof(uac_mmap_data) + fdata.buffer_size;
 
