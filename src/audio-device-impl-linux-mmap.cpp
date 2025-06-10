@@ -259,7 +259,8 @@ bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* const impl, float* buffers
 
         distance = positive_modulo(bufpos_kernel - bufpos_userspace, bufferSize) / (numChannels * sampleSize);
         impl->distance.reset(distance);
-        DEBUGPRINT("%010u | capture | kernel is ready, starting distance %d", impl->frame, distance);
+        DEBUGPRINT("%010u | capture | kernel is ready, starting distance %d, volume %d, mute %d",
+                   impl->frame, distance, mdata->volume, mdata->mute);
         return false;
     }
 
@@ -395,7 +396,8 @@ bool runAudioDevicePlaybackSyncImpl(AudioDevice::Impl* impl, float* buffers[], u
 
         distance = positive_modulo(bufpos_userspace - bufpos_kernel, bufferSize) / (numChannels * sampleSize);
         impl->distance.reset(distance);
-        DEBUGPRINT("%010u | playback | kernel is ready, starting distance %d", impl->frame, distance);
+        DEBUGPRINT("%010u | playback | kernel is ready, starting distance %d, volume %d, mute %d",
+                   impl->frame, distance, mdata->volume, mdata->mute);
         return false;
     }
 

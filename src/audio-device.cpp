@@ -127,7 +127,7 @@ AudioDevice* initAudioDevice(const char* const deviceID,
     dev->hostproc.gainVolume = 1.f;
     dev->hostproc.gain.setSampleRate(sampleRate);
     dev->hostproc.gain.setTimeConstant(0.003f);
-    dev->hostproc.gain.setTargetValue(1.f);
+    dev->hostproc.gain.setTargetValue(enabled ? 1.f : 0.f);
     dev->hostproc.gain.clearToTargetValue();
    #endif
 
@@ -167,16 +167,9 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
    #if AUDIO_BRIDGE_LEVEL_SMOOTHING
     float gain;
 
-    if (dev->hostproc.gainEnabled != dev->proc.enabled)
-    {
-        dev->hostproc.gainEnabled = dev->proc.enabled;
-        dev->hostproc.gain.setTargetValue(dev->proc.enabled ? dev->proc.volume : 0.f);
-    }
-    if (dev->hostproc.gainVolume != dev->proc.volume)
-    {
-        dev->hostproc.gainVolume = dev->proc.volume;
-        dev->hostproc.gain.setTargetValue(dev->proc.enabled ? dev->proc.volume : 0.f);
-    }
+    dev->hostproc.gainEnabled = dev->proc.enabled;
+    dev->hostproc.gainVolume = dev->proc.volume;
+    dev->hostproc.gain.setTargetValue(dev->proc.enabled ? dev->proc.volume : 0.f);
    #endif
 
 #if AUDIO_BRIDGE_ASYNC
