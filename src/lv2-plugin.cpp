@@ -142,7 +142,7 @@ struct PluginData {
 
         if (dev != nullptr)
         {
-            dev->enabled = enabled;
+            dev->proc.enabled = enabled;
 
             if (! runAudioDevice(dev, buffers.pointers, frames))
             {

@@ -33,6 +33,8 @@ struct uac_mmap_data {
     uint32_t bufpos_kernel;
     uint32_t bufpos_userspace;
     int32_t extra_ppm;
+    int32_t volume; // in 256 steps
+    uint8_t mute;
     uint8_t buffer[];
 };
 
@@ -49,6 +51,17 @@ struct AudioDevice::Impl {
     // direct kernel memory access
     int fd;
     uac_mmap_data* mdata;
+
+   #if AUDIO_BRIDGE_LEVEL_SMOOTHING
+    // last received values
+    struct {
+        int32_t volume = 0;
+        uint8_t mute = 0;
+    } last;
+
+    // direct pointer
+    Process* proc;
+   #endif
 
     // buffer for read/write ringbuffer data into
     uint8_t* rawBuffer;
@@ -156,6 +169,10 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     impl->rawBuffer = new uint8_t [std::max<int>(mdata->buffer_size,
                                                  fdata.num_channels * fdata.data_size * dev->config.bufferSize)];
 
+   #if AUDIO_BRIDGE_LEVEL_SMOOTHING
+    impl->proc = &dev->proc;
+   #endif
+
     mdata->active_userspace = 1;
     mdata->bufpos_userspace = 0;
     mdata->bufpos_kernel = 0;
@@ -216,6 +233,19 @@ bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* const impl, float* buffers
     const int32_t numFramesBytes = numFrames * numChannels * sampleSize;
     int32_t bufpos_kernel, bufpos_userspace;
     int32_t distance, pending;
+
+   #if AUDIO_BRIDGE_LEVEL_SMOOTHING
+    if (impl->last.volume != mdata->volume)
+    {
+        impl->last.volume = mdata->volume;
+        impl->proc->volume = db2coef(static_cast<double>(impl->last.volume) / 256.0);
+    }
+    if (impl->last.mute != mdata->mute)
+    {
+        impl->last.mute = mdata->mute;
+        impl->proc->enabled = impl->last.mute == 0;
+    }
+   #endif
 
     if (impl->started == 0)
     {
@@ -339,6 +369,19 @@ bool runAudioDevicePlaybackSyncImpl(AudioDevice::Impl* impl, float* buffers[], u
     const int32_t numFramesBytes = numFrames * numChannels * sampleSize;
     int32_t bufpos_kernel, bufpos_userspace;
     int32_t distance, pending;
+
+   #if AUDIO_BRIDGE_LEVEL_SMOOTHING
+    if (impl->last.volume != mdata->volume)
+    {
+        impl->last.volume = mdata->volume;
+        impl->proc->volume = db2coef(static_cast<double>(impl->last.volume) / 256.0);
+    }
+    if (impl->last.mute != mdata->mute)
+    {
+        impl->last.mute = mdata->mute;
+        impl->proc->enabled = impl->last.mute == 0;
+    }
+   #endif
 
     if (impl->started == 0)
     {

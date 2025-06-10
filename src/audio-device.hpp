@@ -30,6 +30,7 @@
 // usb audio (through custom mmap buffer)
 #define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 8
 #define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 8
+#define AUDIO_BRIDGE_LEVEL_SMOOTHING 1
 #endif
 #define AUDIO_BRIDGE_DEVICE_BUFFER_SIZE 16
 #define AUDIO_BRIDGE_UDEV 0
@@ -102,7 +103,9 @@
 #endif
 
 // enable smooth audio ramping when starting fresh
-#define AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING 0
+#ifndef AUDIO_BRIDGE_LEVEL_SMOOTHING
+#define AUDIO_BRIDGE_LEVEL_SMOOTHING 0
+#endif
 
 // --------------------------------------------------------------------------------------------------------------------
 
@@ -114,8 +117,8 @@
 
 // always enable level smoothing for LV2 plugin
 #ifdef AUDIO_BRIDGE_LV2_PLUGIN
-#undef AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
-#define AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING 1
+#undef AUDIO_BRIDGE_LEVEL_SMOOTHING
+#define AUDIO_BRIDGE_LEVEL_SMOOTHING 1
 #endif
 
 // us async mode for alsa, sync mode for linux-mmap
@@ -217,32 +220,39 @@ struct AudioDevice {
         uint32_t sampleRate;
     } hwconfig;
 
-   #if AUDIO_BRIDGE_ASYNC
     // shared process data between host code and device implementations
     mutable struct Process {
+       #if AUDIO_BRIDGE_ASYNC
         std::atomic<int> state = { kDeviceInitializing };
         AudioRingBuffer* ringbuffer;
         pthread_mutex_t ringbufferLock;
         std::atomic<int> reset = { kDeviceResetNone };
         uint32_t numBufferingSamples;
+       #endif
        #if AUDIO_BRIDGE_UDEV
         int ppm;
+       #endif
+       #if AUDIO_BRIDGE_LEVEL_SMOOTHING
+        bool enabled;
+        float volume;
        #endif
     } proc;
 
     // host process data
     struct {
+       #if AUDIO_BRIDGE_ASYNC
         VResampler* resampler;
         uint32_t leftoverResampledFrames;
         uint32_t tempBufferSize;
         float** tempBuffers;
         float** tempBuffers2;
-       #if AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
+       #endif
+       #if AUDIO_BRIDGE_LEVEL_SMOOTHING
         ExponentialValueSmoother gain;
         bool gainEnabled;
+        float gainVolume;
        #endif
     } hostproc;
-   #endif
 
     // statistics for clock drift and dynamic resampling
     struct Stats {
@@ -258,11 +268,6 @@ struct AudioDevice {
     // private device-specific implementation (ALSA, etc)
     struct Impl;
     Impl* impl;
-
-   #if AUDIO_BRIDGE_INITIAL_LEVEL_SMOOTHING
-    // lv2 enabled control, for on/off (enable/bypass) control
-    bool enabled;
-   #endif
 };
 
 // --------------------------------------------------------------------------------------------------------------------

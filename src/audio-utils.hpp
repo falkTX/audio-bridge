@@ -12,6 +12,12 @@
 
 // --------------------------------------------------------------------------------------------------------------------
 
+static constexpr inline
+float db2coef(const float db)
+{
+    return db > -100.f ? std::pow(10.f, db * 0.05f) : 0.f;
+}
+
 // 0x7fff
 static constexpr inline
 int16_t float16(const float s)
