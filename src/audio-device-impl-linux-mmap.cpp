@@ -177,6 +177,11 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     mdata->bufpos_userspace = 0;
     mdata->bufpos_kernel = 0;
 
+    DEBUGPRINT("mmap audio-bridge ready for %s, max buffer size %u (%u frames)",
+               dev->config.playback ? "playback" : "capture",
+               fdata.buffer_size,
+               fdata.buffer_size / (fdata.num_channels * fdata.data_size));
+
     return impl.release();
 }
 
@@ -254,7 +259,7 @@ bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* const impl, float* buffers
         mdata->active_userspace = 2;
 
         bufpos_kernel = __atomic_load_n(&mdata->bufpos_kernel, __ATOMIC_ACQUIRE);
-        bufpos_userspace = positive_modulo(bufpos_kernel - numFramesBytes * (kTargetRingBufferBlocks - 1), bufferSize);
+        bufpos_userspace = positive_modulo(bufpos_kernel - numFramesBytes * kTargetRingBufferBlocks, bufferSize);
         __atomic_store_n(&mdata->bufpos_userspace, bufpos_userspace, __ATOMIC_RELEASE);
 
         distance = positive_modulo(bufpos_kernel - bufpos_userspace, bufferSize) / (numChannels * sampleSize);
