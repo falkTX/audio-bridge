@@ -28,9 +28,8 @@
 #define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2 512
 #else
 // usb audio (through custom mmap buffer)
-#define AUDIO_BRIDGE_START_DISTANCE_BLOCKS 3
-#define AUDIO_BRIDGE_CAPTURE_THRESHOLD_MAX_BLOCKS 8
-#define AUDIO_BRIDGE_PLAYBACK_THRESHOLD_MAX_BLOCKS 4
+#define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 8
+#define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 8
 #define AUDIO_BRIDGE_LEVEL_SMOOTHING 1
 #endif
 #define AUDIO_BRIDGE_DEVICE_BUFFER_SIZE 16
@@ -68,7 +67,7 @@
 #define AUDIO_BRIDGE_CLOCK_FILTER_STEPS_2 8192
 #endif
 
-// how many audio buffer-size blocks to keep in the capture ringbuffer (ALSA only)
+// how many audio buffer-size blocks to keep in the capture ringbuffer
 #ifndef AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS
 #define AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS 4
 #endif
@@ -78,7 +77,7 @@
 #define AUDIO_BRIDGE_CAPTURE_THREAD_PRIORITY 71
 #endif
 
-// how many audio buffer-size blocks to keep in the playback ringbuffer (ALSA only)
+// how many audio buffer-size blocks to keep in the playback ringbuffer
 #ifndef AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS
 #define AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS 4
 #endif
@@ -91,21 +90,6 @@
 // device buffer size to use (minimum)
 #ifndef AUDIO_BRIDGE_DEVICE_BUFFER_SIZE
 #define AUDIO_BRIDGE_DEVICE_BUFFER_SIZE 16
-#endif
-
-// distance in blocks when first starting sync (mmap only)
-#ifndef AUDIO_BRIDGE_START_DISTANCE_BLOCKS
-#define AUDIO_BRIDGE_START_DISTANCE_BLOCKS 4
-#endif
-
-// maximum distance in blocks allowed for capture (mmap only)
-#ifndef AUDIO_BRIDGE_CAPTURE_THRESHOLD_MAX_BLOCKS
-#define AUDIO_BRIDGE_CAPTURE_THRESHOLD_MAX_BLOCKS (AUDIO_BRIDGE_START_DISTANCE_BLOCKS + 4)
-#endif
-
-// maximum distance in blocks allowed for playback (mmap only)
-#ifndef AUDIO_BRIDGE_PLAYBACK_THRESHOLD_MAX_BLOCKS
-#define AUDIO_BRIDGE_PLAYBACK_THRESHOLD_MAX_BLOCKS (AUDIO_BRIDGE_START_DISTANCE_BLOCKS + 1)
 #endif
 
 // resample quality from 8 to 96
