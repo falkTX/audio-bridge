@@ -256,8 +256,8 @@ static bool activate_jack_capture(ClientData* const d)
     // bluetooth audio
     if (jack_port_by_name(client, "effect_9992:inUSBL") != nullptr)
     {
-        jack_connect(client, "bluetooth-capture:p1", "effect_9992:inUSBL");
-        jack_connect(client, "bluetooth-capture:p2", "effect_9992:inUSBR");
+        jack_connect(client, "bluetooth-capture:p1", "effect_9992:inBTL");
+        jack_connect(client, "bluetooth-capture:p2", "effect_9992:inBTR");
     }
    #elif defined(_DARKGLASS_DEVICE_PABLITO)
     // usb audio
