@@ -18,7 +18,7 @@
 #define PPM_FACTOR 8
 
 // minimum/maximum possible value to use as extra PPM
-#define PPM_LIMIT 100
+#define PPM_LIMIT 5
 
 // --------------------------------------------------------------------------------------------------------------------
 
