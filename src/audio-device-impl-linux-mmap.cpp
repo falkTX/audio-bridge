@@ -220,6 +220,12 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
 
 void closeAudioDeviceImpl(AudioDevice::Impl* const impl)
 {
+   #if AUDIO_BRIDGE_SYNC_IO_XRUNS
+    pthread_mutex_lock(&_sync_mutex);
+    (impl->playback ? _uac_playback : _uac_capture) = nullptr;
+    pthread_mutex_unlock(&_sync_mutex);
+   #endif
+
     delete[] impl->rawBuffer;
 
     impl->mdata->active_userspace = 0;
