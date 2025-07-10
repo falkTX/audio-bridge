@@ -39,9 +39,8 @@
 #if AUDIO_BRIDGE_SYNC_IO_XRUNS
 
 // globals for dealing with xruns in sync
-static pthread_mutex_t _sync_mutex = PTHREAD_MUTEX_INITIALIZER;
-static struct uac_mmap_data* _uac_capture = nullptr;
-static struct uac_mmap_data* _uac_playback = nullptr;
+static std::atomic<bool> _uac_capture_xrun { false };
+static std::atomic<bool> _uac_playback_xrun { false };
 
 #endif
 
@@ -205,9 +204,7 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     mdata->bufpos_kernel = 0;
 
    #if AUDIO_BRIDGE_SYNC_IO_XRUNS
-    pthread_mutex_lock(&_sync_mutex);
-    (dev->config.playback ? _uac_playback : _uac_capture) = mdata;
-    pthread_mutex_unlock(&_sync_mutex);
+    (dev->config.playback ? _uac_playback_xrun : _uac_capture_xrun).store(false);
    #endif
 
     DEBUGPRINT("mmap audio-bridge ready for %s, max buffer size %u (%u frames)",
@@ -220,12 +217,6 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
 
 void closeAudioDeviceImpl(AudioDevice::Impl* const impl)
 {
-   #if AUDIO_BRIDGE_SYNC_IO_XRUNS
-    pthread_mutex_lock(&_sync_mutex);
-    (impl->playback ? _uac_playback : _uac_capture) = nullptr;
-    pthread_mutex_unlock(&_sync_mutex);
-   #endif
-
     delete[] impl->rawBuffer;
 
     impl->mdata->active_userspace = 0;
@@ -314,10 +305,18 @@ bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* const impl, float* buffers
     bufpos_userspace = mdata->bufpos_userspace;
     distance = positive_modulo(bufpos_kernel - bufpos_userspace, bufferSize);
 
-    if (distance < numFramesBytes || distance > numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS)
+   #if AUDIO_BRIDGE_SYNC_IO_XRUNS
+    const bool playback_xrun = _uac_playback_xrun.exchange(false);
+   #else
+    constexpr bool playback_xrun = false;
+   #endif
+
+    if (playback_xrun || distance < numFramesBytes || distance > numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS)
     {
        #if AUDIO_BRIDGE_DEBUG
-        if (distance < numFramesBytes) {
+        if (playback_xrun) {
+            DEBUGPRINT("%010u | capture | playback-side xrun | %d", impl->frame, distance / sampleSize / numChannels);
+        } else if (distance < numFramesBytes) {
             DEBUGPRINT("%010u | capture | out of data | %d", impl->frame, distance / sampleSize / numChannels);
         } else {
             DEBUGPRINT("%010u | capture | too much data | %d", impl->frame, distance / sampleSize / numChannels);
@@ -331,17 +330,8 @@ bool runAudioDeviceCaptureSyncImpl(AudioDevice::Impl* const impl, float* buffers
         impl->distance.reset(distance / (numChannels * sampleSize));
        #endif
        #if AUDIO_BRIDGE_SYNC_IO_XRUNS
-        pthread_mutex_lock(&_sync_mutex);
-        if (uac_mmap_data* const p_mdata = _uac_playback)
-        {
-            const uint32_t p_numFramesBytes = numFrames * p_mdata->num_channels * p_mdata->data_size;
-            distance = p_numFramesBytes * AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS / 2;
-
-            const uint32_t p_bufpos_kernel = __atomic_load_n(&p_mdata->bufpos_kernel, __ATOMIC_ACQUIRE);
-            const uint32_t p_bufpos_userspace = (p_bufpos_kernel + distance) % bufferSize;
-            __atomic_store_n(&p_mdata->bufpos_userspace, p_bufpos_userspace, __ATOMIC_RELEASE);
-        }
-        pthread_mutex_unlock(&_sync_mutex);
+        if (! playback_xrun)
+            _uac_capture_xrun.store(true);
        #endif
     }
 
@@ -483,10 +473,18 @@ bool runAudioDevicePlaybackSyncImpl(AudioDevice::Impl* impl, float* buffers[], u
     bufpos_userspace = mdata->bufpos_userspace;
     distance = positive_modulo(bufpos_userspace - bufpos_kernel, bufferSize);
 
-    if (distance < numFramesBytes || distance > numFramesBytes * AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS)
+   #if AUDIO_BRIDGE_SYNC_IO_XRUNS
+    const bool capture_xrun = _uac_capture_xrun.exchange(false);
+   #else
+    constexpr bool capture_xrun = false;
+   #endif
+
+    if (capture_xrun || distance < numFramesBytes || distance > numFramesBytes * AUDIO_BRIDGE_PLAYBACK_RINGBUFFER_BLOCKS)
     {
        #if AUDIO_BRIDGE_DEBUG
-        if (distance < numFramesBytes) {
+        if (capture_xrun) {
+            DEBUGPRINT("%010u | playback | capture side xrun | %d", impl->frame, distance / sampleSize / numChannels);
+        } else if (distance < numFramesBytes) {
             DEBUGPRINT("%010u | playback | out of data | %d", impl->frame, distance / sampleSize / numChannels);
         } else {
             DEBUGPRINT("%010u | playback | too much data | %d", impl->frame, distance / sampleSize / numChannels);
@@ -500,17 +498,8 @@ bool runAudioDevicePlaybackSyncImpl(AudioDevice::Impl* impl, float* buffers[], u
         impl->distance.reset(distance / (numChannels * sampleSize));
        #endif
        #if AUDIO_BRIDGE_SYNC_IO_XRUNS
-        pthread_mutex_lock(&_sync_mutex);
-        if (uac_mmap_data* const c_mdata = _uac_capture)
-        {
-            const uint32_t c_numFramesBytes = numFrames * c_mdata->num_channels * c_mdata->data_size;
-            distance = c_numFramesBytes * AUDIO_BRIDGE_CAPTURE_RINGBUFFER_BLOCKS / 2;
-
-            const uint32_t c_bufpos_kernel = __atomic_load_n(&c_mdata->bufpos_kernel, __ATOMIC_ACQUIRE);
-            const uint32_t c_bufpos_userspace = positive_modulo(c_bufpos_kernel - distance, bufferSize);
-            __atomic_store_n(&c_mdata->bufpos_userspace, c_bufpos_userspace, __ATOMIC_RELEASE);
-        }
-        pthread_mutex_unlock(&_sync_mutex);
+        if (! capture_xrun)
+            _uac_playback_xrun.store(true);
        #endif
     }
 
