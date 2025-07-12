@@ -107,7 +107,15 @@ AudioDevice* initAudioDevice(const char* const deviceID,
         return nullptr;
     }
 
-  #if AUDIO_BRIDGE_ASYNC
+   #if AUDIO_BRIDGE_LEVEL_SMOOTHING
+    dev->hostproc.gainEnabled = enabled;
+    dev->hostproc.gain.setSampleRate(sampleRate);
+    dev->hostproc.gain.setTimeConstant(0.003f);
+    dev->hostproc.gain.setTargetValue(enabled ? 1.f : 0.f);
+    dev->hostproc.gain.clearToTargetValue();
+   #endif
+
+   #if AUDIO_BRIDGE_ASYNC
     const uint8_t numChannels = dev->hwconfig.numChannels;
 
     const uint32_t ringbufferSize = std::max(sampleRate, dev->hwconfig.sampleRate);
@@ -121,14 +129,6 @@ AudioDevice* initAudioDevice(const char* const deviceID,
         pthread_mutex_init(&dev->proc.ringbufferLock, &attr);
         pthread_mutexattr_destroy(&attr);
     }
-
-   #if AUDIO_BRIDGE_LEVEL_SMOOTHING
-    dev->hostproc.gainEnabled = enabled;
-    dev->hostproc.gain.setSampleRate(sampleRate);
-    dev->hostproc.gain.setTimeConstant(0.003f);
-    dev->hostproc.gain.setTargetValue(enabled ? 1.f : 0.f);
-    dev->hostproc.gain.clearToTargetValue();
-   #endif
 
     dev->hostproc.resampler = new VResampler;
     dev->hostproc.resampler->setup(playback ? static_cast<double>(dev->hwconfig.sampleRate) / sampleRate
@@ -145,15 +145,15 @@ AudioDevice* initAudioDevice(const char* const deviceID,
         dev->hostproc.tempBuffers[c] = new float [dev->hostproc.tempBufferSize];
 
     dev->stats.framesDone = 0;
-   #if AUDIO_BRIDGE_UDEV
-    dev->stats.ppm = 0;
-   #elif AUDIO_BRIDGE_ASYNC
     dev->stats.rbFillTarget = dev->proc.numBufferingSamples / kRingBufferDataFactor;
     dev->stats.rbRatio = 1.0;
-   #endif
 
     clearAudioDeviceResampler(dev);
-  #endif
+   #endif
+
+   #if AUDIO_BRIDGE_UDEV
+    dev->stats.ppm = 0;
+   #endif
 
     return dev;
 }
