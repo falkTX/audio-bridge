@@ -250,7 +250,6 @@ struct AudioDevice {
        #if AUDIO_BRIDGE_LEVEL_SMOOTHING
         ExponentialValueSmoother gain;
         bool gainEnabled;
-        float gainVolume;
        #endif
     } hostproc;
 
