@@ -261,6 +261,7 @@ struct AudioDevice {
        #elif AUDIO_BRIDGE_ASYNC
         double rbFillTarget;
         double rbRatio;
+        uint32_t lastChangeFrame;
        #endif
     } stats;
 

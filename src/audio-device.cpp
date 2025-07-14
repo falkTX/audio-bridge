@@ -57,6 +57,7 @@ void resetAudioDeviceStats(AudioDevice* const dev)
     {
         DEBUGPRINT("resetAudioDeviceStats to initial 1.0 ratio");
         dev->stats.rbRatio = 1.0;
+        dev->stats.lastChangeFrame = 0;
         dev->hostproc.resampler->set_rratio(1.0);
         clearAudioDeviceResampler(dev);
     }
@@ -448,7 +449,8 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
             {
                 dev->stats.rbRatio = balratio;
 
-                if (dev->stats.framesDone > dev->config.sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2)
+                if (dev->stats.framesDone > dev->config.sampleRate * AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2 &&
+                    dev->stats.framesDone - dev->stats.lastChangeFrame >= dev->config.sampleRate)
                 {
                    #if AUDIO_BRIDGE_DEBUG
                     if (print2)
@@ -457,7 +459,9 @@ bool runAudioDevice(AudioDevice* const dev, float* buffers[], const uint16_t num
                         DEBUGPRINT("AUDIO_BRIDGE_CLOCK_DRIFT_WAIT_DELAY_2 reached");
                     }
                    #endif
-                    dev->hostproc.resampler->set_rratio(dev->stats.rbRatio);
+                    dev->hostproc.resampler->set_rratio(balratio);
+                    dev->stats.lastChangeFrame = dev->stats.framesDone;
+                    DEBUGPRINT("%010u | drift compensation changed to %.8f", dev->stats.framesDone, balratio);
                 }
             }
         }
