@@ -117,7 +117,7 @@ struct AudioDevice::Impl {
 
 // --------------------------------------------------------------------------------------------------------------------
 
-AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice::HWConfig& hwconfig)
+AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice::HWConfig& hwconfig, const char*)
 {
     std::unique_ptr<AudioDevice::Impl> impl = std::unique_ptr<AudioDevice::Impl>(new AudioDevice::Impl);
     impl->playback = dev->config.playback;

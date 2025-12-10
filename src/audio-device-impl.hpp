@@ -5,7 +5,9 @@
 
 #include "audio-device.hpp"
 
-AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* dev, AudioDevice::HWConfig& hwconfig);
+AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* dev,
+                                       AudioDevice::HWConfig& hwconfig,
+                                       const char* deviceID);
 void closeAudioDeviceImpl(AudioDevice::Impl* impl);
 bool runAudioDevicePostImpl(AudioDevice::Impl* impl, uint16_t numFrames);
 

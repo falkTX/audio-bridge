@@ -620,7 +620,9 @@ static void* _audio_device_playback_thread(void* const arg)
 static void _snd_lib_error_silence(const char*, int, const char*, int, const char*, ...) {}
 #endif
 
-AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice::HWConfig& hwconfig)
+AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev,
+                                       AudioDevice::HWConfig& hwconfig,
+                                       const char* const deviceID)
 {
     std::unique_ptr<AudioDevice::Impl> impl = std::unique_ptr<AudioDevice::Impl>(new AudioDevice::Impl);
     impl->playback = dev->config.playback;
@@ -646,7 +648,7 @@ AudioDevice::Impl* initAudioDeviceImpl(const AudioDevice* const dev, AudioDevice
     snd_lib_error_set_handler(_snd_lib_error_silence);
    #endif
 
-    err = snd_pcm_open(&impl->pcm, dev->config.deviceID, mode, flags);
+    err = snd_pcm_open(&impl->pcm, deviceID, mode, flags);
 
    #if AUDIO_BRIDGE_DEBUG < 2
     snd_lib_error_set_handler(nullptr);

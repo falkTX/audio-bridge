@@ -85,7 +85,6 @@ AudioDevice* initAudioDevice(const char* const deviceID,
                              const bool enabled [[maybe_unused]])
 {
     AudioDevice* const dev = new AudioDevice;
-    dev->config.deviceID = strdup(deviceID);
     dev->config.playback = playback;
     dev->config.bufferSize = bufferSize;
     dev->config.sampleRate = sampleRate;
@@ -102,7 +101,7 @@ AudioDevice* initAudioDevice(const char* const deviceID,
     dev->proc.volume = 1.f;
    #endif
 
-    if ((dev->impl = initAudioDeviceImpl(dev, dev->hwconfig)) == nullptr)
+    if ((dev->impl = initAudioDeviceImpl(dev, dev->hwconfig, deviceID)) == nullptr)
     {
         delete dev;
         return nullptr;
@@ -517,8 +516,6 @@ void closeAudioDevice(AudioDevice* const dev)
     delete[] dev->hostproc.tempBuffers;
     delete[] dev->hostproc.tempBuffers2;
    #endif
-
-    std::free(dev->config.deviceID);
 
     delete dev;
 }

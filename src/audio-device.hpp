@@ -203,7 +203,6 @@ struct AudioDevice {
     // device configuration as passed in `initAudioDevice`
     // does not change during the lifetime of the audio device
     struct Config {
-        char* deviceID;
         bool playback;
         uint16_t bufferSize;
         uint32_t sampleRate;
